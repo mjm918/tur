@@ -224,9 +224,14 @@ func (idx *Index) pruneConnections(node *HNSWNode, level int, maxConnections int
 		id   uint64
 		dist float32
 	}
-	nds := make([]nd, len(neighbors))
-	for i, nid := range neighbors {
-		nds[i] = nd{id: nid, dist: node.Vector().CosineDistance(idx.nodes[nid].Vector())}
+	nds := make([]nd, 0, len(neighbors))
+	for _, nid := range neighbors {
+		// Skip if node doesn't exist yet (happens during insertion)
+		neighborNode := idx.nodes[nid]
+		if neighborNode == nil {
+			continue
+		}
+		nds = append(nds, nd{id: nid, dist: node.Vector().CosineDistance(neighborNode.Vector())})
 	}
 
 	// Sort by distance
@@ -239,8 +244,12 @@ func (idx *Index) pruneConnections(node *HNSWNode, level int, maxConnections int
 	}
 
 	// Keep only maxConnections
-	selected := make([]uint64, maxConnections)
-	for i := 0; i < maxConnections; i++ {
+	numToKeep := maxConnections
+	if len(nds) < numToKeep {
+		numToKeep = len(nds)
+	}
+	selected := make([]uint64, numToKeep)
+	for i := 0; i < numToKeep; i++ {
 		selected[i] = nds[i].id
 	}
 	node.SetNeighbors(level, selected)
