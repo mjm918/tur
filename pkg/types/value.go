@@ -39,7 +39,12 @@ func NewText(s string) Value {
 }
 
 func NewBlob(b []byte) Value {
-	return Value{typ: TypeBlob, blobVal: b}
+	if b == nil {
+		return Value{typ: TypeBlob, blobVal: nil}
+	}
+	copied := make([]byte, len(b))
+	copy(copied, b)
+	return Value{typ: TypeBlob, blobVal: copied}
 }
 
 func (v Value) Type() ValueType { return v.typ }
@@ -47,4 +52,11 @@ func (v Value) IsNull() bool    { return v.typ == TypeNull }
 func (v Value) Int() int64      { return v.intVal }
 func (v Value) Float() float64  { return v.floatVal }
 func (v Value) Text() string    { return v.textVal }
-func (v Value) Blob() []byte    { return v.blobVal }
+func (v Value) Blob() []byte {
+	if v.blobVal == nil {
+		return nil
+	}
+	copied := make([]byte, len(v.blobVal))
+	copy(copied, v.blobVal)
+	return copied
+}
