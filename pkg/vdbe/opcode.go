@@ -64,8 +64,9 @@ const (
 	OpVectorSearch // Search HNSW index for K nearest neighbors
 
 	// Aggregation
-	OpAggStep  // Call aggregate step function
-	OpAggFinal // Call aggregate final function
+	OpAggInit  // Initialize aggregate: P1=aggIdx, P4=name (string)
+	OpAggStep  // Step aggregate: P1=aggIdx, P2=valueReg
+	OpAggFinal // Finalize aggregate: P1=aggIdx, P2=destReg
 )
 
 // String returns the name of the opcode
@@ -145,6 +146,8 @@ func (op Opcode) String() string {
 		return "Rollback"
 	case OpVectorSearch:
 		return "VectorSearch"
+	case OpAggInit:
+		return "AggInit"
 	case OpAggStep:
 		return "AggStep"
 	case OpAggFinal:

@@ -19,25 +19,27 @@ type VDBECursor struct {
 
 // VM is the Virtual Database Engine - a bytecode interpreter for SQL
 type VM struct {
-	program   *Program
-	pager     *pager.Pager
-	pc        int             // Program counter
-	registers []types.Value   // Register file
-	cursors   []*VDBECursor   // Open cursors
-	results   [][]types.Value // Result rows
-	halted    bool
+	program    *Program
+	pager      *pager.Pager
+	pc         int              // Program counter
+	registers  []types.Value    // Register file
+	cursors    []*VDBECursor    // Open cursors
+	results    [][]types.Value  // Result rows
+	aggregates []AggregateFunc  // Aggregate function contexts
+	halted     bool
 }
 
 // NewVM creates a new VM with the given program
 func NewVM(program *Program, p *pager.Pager) *VM {
 	return &VM{
-		program:   program,
-		pager:     p,
-		pc:        0,
-		registers: make([]types.Value, 16), // Default 16 registers
-		cursors:   make([]*VDBECursor, 8),  // Default 8 cursors
-		results:   make([][]types.Value, 0),
-		halted:    false,
+		program:    program,
+		pager:      p,
+		pc:         0,
+		registers:  make([]types.Value, 16), // Default 16 registers
+		cursors:    make([]*VDBECursor, 8),  // Default 8 cursors
+		results:    make([][]types.Value, 0),
+		aggregates: make([]AggregateFunc, 8), // Default 8 aggregate slots
+		halted:     false,
 	}
 }
 
@@ -76,6 +78,14 @@ func (vm *VM) SetRegister(i int, val types.Value) {
 // Results returns the result rows collected during execution
 func (vm *VM) Results() [][]types.Value {
 	return vm.results
+}
+
+// GetAggregateContext returns the aggregate function at the given index
+func (vm *VM) GetAggregateContext(idx int) AggregateFunc {
+	if idx < 0 || idx >= len(vm.aggregates) {
+		return nil
+	}
+	return vm.aggregates[idx]
 }
 
 // Run executes the program until halt
@@ -245,6 +255,18 @@ func (vm *VM) step(instr *Instruction) error {
 	case OpInsert:
 		// Insert record r[P2] at rowid r[P3] into cursor P1
 		return vm.execInsert(instr)
+
+	case OpAggInit:
+		// Initialize aggregate: P1=aggIdx, P4=name (string)
+		return vm.execAggInit(instr)
+
+	case OpAggStep:
+		// Step aggregate: P1=aggIdx, P2=valueReg
+		return vm.execAggStep(instr)
+
+	case OpAggFinal:
+		// Finalize aggregate: P1=aggIdx, P2=destReg
+		return vm.execAggFinal(instr)
 
 	default:
 		return fmt.Errorf("unimplemented opcode: %s", instr.Op)
@@ -559,6 +581,65 @@ func (vm *VM) execInsert(instr *Instruction) error {
 	if err := bt.Insert(key, data); err != nil {
 		return fmt.Errorf("insert failed: %w", err)
 	}
+
+	vm.pc++
+	return nil
+}
+
+// Aggregate operation helpers
+
+// execAggInit initializes an aggregate function
+func (vm *VM) execAggInit(instr *Instruction) error {
+	aggIdx := instr.P1
+	aggName, ok := instr.P4.(string)
+	if !ok {
+		return fmt.Errorf("OpAggInit requires aggregate name in P4")
+	}
+
+	// Ensure we have enough aggregate slots
+	for len(vm.aggregates) <= aggIdx {
+		vm.aggregates = append(vm.aggregates, nil)
+	}
+
+	// Create and initialize the aggregate
+	agg := GetAggregate(aggName)
+	if agg == nil {
+		return fmt.Errorf("unknown aggregate function: %s", aggName)
+	}
+	agg.Init()
+	vm.aggregates[aggIdx] = agg
+
+	vm.pc++
+	return nil
+}
+
+// execAggStep steps an aggregate with a value
+func (vm *VM) execAggStep(instr *Instruction) error {
+	aggIdx := instr.P1
+	valueReg := instr.P2
+
+	if aggIdx >= len(vm.aggregates) || vm.aggregates[aggIdx] == nil {
+		return fmt.Errorf("aggregate %d not initialized", aggIdx)
+	}
+
+	value := vm.registers[valueReg]
+	vm.aggregates[aggIdx].Step(value)
+
+	vm.pc++
+	return nil
+}
+
+// execAggFinal finalizes an aggregate and stores result
+func (vm *VM) execAggFinal(instr *Instruction) error {
+	aggIdx := instr.P1
+	destReg := instr.P2
+
+	if aggIdx >= len(vm.aggregates) || vm.aggregates[aggIdx] == nil {
+		return fmt.Errorf("aggregate %d not initialized", aggIdx)
+	}
+
+	result := vm.aggregates[aggIdx].Finalize()
+	vm.registers[destReg] = result
 
 	vm.pc++
 	return nil
