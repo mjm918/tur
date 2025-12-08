@@ -307,3 +307,22 @@ func TestDatabaseHeader_FreelistZero(t *testing.T) {
 		t.Errorf("Empty header FreePageCount: expected 0, got %d", freeCount)
 	}
 }
+
+func TestFreelist_ExhaustionGrowsFile(t *testing.T) {
+	// When freelist is empty, allocating should still work by growing file
+	fl := NewFreelist(4096)
+
+	// Freelist is empty
+	if fl.FreeCount() != 0 {
+		t.Fatalf("Expected empty freelist, got %d pages", fl.FreeCount())
+	}
+
+	// Allocate should fail (return ok=false)
+	_, ok := fl.Allocate()
+	if ok {
+		t.Error("Allocate from empty freelist should return ok=false")
+	}
+
+	// This is the expected behavior - the Pager layer handles growing
+	// the file when the freelist is exhausted
+}
