@@ -382,7 +382,7 @@
       "tasks": [
         {
           "task": "Add constraint metadata to schema column definition",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse constraint syntax in CREATE TABLE",
