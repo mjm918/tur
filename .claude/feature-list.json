@@ -1038,27 +1038,33 @@
       "tasks": [
         {
           "task": "Parse JOIN syntax with ON clause",
-          "done": false
+          "done": true,
+          "note": "Parser supports JOIN ... ON syntax"
         },
         {
           "task": "Parse LEFT/RIGHT/FULL OUTER JOIN variants",
-          "done": false
+          "done": true,
+          "note": "Parser supports all join types including LEFT OUTER, RIGHT, FULL OUTER"
         },
         {
           "task": "Implement nested loop join algorithm",
-          "done": false
+          "done": true,
+          "note": "NestedLoopJoinIterator implemented with outer join support"
         },
         {
           "task": "Implement hash join for equi-joins",
-          "done": false
+          "done": false,
+          "note": "Deferred - HashJoinNode exists in optimizer but executor not implemented"
         },
         {
           "task": "Handle NULL padding for outer joins",
-          "done": false
+          "done": true,
+          "note": "LEFT/RIGHT/FULL joins emit NULL-padded rows for unmatched rows"
         },
         {
           "task": "Optimize join order based on cardinality estimates",
-          "done": false
+          "done": false,
+          "note": "Basic support exists, needs further refinement"
         }
       ]
     },

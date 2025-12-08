@@ -200,14 +200,18 @@ type NestedLoopJoinIterator struct {
 	condition parser.Expression
 	executor  *Executor
 
+	// Join type (INNER, LEFT, RIGHT, FULL)
+	joinType parser.JoinType
+
 	// Join state
 	leftRow []types.Value
 	val     []types.Value
 
 	// Schema info needed for condition evaluation
 	// We need a combined colMap for (Left + Right)
-	leftSchemaLen int
-	combinedMap   map[string]int // Maps column name -> index in combined row
+	leftSchemaLen  int
+	rightSchemaLen int
+	combinedMap    map[string]int // Maps column name -> index in combined row
 
 	// We need to restart Right iterator for every Left row.
 	// But RowIterator interface doesn't have Restart/Reset.
@@ -223,6 +227,13 @@ type NestedLoopJoinIterator struct {
 	rightRows         [][]types.Value
 	rightIdx          int
 	rightMaterialized bool
+
+	// Outer join state
+	leftMatched   bool   // Current left row matched at least one right row
+	rightMatched  []bool // Tracks which right rows have matched (for RIGHT/FULL joins)
+	phase         int    // 0 = normal join, 1 = emitting unmatched right rows (for RIGHT/FULL)
+	unmatchedIdx  int    // Index for iterating unmatched right rows
+	leftExhausted bool   // Flag to indicate left side is exhausted
 }
 
 // Note: To support Join properly with arbitrary Plan, we need to be able to iterate Right multiple times.
@@ -230,6 +241,11 @@ type NestedLoopJoinIterator struct {
 // Materialization is standard for simple NLJ.
 
 func (it *NestedLoopJoinIterator) Next() bool {
+	// Phase 1: emit unmatched right rows (for RIGHT/FULL joins)
+	if it.phase == 1 {
+		return it.nextUnmatchedRight()
+	}
+
 	// First time: materialize right side
 	if !it.rightMaterialized {
 		for it.right.Next() {
@@ -242,22 +258,43 @@ func (it *NestedLoopJoinIterator) Next() bool {
 		it.right.Close() // Close original right iterator
 		it.rightMaterialized = true
 
+		// Initialize rightMatched tracking for RIGHT/FULL joins
+		if it.joinType == parser.JoinRight || it.joinType == parser.JoinFull {
+			it.rightMatched = make([]bool, len(it.rightRows))
+		}
+
+		// Infer rightSchemaLen from first right row if not set
+		if it.rightSchemaLen == 0 && len(it.rightRows) > 0 {
+			it.rightSchemaLen = len(it.rightRows[0])
+		}
+
 		// Initialize left
 		if !it.left.Next() {
-			return false // Empty left
+			// Left is empty - for RIGHT/FULL joins, still need to emit right rows with NULL left
+			if it.joinType == parser.JoinRight || it.joinType == parser.JoinFull {
+				it.phase = 1
+				it.unmatchedIdx = 0
+				return it.nextUnmatchedRight()
+			}
+			return false // Empty left for INNER/LEFT join
 		}
-		it.leftRow = it.left.Value()
+		it.leftRow = make([]types.Value, len(it.left.Value()))
+		copy(it.leftRow, it.left.Value())
 		it.rightIdx = 0
+		it.leftMatched = false
 	}
 
 	for {
 		// Iterate right rows
 		if it.rightIdx < len(it.rightRows) {
 			rightRow := it.rightRows[it.rightIdx]
+			rightIdx := it.rightIdx
 			it.rightIdx++
 
 			// Combine rows
-			combined := append(append([]types.Value{}, it.leftRow...), rightRow...) // simple concat
+			combined := make([]types.Value, len(it.leftRow)+len(rightRow))
+			copy(combined, it.leftRow)
+			copy(combined[len(it.leftRow):], rightRow)
 
 			// Check condition
 			match, err := it.executor.evaluateCondition(it.condition, combined, it.combinedMap)
@@ -267,22 +304,96 @@ func (it *NestedLoopJoinIterator) Next() bool {
 			}
 
 			if match {
+				it.leftMatched = true
+				// Track that this right row matched (for RIGHT/FULL joins)
+				if it.rightMatched != nil {
+					it.rightMatched[rightIdx] = true
+				}
 				it.val = combined
 				return true
 			}
 			continue
 		}
 
-		// Right exhausted, move to next left
+		// Right exhausted for current left row
+		// For LEFT/FULL joins: emit unmatched left row with NULL right
+		if !it.leftMatched && !it.leftExhausted && (it.joinType == parser.JoinLeft || it.joinType == parser.JoinFull) {
+			it.val = it.makeLeftWithNullRight()
+			// Now advance to next left row
+			if it.left.Next() {
+				it.leftRow = make([]types.Value, len(it.left.Value()))
+				copy(it.leftRow, it.left.Value())
+				it.rightIdx = 0
+				it.leftMatched = false
+			} else {
+				// Left exhausted after this emission
+				it.leftExhausted = true
+				// For FULL join, need to emit unmatched right rows next
+				if it.joinType == parser.JoinFull {
+					it.phase = 1
+					it.unmatchedIdx = 0
+				}
+			}
+			return true
+		}
+
+		// If left is exhausted (for LEFT join after emitting last NULL-padded row)
+		if it.leftExhausted {
+			return false
+		}
+
+		// Move to next left row
 		if it.left.Next() {
-			it.leftRow = it.left.Value()
+			it.leftRow = make([]types.Value, len(it.left.Value()))
+			copy(it.leftRow, it.left.Value())
 			it.rightIdx = 0 // Reset right
+			it.leftMatched = false
 			continue
 		}
 
-		// Left exhausted
+		// Left exhausted - for RIGHT/FULL joins, emit unmatched right rows
+		if it.joinType == parser.JoinRight || it.joinType == parser.JoinFull {
+			it.phase = 1
+			it.unmatchedIdx = 0
+			return it.nextUnmatchedRight()
+		}
+
 		return false
 	}
+}
+
+// nextUnmatchedRight emits right rows that didn't match any left row (for RIGHT/FULL joins)
+func (it *NestedLoopJoinIterator) nextUnmatchedRight() bool {
+	for it.unmatchedIdx < len(it.rightRows) {
+		idx := it.unmatchedIdx
+		it.unmatchedIdx++
+
+		if !it.rightMatched[idx] {
+			it.val = it.makeNullLeftWithRight(it.rightRows[idx])
+			return true
+		}
+	}
+	return false
+}
+
+// makeLeftWithNullRight creates a row with left values and NULL-padded right side
+func (it *NestedLoopJoinIterator) makeLeftWithNullRight() []types.Value {
+	result := make([]types.Value, it.leftSchemaLen+it.rightSchemaLen)
+	copy(result, it.leftRow)
+	for i := it.leftSchemaLen; i < len(result); i++ {
+		result[i] = types.NewNull()
+	}
+	return result
+}
+
+// makeNullLeftWithRight creates a row with NULL-padded left side and right values
+func (it *NestedLoopJoinIterator) makeNullLeftWithRight(rightRow []types.Value) []types.Value {
+	result := make([]types.Value, it.leftSchemaLen+it.rightSchemaLen)
+	for i := 0; i < it.leftSchemaLen; i++ {
+		result[i] = types.NewNull()
+	}
+	copy(result[it.leftSchemaLen:], rightRow)
+	return result
 }
 
 func (it *NestedLoopJoinIterator) Value() []types.Value {

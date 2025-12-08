@@ -924,12 +924,14 @@ func (e *Executor) executePlan(plan optimizer.PlanNode) (RowIterator, []string, 
 		colMap := e.buildColMap(combinedCols)
 
 		return &NestedLoopJoinIterator{
-			left:          leftIter,
-			right:         rightIter,
-			condition:     node.Condition,
-			executor:      e,
-			combinedMap:   colMap,
-			leftSchemaLen: len(leftCols),
+			left:           leftIter,
+			right:          rightIter,
+			condition:      node.Condition,
+			executor:       e,
+			joinType:       node.JoinType,
+			combinedMap:    colMap,
+			leftSchemaLen:  len(leftCols),
+			rightSchemaLen: len(rightCols),
 		}, combinedCols, nil
 
 	case *optimizer.SortNode:
