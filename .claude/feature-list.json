@@ -930,7 +930,7 @@
     {
       "title": "SQL Statements - UPDATE",
       "description": "UPDATE with WHERE clause and multi-column assignments",
-      "isCompleted": true,
+      "isCompleted": false,
       "tasks": [
         {
           "task": "Parse UPDATE table SET col1=val1, col2=val2 WHERE ...",
