@@ -4,6 +4,7 @@ package vdbe
 import (
 	"testing"
 
+	"tur/pkg/hnsw"
 	"tur/pkg/types"
 )
 
@@ -538,5 +539,69 @@ func TestVMRunVectorNormalize_AlreadyNormalized(t *testing.T) {
 	epsilon := float32(0.001)
 	if data[0] < 1.0-epsilon || data[0] > 1.0+epsilon {
 		t.Errorf("expected data[0] ~1.0, got %f", data[0])
+	}
+}
+
+func TestVMVectorSearchCursor(t *testing.T) {
+	// Create a simple HNSW index with a few vectors
+	cfg := hnsw.DefaultConfig(3)
+	idx := hnsw.NewIndex(cfg)
+
+	// Insert some test vectors
+	idx.Insert(1, types.NewVector([]float32{1.0, 0.0, 0.0}))
+	idx.Insert(2, types.NewVector([]float32{0.0, 1.0, 0.0}))
+	idx.Insert(3, types.NewVector([]float32{0.0, 0.0, 1.0}))
+	idx.Insert(4, types.NewVector([]float32{0.9, 0.1, 0.0})) // Closest to [1,0,0]
+
+	// Query vector closest to [1, 0, 0]
+	queryVec := types.NewVector([]float32{1.0, 0.0, 0.0})
+
+	prog := NewProgram()
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	vm.SetNumRegisters(10)
+
+	// Set up query vector in register 1
+	vm.SetRegister(1, types.NewVectorValue(queryVec))
+
+	// Create vector search cursor
+	cursor := vm.CreateVectorSearchCursor(idx, 2) // k=2
+
+	// Execute search with query from register 1
+	err := cursor.Search(vm.Register(1).Vector())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Get first result
+	if !cursor.Valid() {
+		t.Fatal("expected cursor to be valid after search")
+	}
+
+	rowID1, dist1 := cursor.Current()
+	// First result should be rowID 1 or 4 (both very close to query)
+	if rowID1 != 1 && rowID1 != 4 {
+		t.Errorf("expected first result rowID 1 or 4, got %d", rowID1)
+	}
+	if dist1 > 0.2 {
+		t.Errorf("expected distance < 0.2 for closest vector, got %f", dist1)
+	}
+
+	// Move to second result
+	cursor.Next()
+	if !cursor.Valid() {
+		t.Fatal("expected cursor to be valid for second result")
+	}
+
+	rowID2, _ := cursor.Current()
+	if rowID2 == rowID1 {
+		t.Error("second result should be different from first")
+	}
+
+	// Move past results
+	cursor.Next()
+	if cursor.Valid() {
+		t.Error("expected cursor to be invalid after k results")
 	}
 }

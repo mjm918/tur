@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"tur/pkg/btree"
+	"tur/pkg/hnsw"
 	"tur/pkg/pager"
 	"tur/pkg/record"
 	"tur/pkg/types"
@@ -15,6 +16,66 @@ type VDBECursor struct {
 	btree  *btree.BTree
 	cursor *btree.Cursor
 	isOpen bool
+}
+
+// VectorSearchCursor represents a cursor for iterating HNSW search results
+type VectorSearchCursor struct {
+	index   *hnsw.Index
+	k       int                  // Number of results to return
+	results []hnsw.SearchResult  // Cached search results
+	pos     int                  // Current position in results
+}
+
+// NewVectorSearchCursor creates a new vector search cursor
+func NewVectorSearchCursor(index *hnsw.Index, k int) *VectorSearchCursor {
+	return &VectorSearchCursor{
+		index:   index,
+		k:       k,
+		results: nil,
+		pos:     0,
+	}
+}
+
+// Search executes a KNN search with the given query vector
+func (c *VectorSearchCursor) Search(query *types.Vector) error {
+	if query == nil {
+		return fmt.Errorf("nil query vector")
+	}
+
+	results, err := c.index.SearchKNN(query, c.k)
+	if err != nil {
+		return err
+	}
+
+	c.results = results
+	c.pos = 0
+	return nil
+}
+
+// Valid returns true if the cursor is positioned on a valid result
+func (c *VectorSearchCursor) Valid() bool {
+	return c.results != nil && c.pos < len(c.results)
+}
+
+// Current returns the current result (rowID, distance)
+func (c *VectorSearchCursor) Current() (int64, float32) {
+	if !c.Valid() {
+		return 0, 0
+	}
+	r := c.results[c.pos]
+	return r.RowID, r.Distance
+}
+
+// Next advances to the next result
+func (c *VectorSearchCursor) Next() {
+	if c.results != nil && c.pos < len(c.results) {
+		c.pos++
+	}
+}
+
+// Reset moves back to the first result
+func (c *VectorSearchCursor) Reset() {
+	c.pos = 0
 }
 
 // VM is the Virtual Database Engine - a bytecode interpreter for SQL
@@ -78,6 +139,11 @@ func (vm *VM) SetRegister(i int, val types.Value) {
 // Results returns the result rows collected during execution
 func (vm *VM) Results() [][]types.Value {
 	return vm.results
+}
+
+// CreateVectorSearchCursor creates a new vector search cursor for an HNSW index
+func (vm *VM) CreateVectorSearchCursor(index *hnsw.Index, k int) *VectorSearchCursor {
+	return NewVectorSearchCursor(index, k)
 }
 
 // GetAggregateContext returns the aggregate function at the given index

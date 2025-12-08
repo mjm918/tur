@@ -740,7 +740,7 @@
         },
         {
           "task": "Integrate HNSW search with VDBE cursors",
-          "done": false
+          "done": true
         },
         {
           "task": "Handle vector serialization for function parameters",
