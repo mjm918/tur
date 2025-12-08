@@ -352,3 +352,11 @@ type UpdateStmt struct {
 }
 
 func (s *UpdateStmt) statementNode() {}
+
+// DeleteStmt represents a DELETE statement
+type DeleteStmt struct {
+	TableName string     // Table to delete from
+	Where     Expression // Optional WHERE clause (nil if none)
+}
+
+func (s *DeleteStmt) statementNode() {}

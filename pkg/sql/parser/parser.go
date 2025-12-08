@@ -44,6 +44,8 @@ func (p *Parser) Parse() (Statement, error) {
 		return p.parseDrop()
 	case lexer.UPDATE:
 		return p.parseUpdate()
+	case lexer.DELETE:
+		return p.parseDelete()
 	default:
 		return nil, fmt.Errorf("unexpected token: %s", p.cur.Literal)
 	}
@@ -634,6 +636,35 @@ func (p *Parser) parseUpdate() (*UpdateStmt, error) {
 		}
 		p.nextToken() // consume comma
 	}
+
+	// Optional WHERE clause
+	if p.peekIs(lexer.WHERE) {
+		p.nextToken() // consume WHERE
+		p.nextToken() // move to expression
+		where, err := p.parseExpression(LOWEST)
+		if err != nil {
+			return nil, err
+		}
+		stmt.Where = where
+	}
+
+	return stmt, nil
+}
+
+// parseDelete parses: DELETE FROM table [WHERE expr]
+func (p *Parser) parseDelete() (*DeleteStmt, error) {
+	stmt := &DeleteStmt{}
+
+	// DELETE - consume and expect FROM
+	if !p.expectPeek(lexer.FROM) {
+		return nil, fmt.Errorf("expected FROM after DELETE, got %s", p.peek.Literal)
+	}
+
+	// Table name
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected table name after FROM, got %s", p.peek.Literal)
+	}
+	stmt.TableName = p.cur.Literal
 
 	// Optional WHERE clause
 	if p.peekIs(lexer.WHERE) {

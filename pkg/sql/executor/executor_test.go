@@ -1172,3 +1172,154 @@ func TestExecutor_Update_InvalidColumn(t *testing.T) {
 		t.Error("Expected error for non-existent column")
 	}
 }
+
+// ========== DELETE statement tests ==========
+
+func TestExecutor_Delete_All(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	exec.Execute("INSERT INTO users VALUES (1, 'Alice')")
+	exec.Execute("INSERT INTO users VALUES (2, 'Bob')")
+	exec.Execute("INSERT INTO users VALUES (3, 'Charlie')")
+
+	result, err := exec.Execute("DELETE FROM users")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if result.RowsAffected != 3 {
+		t.Errorf("RowsAffected = %d, want 3", result.RowsAffected)
+	}
+
+	// Verify all rows are deleted
+	selectResult, err := exec.Execute("SELECT * FROM users")
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+
+	if len(selectResult.Rows) != 0 {
+		t.Errorf("Expected 0 rows after DELETE, got %d", len(selectResult.Rows))
+	}
+}
+
+func TestExecutor_Delete_WithWhere(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	exec.Execute("INSERT INTO users VALUES (1, 'Alice')")
+	exec.Execute("INSERT INTO users VALUES (2, 'Bob')")
+	exec.Execute("INSERT INTO users VALUES (3, 'Charlie')")
+
+	result, err := exec.Execute("DELETE FROM users WHERE id = 2")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if result.RowsAffected != 1 {
+		t.Errorf("RowsAffected = %d, want 1", result.RowsAffected)
+	}
+
+	// Verify only id=2 was deleted
+	selectResult, err := exec.Execute("SELECT * FROM users")
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+
+	if len(selectResult.Rows) != 2 {
+		t.Errorf("Expected 2 rows after DELETE, got %d", len(selectResult.Rows))
+	}
+
+	// Verify id=2 is not present
+	for _, row := range selectResult.Rows {
+		if row[0].Int() == 2 {
+			t.Error("Row with id=2 should have been deleted")
+		}
+	}
+}
+
+func TestExecutor_Delete_ComplexWhere(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE orders (id INT, status TEXT, amount INT)")
+	exec.Execute("INSERT INTO orders VALUES (1, 'completed', 100)")
+	exec.Execute("INSERT INTO orders VALUES (2, 'cancelled', 50)")
+	exec.Execute("INSERT INTO orders VALUES (3, 'cancelled', 75)")
+	exec.Execute("INSERT INTO orders VALUES (4, 'completed', 200)")
+
+	// Delete cancelled orders with amount > 60
+	result, err := exec.Execute("DELETE FROM orders WHERE status = 'cancelled' AND amount > 60")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if result.RowsAffected != 1 {
+		t.Errorf("RowsAffected = %d, want 1 (only order 3)", result.RowsAffected)
+	}
+
+	// Verify correct row was deleted
+	selectResult, err := exec.Execute("SELECT * FROM orders")
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+
+	if len(selectResult.Rows) != 3 {
+		t.Errorf("Expected 3 rows after DELETE, got %d", len(selectResult.Rows))
+	}
+}
+
+func TestExecutor_Delete_TableNotFound(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("DELETE FROM nonexistent")
+	if err == nil {
+		t.Error("Expected error for nonexistent table")
+	}
+}
+
+func TestExecutor_Delete_NoRowsMatch(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	exec.Execute("INSERT INTO users VALUES (1, 'Alice')")
+
+	result, err := exec.Execute("DELETE FROM users WHERE id = 999")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if result.RowsAffected != 0 {
+		t.Errorf("RowsAffected = %d, want 0", result.RowsAffected)
+	}
+
+	// Verify no rows were deleted
+	selectResult, err := exec.Execute("SELECT * FROM users")
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+
+	if len(selectResult.Rows) != 1 {
+		t.Errorf("Expected 1 row (unchanged), got %d", len(selectResult.Rows))
+	}
+}
+
+func TestExecutor_Delete_EmptyTable(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+
+	result, err := exec.Execute("DELETE FROM users")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if result.RowsAffected != 0 {
+		t.Errorf("RowsAffected = %d, want 0", result.RowsAffected)
+	}
+}

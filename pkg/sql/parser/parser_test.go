@@ -1107,3 +1107,101 @@ func TestParser_Update_ExpressionValue(t *testing.T) {
 		t.Errorf("Expression right should be 1, got %v", bin.Right)
 	}
 }
+
+// ========== DELETE statement tests ==========
+
+func TestParser_Delete_Simple(t *testing.T) {
+	input := "DELETE FROM users"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	del, ok := stmt.(*DeleteStmt)
+	if !ok {
+		t.Fatalf("Expected *DeleteStmt, got %T", stmt)
+	}
+
+	if del.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", del.TableName)
+	}
+
+	if del.Where != nil {
+		t.Error("Where should be nil for DELETE without WHERE")
+	}
+}
+
+func TestParser_Delete_WithWhere(t *testing.T) {
+	input := "DELETE FROM users WHERE id = 1"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	del, ok := stmt.(*DeleteStmt)
+	if !ok {
+		t.Fatalf("Expected *DeleteStmt, got %T", stmt)
+	}
+
+	if del.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", del.TableName)
+	}
+
+	if del.Where == nil {
+		t.Fatal("Where should not be nil")
+	}
+
+	// Check WHERE is id = 1
+	bin, ok := del.Where.(*BinaryExpr)
+	if !ok {
+		t.Fatalf("Expected *BinaryExpr for WHERE, got %T", del.Where)
+	}
+
+	col, ok := bin.Left.(*ColumnRef)
+	if !ok || col.Name != "id" {
+		t.Errorf("WHERE left side should be column 'id', got %v", bin.Left)
+	}
+
+	if bin.Op != lexer.EQ {
+		t.Errorf("WHERE op = %v, want EQ", bin.Op)
+	}
+
+	rightLit, ok := bin.Right.(*Literal)
+	if !ok || rightLit.Value.Int() != 1 {
+		t.Errorf("WHERE right side should be 1, got %v", bin.Right)
+	}
+}
+
+func TestParser_Delete_ComplexWhere(t *testing.T) {
+	input := "DELETE FROM orders WHERE status = 'cancelled' AND created_at < 100"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	del, ok := stmt.(*DeleteStmt)
+	if !ok {
+		t.Fatalf("Expected *DeleteStmt, got %T", stmt)
+	}
+
+	if del.TableName != "orders" {
+		t.Errorf("TableName = %q, want 'orders'", del.TableName)
+	}
+
+	if del.Where == nil {
+		t.Fatal("Where should not be nil")
+	}
+
+	// Check WHERE is an AND expression
+	bin, ok := del.Where.(*BinaryExpr)
+	if !ok {
+		t.Fatalf("Expected *BinaryExpr for WHERE, got %T", del.Where)
+	}
+
+	if bin.Op != lexer.AND {
+		t.Errorf("WHERE op = %v, want AND", bin.Op)
+	}
+}

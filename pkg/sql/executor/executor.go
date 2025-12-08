@@ -68,6 +68,8 @@ func (e *Executor) Execute(sql string) (*Result, error) {
 		return e.executeSelect(s)
 	case *parser.UpdateStmt:
 		return e.executeUpdate(s)
+	case *parser.DeleteStmt:
+		return e.executeDelete(s)
 	default:
 		return nil, fmt.Errorf("unsupported statement type: %T", stmt)
 	}
@@ -587,6 +589,69 @@ func (e *Executor) executeUpdate(stmt *parser.UpdateStmt) (*Result, error) {
 			return nil, err
 		}
 
+		rowsAffected++
+	}
+
+	return &Result{RowsAffected: rowsAffected}, nil
+}
+
+// executeDelete handles DELETE statements
+func (e *Executor) executeDelete(stmt *parser.DeleteStmt) (*Result, error) {
+	// Get table
+	table := e.catalog.GetTable(stmt.TableName)
+	if table == nil {
+		return nil, fmt.Errorf("table %s not found", stmt.TableName)
+	}
+
+	// Get or create B-tree
+	tree := e.trees[stmt.TableName]
+	if tree == nil {
+		tree = btree.Open(e.pager, table.RootPage)
+		e.trees[stmt.TableName] = tree
+	}
+
+	// Build column map for expression evaluation
+	colMap := make(map[string]int)
+	for i, col := range table.Columns {
+		colMap[col.Name] = i
+	}
+
+	// Collect keys to delete: iterate through all rows, evaluate WHERE clause
+	var keysToDelete [][]byte
+
+	cursor := tree.Cursor()
+	defer cursor.Close()
+
+	for cursor.First(); cursor.Valid(); cursor.Next() {
+		key := cursor.Key()
+		value := cursor.Value()
+
+		// Decode row
+		values := record.Decode(value)
+
+		// Evaluate WHERE clause if present
+		if stmt.Where != nil {
+			match, err := e.evaluateCondition(stmt.Where, values, colMap)
+			if err != nil {
+				return nil, err
+			}
+			if !match {
+				continue
+			}
+		}
+
+		// Copy key for deletion (cursor key may be reused)
+		keyCopy := make([]byte, len(key))
+		copy(keyCopy, key)
+		keysToDelete = append(keysToDelete, keyCopy)
+	}
+
+	// Delete collected rows
+	var rowsAffected int64
+	for _, key := range keysToDelete {
+		if err := tree.Delete(key); err != nil {
+			return nil, fmt.Errorf("failed to delete row: %w", err)
+		}
 		rowsAffected++
 	}
 
