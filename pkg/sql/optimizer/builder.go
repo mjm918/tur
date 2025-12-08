@@ -45,6 +45,23 @@ func BuildPlan(stmt *parser.SelectStmt, catalog *schema.Catalog) (PlanNode, erro
 		}
 	}
 
+	// 4. Apply ORDER BY (Sort)
+	if len(stmt.OrderBy) > 0 {
+		node = &SortNode{
+			Input:   node,
+			OrderBy: stmt.OrderBy,
+		}
+	}
+
+	// 5. Apply LIMIT/OFFSET
+	if stmt.Limit != nil || stmt.Offset != nil {
+		node = &LimitNode{
+			Input:  node,
+			Limit:  stmt.Limit,
+			Offset: stmt.Offset,
+		}
+	}
+
 	return node, nil
 }
 

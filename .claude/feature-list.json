@@ -999,35 +999,35 @@
     {
       "title": "SQL Statements - SELECT",
       "description": "SELECT with WHERE, ORDER BY, LIMIT, OFFSET",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse SELECT column_list FROM table",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse WHERE clause with boolean expressions",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse ORDER BY with ASC/DESC",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse LIMIT and OFFSET",
-          "done": false
+          "done": true
         },
         {
           "task": "Compile SELECT to VDBE bytecode",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement result row construction and output",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement sorting for ORDER BY",
-          "done": false
+          "done": true
         }
       ]
     },

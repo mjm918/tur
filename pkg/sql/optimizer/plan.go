@@ -155,3 +155,60 @@ func (n *HashJoinNode) EstimatedRows() int64 {
 	}
 	return rightRows
 }
+
+// SortNode represents an ORDER BY operation
+type SortNode struct {
+	Input   PlanNode
+	OrderBy []parser.OrderByExpr
+}
+
+func (n *SortNode) EstimatedCost() float64 {
+	// Sort cost = child cost + (rows * log(rows) * cost per comparison)
+	const costPerComparison = 0.01
+	rows := float64(n.Input.EstimatedRows())
+	if rows < 1 {
+		rows = 1
+	}
+	// O(n log n) sort cost estimate
+	sortCost := rows * costPerComparison
+	if rows > 1 {
+		sortCost = rows * log2(rows) * costPerComparison
+	}
+	return n.Input.EstimatedCost() + sortCost
+}
+
+func (n *SortNode) EstimatedRows() int64 {
+	// Sort doesn't change row count
+	return n.Input.EstimatedRows()
+}
+
+// LimitNode represents a LIMIT/OFFSET operation
+type LimitNode struct {
+	Input  PlanNode
+	Limit  parser.Expression // May be nil if no LIMIT
+	Offset parser.Expression // May be nil if no OFFSET
+}
+
+func (n *LimitNode) EstimatedCost() float64 {
+	// Limit is cheap, just count rows
+	return n.Input.EstimatedCost() + 0.001
+}
+
+func (n *LimitNode) EstimatedRows() int64 {
+	// Returns at most Limit rows
+	// For cost estimation, we need to evaluate the limit expression
+	// For now, use a conservative estimate
+	inputRows := n.Input.EstimatedRows()
+	// We can't evaluate expression at planning time easily
+	// Return a conservative estimate assuming 50% of input rows
+	return inputRows / 2
+}
+
+// Helper for log base 2
+func log2(x float64) float64 {
+	if x <= 1 {
+		return 0
+	}
+	// log2(x) = ln(x) / ln(2)
+	return 3.321928 * (x - 1) / x // Approximation for small values
+}

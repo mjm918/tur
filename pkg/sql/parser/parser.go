@@ -726,7 +726,79 @@ func (p *Parser) parseSelectBody() (*SelectStmt, error) {
 		stmt.Where = expr
 	}
 
+	// Optional ORDER BY
+	if p.peekIs(lexer.ORDER) {
+		p.nextToken() // ORDER
+		if !p.expectPeek(lexer.BY) {
+			return nil, fmt.Errorf("expected BY after ORDER, got %s", p.peek.Literal)
+		}
+
+		orderBy, err := p.parseOrderByList()
+		if err != nil {
+			return nil, err
+		}
+		stmt.OrderBy = orderBy
+	}
+
+	// Optional LIMIT
+	if p.peekIs(lexer.LIMIT) {
+		p.nextToken() // LIMIT
+		p.nextToken() // move to expression start
+
+		limit, err := p.parseExpression(0)
+		if err != nil {
+			return nil, err
+		}
+		stmt.Limit = limit
+	}
+
+	// Optional OFFSET
+	if p.peekIs(lexer.OFFSET) {
+		p.nextToken() // OFFSET
+		p.nextToken() // move to expression start
+
+		offset, err := p.parseExpression(0)
+		if err != nil {
+			return nil, err
+		}
+		stmt.Offset = offset
+	}
+
 	return stmt, nil
+}
+
+// parseOrderByList parses: expr [ASC|DESC] [, expr [ASC|DESC] ...]
+func (p *Parser) parseOrderByList() ([]OrderByExpr, error) {
+	var orderBy []OrderByExpr
+
+	for {
+		p.nextToken() // move to expression start
+
+		expr, err := p.parseExpression(0)
+		if err != nil {
+			return nil, err
+		}
+
+		direction := OrderAsc // Default is ASC
+		if p.peekIs(lexer.ASC) {
+			p.nextToken()
+		} else if p.peekIs(lexer.DESC) {
+			p.nextToken()
+			direction = OrderDesc
+		}
+
+		orderBy = append(orderBy, OrderByExpr{
+			Expr:      expr,
+			Direction: direction,
+		})
+
+		if !p.peekIs(lexer.COMMA) {
+			break
+		}
+		p.nextToken() // consume comma
+	}
+
+	return orderBy, nil
 }
 
 // parseTableReference parses: table [AS alias] [JOIN table ON ...]
@@ -1043,8 +1115,11 @@ func (p *Parser) parseExpression(precedence int) (Expression, error) {
 	}
 
 	// Parse infix
+	// Stop on statement terminators and clause keywords
 	for !p.peekIs(lexer.EOF) && !p.peekIs(lexer.SEMICOLON) && !p.peekIs(lexer.RPAREN) &&
-		!p.peekIs(lexer.COMMA) && precedence < p.peekPrecedence() {
+		!p.peekIs(lexer.COMMA) && !p.peekIs(lexer.ASC) && !p.peekIs(lexer.DESC) &&
+		!p.peekIs(lexer.ORDER) && !p.peekIs(lexer.LIMIT) && !p.peekIs(lexer.OFFSET) &&
+		precedence < p.peekPrecedence() {
 		p.nextToken()
 		left, err = p.parseInfixExpression(left)
 		if err != nil {

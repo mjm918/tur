@@ -293,3 +293,190 @@ func (it *NestedLoopJoinIterator) Close() {
 	it.left.Close()
 	// Right is already closed/materialized
 }
+
+// SortIterator materializes and sorts rows from child
+type SortIterator struct {
+	child    RowIterator
+	orderBy  []parser.OrderByExpr
+	colMap   map[string]int
+	executor *Executor
+
+	// Sorted rows
+	rows     [][]types.Value
+	idx      int
+	prepared bool
+}
+
+func (it *SortIterator) Next() bool {
+	if !it.prepared {
+		// Materialize all rows from child
+		for it.child.Next() {
+			row := it.child.Value()
+			clone := make([]types.Value, len(row))
+			copy(clone, row)
+			it.rows = append(it.rows, clone)
+		}
+		it.child.Close()
+
+		// Sort rows using ORDER BY expressions
+		it.sortRows()
+
+		it.idx = 0
+		it.prepared = true
+	}
+
+	if it.idx < len(it.rows) {
+		it.idx++
+		return true
+	}
+	return false
+}
+
+func (it *SortIterator) Value() []types.Value {
+	if it.idx > 0 && it.idx <= len(it.rows) {
+		return it.rows[it.idx-1]
+	}
+	return nil
+}
+
+func (it *SortIterator) Close() {
+	// Child already closed
+}
+
+// sortRows sorts the materialized rows by ORDER BY expressions
+func (it *SortIterator) sortRows() {
+	if len(it.rows) == 0 || len(it.orderBy) == 0 {
+		return
+	}
+
+	// Simple bubble sort for correctness (can optimize later)
+	n := len(it.rows)
+	for i := 0; i < n-1; i++ {
+		for j := 0; j < n-i-1; j++ {
+			if it.compare(it.rows[j], it.rows[j+1]) > 0 {
+				it.rows[j], it.rows[j+1] = it.rows[j+1], it.rows[j]
+			}
+		}
+	}
+}
+
+// compare compares two rows based on ORDER BY expressions
+// Returns: -1 if a < b, 0 if equal, 1 if a > b
+func (it *SortIterator) compare(a, b []types.Value) int {
+	for _, ob := range it.orderBy {
+		// Evaluate expression for both rows
+		valA, errA := it.executor.evaluateExpr(ob.Expr, a, it.colMap)
+		valB, errB := it.executor.evaluateExpr(ob.Expr, b, it.colMap)
+
+		if errA != nil || errB != nil {
+			// On error, treat as equal
+			continue
+		}
+
+		cmp := compareValuesForSort(valA, valB)
+		if cmp != 0 {
+			if ob.Direction == parser.OrderDesc {
+				return -cmp
+			}
+			return cmp
+		}
+	}
+	return 0
+}
+
+// compareValuesForSort compares two types.Value for sorting
+func compareValuesForSort(a, b types.Value) int {
+	// Handle NULLs: NULL is considered less than any other value
+	if a.IsNull() && b.IsNull() {
+		return 0
+	}
+	if a.IsNull() {
+		return -1
+	}
+	if b.IsNull() {
+		return 1
+	}
+
+	// Compare by type
+	switch a.Type() {
+	case types.TypeInt:
+		ai, bi := a.Int(), b.Int()
+		if ai < bi {
+			return -1
+		} else if ai > bi {
+			return 1
+		}
+		return 0
+
+	case types.TypeFloat:
+		af, bf := a.Float(), b.Float()
+		if af < bf {
+			return -1
+		} else if af > bf {
+			return 1
+		}
+		return 0
+
+	case types.TypeText:
+		at, bt := a.Text(), b.Text()
+		if at < bt {
+			return -1
+		} else if at > bt {
+			return 1
+		}
+		return 0
+
+	default:
+		// For other types, compare string representation
+		as, bs := fmt.Sprintf("%v", a), fmt.Sprintf("%v", b)
+		if as < bs {
+			return -1
+		} else if as > bs {
+			return 1
+		}
+		return 0
+	}
+}
+
+// LimitIterator limits rows from child iterator
+type LimitIterator struct {
+	child    RowIterator
+	limit    int64 // -1 means no limit
+	offset   int64 // 0 means no offset
+	count    int64 // rows returned so far
+	skipped  int64 // rows skipped due to offset
+	prepared bool
+}
+
+func (it *LimitIterator) Next() bool {
+	// Skip offset rows on first call
+	if !it.prepared {
+		for i := int64(0); i < it.offset; i++ {
+			if !it.child.Next() {
+				it.prepared = true
+				return false // Not enough rows to skip
+			}
+			it.skipped++
+		}
+		it.prepared = true
+	}
+
+	// Check limit
+	if it.limit >= 0 && it.count >= it.limit {
+		return false
+	}
+
+	if it.child.Next() {
+		it.count++
+		return true
+	}
+	return false
+}
+
+func (it *LimitIterator) Value() []types.Value {
+	return it.child.Value()
+}
+
+func (it *LimitIterator) Close() {
+	it.child.Close()
+}
