@@ -49,9 +49,9 @@ func BuildPlan(stmt *parser.SelectStmt, catalog *schema.Catalog) (PlanNode, erro
 		var exprs []parser.Expression
 		for _, col := range stmt.Columns {
 			// Convert SelectColumn to Expression
-			// Currently SelectColumn has just Name string and Star bool
-			// So we assume it's a ColumnRef.
-			exprs = append(exprs, &parser.ColumnRef{Name: col.Name})
+			if col.Expr != nil {
+				exprs = append(exprs, col.Expr)
+			}
 		}
 		node = &ProjectionNode{
 			Input:       node,
@@ -80,9 +80,6 @@ func BuildPlan(stmt *parser.SelectStmt, catalog *schema.Catalog) (PlanNode, erro
 }
 
 // extractAggregates extracts aggregate function expressions from SELECT columns
-// This is a simplified extraction - in a full implementation, we'd parse the
-// actual expression trees, but here we work with column names which may contain
-// function names like "COUNT", "SUM", etc.
 func extractAggregates(columns []parser.SelectColumn) []AggregateExpr {
 	var aggregates []AggregateExpr
 
@@ -96,16 +93,14 @@ func extractAggregates(columns []parser.SelectColumn) []AggregateExpr {
 		if col.Star {
 			continue
 		}
-		// Check if the column name is an aggregate function
-		// This is a simplified check - real implementation would use AST
-		name := col.Name
-		for funcName := range aggregateFuncs {
-			if len(name) >= len(funcName) && name[:len(funcName)] == funcName {
+
+		// Check if the column expression is a function call
+		if funcCall, ok := col.Expr.(*parser.FunctionCall); ok {
+			if aggregateFuncs[funcCall.Name] {
 				aggregates = append(aggregates, AggregateExpr{
-					FuncName: funcName,
-					Arg:      nil, // Arg would be parsed from the actual expression
+					FuncName: funcCall.Name,
+					Arg:      nil, // Arg would be extracted from funcCall.Args
 				})
-				break
 			}
 		}
 	}
@@ -129,6 +124,17 @@ func buildTableReference(ref parser.TableReference, catalog *schema.Catalog) (Pl
 			Alias: t.Alias,
 			Cost:  cost,
 			Rows:  rows,
+		}, nil
+
+	case *parser.DerivedTable:
+		subPlan, err := BuildPlan(t.Subquery, catalog)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build plan for derived table: %w", err)
+		}
+
+		return &SubqueryScanNode{
+			SubqueryPlan: subPlan,
+			Alias:        t.Alias,
 		}, nil
 
 	case *parser.Join:

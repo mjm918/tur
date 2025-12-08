@@ -111,6 +111,10 @@ const (
 	// Aggregation keywords
 	GROUP
 	HAVING
+
+	// Subquery keywords
+	IN_KW // IN for subqueries
+	AS_KW // AS for aliases
 )
 
 // Token represents a lexical token
@@ -287,6 +291,10 @@ func (t TokenType) String() string {
 		return "GROUP"
 	case HAVING:
 		return "HAVING"
+	case IN_KW:
+		return "IN"
+	case AS_KW:
+		return "AS"
 	default:
 		return "UNKNOWN"
 	}
@@ -354,6 +362,8 @@ var keywords = map[string]TokenType{
 	"TO":         TO,
 	"GROUP":      GROUP,
 	"HAVING":     HAVING,
+	"IN":         IN_KW,
+	"AS":         AS_KW,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT

@@ -850,17 +850,12 @@ func (p *Parser) parseOrderByList() ([]OrderByExpr, error) {
 	return orderBy, nil
 }
 
-// parseTableReference parses: table [AS alias] [JOIN table ON ...]
+// parseTableReference parses: table_factor [JOIN table_factor ON ...]
 func (p *Parser) parseTableReference() (TableReference, error) {
-	// Parse left side (Table or subquery/nested join inside parens - for now just Table)
-	if !p.expectPeek(lexer.IDENT) {
-		return nil, fmt.Errorf("expected table name, got %s", p.peek.Literal)
+	left, err := p.parseTableFactor()
+	if err != nil {
+		return nil, err
 	}
-
-	var left TableReference = &Table{Name: p.cur.Literal}
-
-	// Check for Alias (optional AS identifier or just identifier)
-	// TODO: Implement alias support properly if needed. For now sticking to simple table names.
 
 	// Loop to handle multiple joins: t1 JOIN t2 JOIN t3 ... -> ((t1 JOIN t2) JOIN t3)
 	for {
@@ -871,11 +866,11 @@ func (p *Parser) parseTableReference() (TableReference, error) {
 		// Parse join type
 		joinType := p.parseJoinType()
 
-		// Parse right table - expecting a table name for now
-		if !p.expectPeek(lexer.IDENT) {
-			return nil, fmt.Errorf("expected table name after JOIN, got %s", p.peek.Literal)
+		// Parse right table factor
+		right, err := p.parseTableFactor()
+		if err != nil {
+			return nil, err
 		}
-		right := &Table{Name: p.cur.Literal}
 
 		// Parse ON condition
 		if !p.expectPeek(lexer.ON) {
@@ -898,6 +893,68 @@ func (p *Parser) parseTableReference() (TableReference, error) {
 	}
 
 	return left, nil
+}
+
+// parseTableFactor parses a single table or derived table with optional alias
+func (p *Parser) parseTableFactor() (TableReference, error) {
+	// Check for derived table: (SELECT ...)
+	if p.peekIs(lexer.LPAREN) {
+		p.nextToken() // consume (
+
+		if p.peekIs(lexer.SELECT) {
+			p.nextToken() // consume SELECT
+			p.nextToken() // moves to first column (or *)
+			subquery, err := p.parseSelectBody()
+			if err != nil {
+				return nil, err
+			}
+
+			if !p.expectPeek(lexer.RPAREN) {
+				return nil, fmt.Errorf("expected ')' after derived table")
+			}
+
+			derivedTable := &DerivedTable{Subquery: subquery}
+
+			// Parse alias (optional but highly recommended for derived tables)
+			if p.peekIs(lexer.AS_KW) {
+				p.nextToken() // AS
+				if !p.expectPeek(lexer.IDENT) {
+					return nil, fmt.Errorf("expected alias after AS")
+				}
+				derivedTable.Alias = p.cur.Literal
+			} else if p.peekIs(lexer.IDENT) {
+				p.nextToken()
+				derivedTable.Alias = p.cur.Literal
+			}
+
+			return derivedTable, nil
+		}
+
+		// If we are here, it might be a nested join or just parenthesized table (not implemented yet)
+		// For now, fall through or error
+		return nil, fmt.Errorf("expected SELECT after '(' in table reference")
+	}
+
+	// Regular table
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected table name, got %s", p.peek.Literal)
+	}
+
+	table := &Table{Name: p.cur.Literal}
+
+	// Parse alias
+	if p.peekIs(lexer.AS_KW) {
+		p.nextToken() // AS
+		if !p.expectPeek(lexer.IDENT) {
+			return nil, fmt.Errorf("expected alias after AS")
+		}
+		table.Alias = p.cur.Literal
+	} else if p.peekIs(lexer.IDENT) {
+		p.nextToken()
+		table.Alias = p.cur.Literal
+	}
+
+	return table, nil
 }
 
 // isJoinStart checks if the peek token starts a JOIN clause
@@ -966,41 +1023,36 @@ func (p *Parser) parseSelectColumns() ([]SelectColumn, error) {
 	}
 
 	for {
-		if p.cur.Type != lexer.IDENT {
-			return nil, fmt.Errorf("expected column name, got %s", p.cur.Literal)
-		}
-		name := p.cur.Literal
-
-		// Handle function call: name(...)
-		if p.peekIs(lexer.LPAREN) {
-			p.nextToken() // move to (
-			// Consume everything until matching )
-			depth := 1
-			for depth > 0 && !p.peekIs(lexer.EOF) {
-				p.nextToken()
-				if p.cur.Type == lexer.LPAREN {
-					depth++
-				} else if p.cur.Type == lexer.RPAREN {
-					depth--
-				}
-			}
-			// name now includes the function call - we store just the function name
-			// For now, treat function calls as column names (will be parsed properly during execution)
-		} else if p.peekIs(lexer.DOT) {
-			// Handle qualified name (table.column)
-			p.nextToken() // move to DOT
-			p.nextToken() // move to column name
-			if p.cur.Type != lexer.IDENT {
-				return nil, fmt.Errorf("expected column name after dot, got %s", p.cur.Literal)
-			}
-			name = name + "." + p.cur.Literal
+		expr, err := p.parseExpression(LOWEST)
+		if err != nil {
+			return nil, err
 		}
 
-		cols = append(cols, SelectColumn{Name: name})
+		col := SelectColumn{Expr: expr}
+
+		// Check for Alias
+		if p.peekIs(lexer.AS_KW) {
+			p.nextToken() // AS
+			if !p.expectPeek(lexer.IDENT) {
+				return nil, fmt.Errorf("expected alias after AS, got %s", p.peek.Literal)
+			}
+			col.Alias = p.cur.Literal
+		} else if p.peekIs(lexer.IDENT) {
+			// Optional alias without AS
+			// But check if it's a keyword that starts a clause (FROM, WHERE, etc.)
+			// Note: FROM is not in the keywords map as a reserved word?
+			// Wait, FROM is a token type.
+			// If p.peek is FROM, it won't be IDENT type if it is lexed as FROM token.
+			// So checking for IDENT is safe assuming FROM is lexed as FROM.
+			p.nextToken()
+			col.Alias = p.cur.Literal
+		}
+
+		cols = append(cols, col)
 
 		if p.peekIs(lexer.COMMA) {
-			p.nextToken() // ,
-			p.nextToken() // next column
+			p.nextToken() // consume comma
+			p.nextToken() // move to next expression start
 		} else {
 			break
 		}
@@ -1146,6 +1198,7 @@ const (
 	LOWEST
 	OR_PREC  // OR
 	AND_PREC // AND
+	IN_PREC  // IN, NOT IN
 	EQUALS   // =, !=, <>, <, >, <=, >=
 	SUM      // +, -
 	PRODUCT  // *, /
@@ -1157,6 +1210,7 @@ const (
 var precedences = map[lexer.TokenType]int{
 	lexer.OR:    OR_PREC,
 	lexer.AND:   AND_PREC,
+	lexer.IN_KW: IN_PREC,
 	lexer.EQ:    EQUALS,
 	lexer.NEQ:   EQUALS,
 	lexer.LT:    EQUALS,
@@ -1212,6 +1266,23 @@ func (p *Parser) parsePrefixExpression() (Expression, error) {
 		return &Literal{Value: types.NewInt(1)}, nil
 	case lexer.FALSE_KW:
 		return &Literal{Value: types.NewInt(0)}, nil
+	case lexer.EXISTS:
+		// EXISTS (SELECT ...)
+		return p.parseExistsExpression(false)
+	case lexer.NOT:
+		// Could be NOT EXISTS or NOT followed by expression
+		if p.peekIs(lexer.EXISTS) {
+			p.nextToken() // consume NOT, move to EXISTS
+			return p.parseExistsExpression(true)
+		}
+		// NOT followed by expression
+		op := p.cur.Type
+		p.nextToken()
+		right, err := p.parsePrefixExpression()
+		if err != nil {
+			return nil, err
+		}
+		return &UnaryExpr{Op: op, Right: right}, nil
 	case lexer.IDENT:
 		// Check if this is a function call (IDENT followed by LPAREN)
 		if p.peekIs(lexer.LPAREN) {
@@ -1236,7 +1307,20 @@ func (p *Parser) parsePrefixExpression() (Expression, error) {
 		}
 		return &UnaryExpr{Op: op, Right: right}, nil
 	case lexer.LPAREN:
-		p.nextToken() // (
+		p.nextToken() // consume (
+		// Check if this is a subquery: (SELECT ...)
+		if p.cur.Type == lexer.SELECT {
+			p.nextToken() // consume SELECT
+			selectStmt, err := p.parseSelectBody()
+			if err != nil {
+				return nil, err
+			}
+			if !p.expectPeek(lexer.RPAREN) {
+				return nil, fmt.Errorf("expected ')' after subquery, got %s", p.peek.Literal)
+			}
+			return &SubqueryExpr{Query: selectStmt}, nil
+		}
+		// Regular parenthesized expression
 		expr, err := p.parseExpression(LOWEST)
 		if err != nil {
 			return nil, err
@@ -1322,6 +1406,17 @@ func (p *Parser) parseInfixExpression(left Expression) (Expression, error) {
 		return nil, fmt.Errorf("expected identifier before '.', got %T", left)
 	}
 
+	// Handle IN expression: expr IN (...)
+	if p.cur.Type == lexer.IN_KW {
+		return p.parseInExpression(left, false)
+	}
+
+	// Handle NOT IN: expr NOT IN (...)
+	if p.cur.Type == lexer.NOT && p.peekIs(lexer.IN_KW) {
+		p.nextToken() // consume NOT, now on IN
+		return p.parseInExpression(left, true)
+	}
+
 	expr := &BinaryExpr{
 		Left: left,
 		Op:   p.cur.Type,
@@ -1337,6 +1432,81 @@ func (p *Parser) parseInfixExpression(left Expression) (Expression, error) {
 	expr.Right = right
 
 	return expr, nil
+}
+
+// parseExistsExpression parses: EXISTS (SELECT ...) or NOT EXISTS (SELECT ...)
+func (p *Parser) parseExistsExpression(notExists bool) (Expression, error) {
+	// Current token is EXISTS
+	if !p.expectPeek(lexer.LPAREN) {
+		return nil, fmt.Errorf("expected '(' after EXISTS, got %s", p.peek.Literal)
+	}
+
+	// Move to SELECT
+	if !p.expectPeek(lexer.SELECT) {
+		return nil, fmt.Errorf("expected SELECT in EXISTS subquery, got %s", p.peek.Literal)
+	}
+	p.nextToken() // consume SELECT
+
+	selectStmt, err := p.parseSelectBody()
+	if err != nil {
+		return nil, err
+	}
+
+	if !p.expectPeek(lexer.RPAREN) {
+		return nil, fmt.Errorf("expected ')' after EXISTS subquery, got %s", p.peek.Literal)
+	}
+
+	return &ExistsExpr{
+		Not:      notExists,
+		Subquery: selectStmt,
+	}, nil
+}
+
+// parseInExpression parses: expr IN (...) or expr NOT IN (...)
+func (p *Parser) parseInExpression(left Expression, notIn bool) (Expression, error) {
+	// Current token is IN
+	if !p.expectPeek(lexer.LPAREN) {
+		return nil, fmt.Errorf("expected '(' after IN, got %s", p.peek.Literal)
+	}
+
+	inExpr := &InExpr{
+		Left: left,
+		Not:  notIn,
+	}
+
+	p.nextToken() // move past (
+
+	// Check if this is a subquery: IN (SELECT ...)
+	if p.cur.Type == lexer.SELECT {
+		p.nextToken() // consume SELECT
+		selectStmt, err := p.parseSelectBody()
+		if err != nil {
+			return nil, err
+		}
+		inExpr.Subquery = selectStmt
+	} else {
+		// Value list: IN (1, 2, 3)
+		for {
+			expr, err := p.parseExpression(LOWEST)
+			if err != nil {
+				return nil, err
+			}
+			inExpr.Values = append(inExpr.Values, expr)
+
+			if p.peekIs(lexer.COMMA) {
+				p.nextToken() // consume comma
+				p.nextToken() // move to next value
+			} else {
+				break
+			}
+		}
+	}
+
+	if !p.expectPeek(lexer.RPAREN) {
+		return nil, fmt.Errorf("expected ')' after IN list, got %s", p.peek.Literal)
+	}
+
+	return inExpr, nil
 }
 
 // parseIntLiteral parses an integer literal

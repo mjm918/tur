@@ -263,8 +263,14 @@ func TestParser_Select_Columns(t *testing.T) {
 		t.Fatalf("Columns count = %d, want 2", len(sel.Columns))
 	}
 
-	if sel.Columns[0].Name != "id" || sel.Columns[1].Name != "name" {
-		t.Errorf("Columns = %+v", sel.Columns)
+	col0 := sel.Columns[0].Expr.(*ColumnRef)
+	if col0.Name != "id" {
+		t.Errorf("Columns[0] = %q, want 'id'", col0.Name)
+	}
+
+	col1 := sel.Columns[1].Expr.(*ColumnRef)
+	if col1.Name != "name" {
+		t.Errorf("Columns[1] = %q, want 'name'", col1.Name)
 	}
 }
 

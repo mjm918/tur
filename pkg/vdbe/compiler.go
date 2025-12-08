@@ -99,9 +99,13 @@ func (c *Compiler) compileSelect(stmt *parser.SelectStmt) (*Program, error) {
 		}
 	} else {
 		for _, col := range stmt.Columns {
-			idx, ok := colMap[col.Name]
+			colRef, ok := col.Expr.(*parser.ColumnRef)
 			if !ok {
-				return nil, fmt.Errorf("column %s not found", col.Name)
+				return nil, fmt.Errorf("complex expressions not supported in simple compiler")
+			}
+			idx, ok := colMap[colRef.Name]
+			if !ok {
+				return nil, fmt.Errorf("column %s not found", colRef.Name)
 			}
 			outputCols = append(outputCols, idx)
 		}
@@ -492,9 +496,13 @@ func (c *Compiler) compileInsertSelect(stmt *parser.InsertStmt, destTable *schem
 		}
 	} else {
 		for _, col := range selectStmt.Columns {
-			idx, ok := srcColMap[col.Name]
+			colRef, ok := col.Expr.(*parser.ColumnRef)
 			if !ok {
-				return nil, fmt.Errorf("column %s not found in source table", col.Name)
+				return nil, fmt.Errorf("complex expressions not supported in simple compiler")
+			}
+			idx, ok := srcColMap[colRef.Name]
+			if !ok {
+				return nil, fmt.Errorf("column %s not found in source table", colRef.Name)
 			}
 			srcOutputCols = append(srcOutputCols, idx)
 		}

@@ -138,8 +138,9 @@ func (s *SelectStmt) statementNode() {}
 
 // SelectColumn represents a column in SELECT
 type SelectColumn struct {
-	Star bool   // true if this is *
-	Name string // column name (empty if Star)
+	Expr  Expression // Expression to select (nil if Star is true)
+	Alias string     // Optional alias
+	Star  bool       // true if this is *
 }
 
 // DropTableStmt represents a DROP TABLE statement
@@ -392,3 +393,36 @@ type AlterTableStmt struct {
 }
 
 func (s *AlterTableStmt) statementNode() {}
+
+// SubqueryExpr represents a scalar subquery expression (SELECT ...)
+type SubqueryExpr struct {
+	Query *SelectStmt // The SELECT statement
+}
+
+func (s *SubqueryExpr) expressionNode() {}
+
+// InExpr represents an IN expression (expr IN (...) or expr NOT IN (...))
+type InExpr struct {
+	Left     Expression   // The expression being tested (e.g., column)
+	Not      bool         // True for NOT IN
+	Values   []Expression // For value list: IN (1, 2, 3)
+	Subquery *SelectStmt  // For subquery: IN (SELECT ...)
+}
+
+func (i *InExpr) expressionNode() {}
+
+// ExistsExpr represents an EXISTS expression (EXISTS (...) or NOT EXISTS (...))
+type ExistsExpr struct {
+	Not      bool        // True for NOT EXISTS
+	Subquery *SelectStmt // The SELECT statement to check
+}
+
+func (e *ExistsExpr) expressionNode() {}
+
+// DerivedTable represents a subquery used as a table reference in FROM clause
+type DerivedTable struct {
+	Subquery *SelectStmt // The SELECT statement
+	Alias    string      // Required alias for the derived table
+}
+
+func (d *DerivedTable) tableRefNode() {}

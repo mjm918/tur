@@ -39,6 +39,20 @@ func (n *TableScanNode) EstimatedRows() int64 {
 	return n.Rows
 }
 
+// SubqueryScanNode represents a scan over a subquery (derived table)
+type SubqueryScanNode struct {
+	SubqueryPlan PlanNode
+	Alias        string
+}
+
+func (n *SubqueryScanNode) EstimatedCost() float64 {
+	return n.SubqueryPlan.EstimatedCost()
+}
+
+func (n *SubqueryScanNode) EstimatedRows() int64 {
+	return n.SubqueryPlan.EstimatedRows()
+}
+
 // IndexScanNode represents an index scan
 type IndexScanNode struct {
 	Table     *schema.TableDef

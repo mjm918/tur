@@ -11,7 +11,7 @@ func TestBuildPlan_SimpleSelect(t *testing.T) {
 	catalog.CreateTable(&schema.TableDef{Name: "users"})
 
 	stmt := &parser.SelectStmt{
-		Columns: []parser.SelectColumn{{Name: "id"}},
+		Columns: []parser.SelectColumn{{Expr: &parser.ColumnRef{Name: "id"}}},
 		From:    &parser.Table{Name: "users"},
 	}
 
@@ -39,7 +39,7 @@ func TestBuildPlan_Where(t *testing.T) {
 	catalog.CreateTable(&schema.TableDef{Name: "users"})
 
 	stmt := &parser.SelectStmt{
-		Columns: []parser.SelectColumn{{Name: "id"}},
+		Columns: []parser.SelectColumn{{Expr: &parser.ColumnRef{Name: "id"}}},
 		From:    &parser.Table{Name: "users"},
 		Where:   &parser.BinaryExpr{}, // Mock where
 	}
@@ -74,7 +74,7 @@ func TestBuildPlan_Join(t *testing.T) {
 	catalog.CreateTable(&schema.TableDef{Name: "orders"})
 
 	stmt := &parser.SelectStmt{
-		Columns: []parser.SelectColumn{{Name: "*", Star: true}}, // Select *
+		Columns: []parser.SelectColumn{{Star: true}}, // Select *
 		From: &parser.Join{
 			Left:      &parser.Table{Name: "users"},
 			Right:     &parser.Table{Name: "orders"},
