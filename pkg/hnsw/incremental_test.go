@@ -767,3 +767,262 @@ func TestChangeLog_TruncateOlderThan(t *testing.T) {
 		}
 	}
 }
+
+// Tests for Incremental Update Correctness vs Full Rebuild
+
+func TestIncrementalIndex_CorrectnessVsFullRebuild_Simple(t *testing.T) {
+	config := Config{
+		M:              16,
+		MMax0:          32,
+		EfConstruction: 100,
+		EfSearch:       50,
+		Dimension:      3,
+		ML:             0.25,
+	}
+
+	// Create vectors
+	vectors := make([]*types.Vector, 10)
+	for i := 0; i < 10; i++ {
+		vectors[i] = types.NewVector([]float32{
+			float32(i) * 0.1,
+			float32(i) * 0.2,
+			float32(i) * 0.3,
+		})
+	}
+
+	// Method 1: Build index incrementally using IncrementalIndex
+	incIdx := NewIncrementalIndex(config)
+	for i := 0; i < 10; i++ {
+		incIdx.Insert(int64(i), vectors[i])
+	}
+
+	// Method 2: Build index from scratch using regular Index
+	fullIdx := NewIndex(config)
+	for i := 0; i < 10; i++ {
+		fullIdx.Insert(int64(i), vectors[i])
+	}
+
+	// Both should have same number of nodes
+	if incIdx.Len() != fullIdx.Len() {
+		t.Errorf("length mismatch: incremental=%d, full=%d", incIdx.Len(), fullIdx.Len())
+	}
+
+	// Search should return same results (same vectors)
+	query := vectors[5]
+
+	incResults, _ := incIdx.SearchKNN(query, 3)
+	fullResults, _ := fullIdx.SearchKNN(query, 3)
+
+	if len(incResults) != len(fullResults) {
+		t.Fatalf("result count mismatch: incremental=%d, full=%d", len(incResults), len(fullResults))
+	}
+
+	// The closest result should be the same for both
+	if incResults[0].RowID != fullResults[0].RowID {
+		t.Errorf("closest result mismatch: incremental rowID=%d, full rowID=%d",
+			incResults[0].RowID, fullResults[0].RowID)
+	}
+}
+
+func TestIncrementalIndex_CorrectnessAfterDeltaMerge(t *testing.T) {
+	config := Config{
+		M:              16,
+		MMax0:          32,
+		EfConstruction: 100,
+		EfSearch:       50,
+		Dimension:      3,
+		ML:             0.25,
+	}
+
+	// Create base index with initial data
+	baseIdx := NewIncrementalIndex(config)
+	for i := 0; i < 5; i++ {
+		vec := types.NewVector([]float32{float32(i), 0, 0})
+		baseIdx.Insert(int64(i), vec)
+	}
+
+	// Get checkpoint after initial data
+	checkpoint := baseIdx.CreateCheckpoint()
+
+	// Add more data
+	for i := 5; i < 10; i++ {
+		vec := types.NewVector([]float32{float32(i), 0, 0})
+		baseIdx.Insert(int64(i), vec)
+	}
+
+	// Get delta since checkpoint
+	delta := baseIdx.OperationsSince(checkpoint.Version)
+
+	// Create new index and apply delta
+	newIdx := NewIncrementalIndex(config)
+	// First add base data
+	for i := 0; i < 5; i++ {
+		vec := types.NewVector([]float32{float32(i), 0, 0})
+		newIdx.Insert(int64(i), vec)
+	}
+	// Then apply delta
+	newIdx.ApplyDelta(delta)
+
+	// Both indexes should have same node count
+	if baseIdx.Len() != newIdx.Len() {
+		t.Errorf("length mismatch after delta: base=%d, new=%d", baseIdx.Len(), newIdx.Len())
+	}
+
+	// Search should return same results
+	query := types.NewVector([]float32{7.5, 0, 0})
+
+	baseResults, _ := baseIdx.SearchKNN(query, 3)
+	newResults, _ := newIdx.SearchKNN(query, 3)
+
+	if len(baseResults) != len(newResults) {
+		t.Fatalf("result count mismatch: base=%d, new=%d", len(baseResults), len(newResults))
+	}
+
+	// Results should be similar (exact ordering may differ due to HNSW randomness)
+	baseRowIDs := make(map[int64]bool)
+	for _, r := range baseResults {
+		baseRowIDs[r.RowID] = true
+	}
+
+	for _, r := range newResults {
+		if !baseRowIDs[r.RowID] {
+			t.Errorf("result rowID %d in new but not in base results", r.RowID)
+		}
+	}
+}
+
+func TestIncrementalIndex_CorrectnessWithDeletesAndUpdates(t *testing.T) {
+	config := Config{
+		M:              16,
+		MMax0:          32,
+		EfConstruction: 100,
+		EfSearch:       50,
+		Dimension:      3,
+		ML:             0.25,
+	}
+
+	// Create reference index built from final state
+	refIdx := NewIndex(config)
+
+	// Create incremental index with changes
+	incIdx := NewIncrementalIndex(config)
+
+	// Add some initial vectors
+	for i := 0; i < 10; i++ {
+		vec := types.NewVector([]float32{float32(i), float32(i), 0})
+		incIdx.Insert(int64(i), vec)
+	}
+
+	// Delete some vectors
+	incIdx.Delete(3)
+	incIdx.Delete(7)
+
+	// Update some vectors
+	newVec := types.NewVector([]float32{100, 100, 0})
+	incIdx.Update(5, newVec)
+
+	// Build reference with final state
+	for i := 0; i < 10; i++ {
+		if i == 3 || i == 7 {
+			continue // deleted
+		}
+		var vec *types.Vector
+		if i == 5 {
+			vec = types.NewVector([]float32{100, 100, 0}) // updated
+		} else {
+			vec = types.NewVector([]float32{float32(i), float32(i), 0})
+		}
+		refIdx.Insert(int64(i), vec)
+	}
+
+	// Both should have same count
+	if incIdx.Len() != refIdx.Len() {
+		t.Errorf("length mismatch: incremental=%d, reference=%d", incIdx.Len(), refIdx.Len())
+	}
+
+	// Verify all expected rows are present
+	for i := 0; i < 10; i++ {
+		if i == 3 || i == 7 {
+			if incIdx.Contains(int64(i)) {
+				t.Errorf("deleted row %d should not be in incremental index", i)
+			}
+		} else {
+			if !incIdx.Contains(int64(i)) {
+				t.Errorf("row %d should be in incremental index", i)
+			}
+		}
+	}
+
+	// Search for updated vector should find it
+	query := types.NewVector([]float32{100, 100, 0})
+	incResults, _ := incIdx.SearchKNN(query, 1)
+
+	if len(incResults) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(incResults))
+	}
+
+	if incResults[0].RowID != 5 {
+		t.Errorf("expected rowID 5 for updated vector, got %d", incResults[0].RowID)
+	}
+}
+
+func TestIncrementalIndex_RecallAfterCompaction(t *testing.T) {
+	config := Config{
+		M:              16,
+		MMax0:          32,
+		EfConstruction: 100,
+		EfSearch:       50,
+		Dimension:      8,
+		ML:             0.25,
+	}
+
+	// Create index with redundant operations
+	idx := NewIncrementalIndex(config)
+
+	// Insert 50 vectors
+	vectors := make([]*types.Vector, 50)
+	for i := 0; i < 50; i++ {
+		vec := make([]float32, 8)
+		for j := 0; j < 8; j++ {
+			vec[j] = float32(i*10+j) / 100.0
+		}
+		vectors[i] = types.NewVector(vec)
+		idx.Insert(int64(i), vectors[i])
+	}
+
+	// Delete half, then reinsert them (creates redundant operations)
+	for i := 0; i < 25; i++ {
+		idx.Delete(int64(i))
+	}
+	for i := 0; i < 25; i++ {
+		idx.Insert(int64(i), vectors[i])
+	}
+
+	// Search before compaction
+	query := vectors[10]
+	beforeResults, _ := idx.SearchKNN(query, 5)
+
+	// Compact the change log
+	idx.CompactChangeLog()
+
+	// Search after compaction (index state should be unchanged)
+	afterResults, _ := idx.SearchKNN(query, 5)
+
+	// Results should be identical (compaction doesn't change index, only log)
+	if len(beforeResults) != len(afterResults) {
+		t.Fatalf("result count changed after compaction: before=%d, after=%d",
+			len(beforeResults), len(afterResults))
+	}
+
+	for i := range beforeResults {
+		if beforeResults[i].RowID != afterResults[i].RowID {
+			t.Errorf("result %d changed: before=%d, after=%d",
+				i, beforeResults[i].RowID, afterResults[i].RowID)
+		}
+	}
+
+	// Index should still have all 50 vectors
+	if idx.Len() != 50 {
+		t.Errorf("expected 50 nodes, got %d", idx.Len())
+	}
+}
