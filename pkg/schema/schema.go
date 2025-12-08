@@ -13,6 +13,8 @@ var (
 	ErrTableExists    = errors.New("table already exists")
 	ErrTableNotFound  = errors.New("table not found")
 	ErrColumnNotFound = errors.New("column not found")
+	ErrIndexExists    = errors.New("index already exists")
+	ErrIndexNotFound  = errors.New("index not found")
 )
 
 // Constraint violation errors
@@ -107,6 +109,36 @@ type TableConstraint struct {
 	RefColumns      []string         // For FOREIGN KEY: referenced column names
 	OnDelete        ForeignKeyAction // For FOREIGN KEY: action on delete
 	OnUpdate        ForeignKeyAction // For FOREIGN KEY: action on update
+}
+
+// IndexType represents the type of index
+type IndexType int
+
+const (
+	IndexTypeBTree IndexType = iota
+	IndexTypeHNSW
+)
+
+// String returns the string representation of the index type
+func (it IndexType) String() string {
+	switch it {
+	case IndexTypeBTree:
+		return "BTREE"
+	case IndexTypeHNSW:
+		return "HNSW"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+// IndexDef defines an index schema
+type IndexDef struct {
+	Name      string    // Index name
+	TableName string    // Table the index belongs to
+	Columns   []string  // Column names in the index (order matters for multi-column)
+	Type      IndexType // Type of index (B-tree or HNSW)
+	Unique    bool      // Whether the index enforces uniqueness
+	RootPage  uint32    // B-tree root page number for this index
 }
 
 // ColumnDef defines a table column

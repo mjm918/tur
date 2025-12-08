@@ -428,3 +428,72 @@ func TestTableDef_GetTableConstraint(t *testing.T) {
 		t.Errorf("GetTableConstraint(ConstraintForeignKey): expected nil, got %v", fk)
 	}
 }
+
+// ========== Index Definition Tests ==========
+
+func TestIndexType_String(t *testing.T) {
+	tests := []struct {
+		it   IndexType
+		want string
+	}{
+		{IndexTypeBTree, "BTREE"},
+		{IndexTypeHNSW, "HNSW"},
+	}
+
+	for _, tt := range tests {
+		got := tt.it.String()
+		if got != tt.want {
+			t.Errorf("IndexType(%d).String() = %q, want %q", tt.it, got, tt.want)
+		}
+	}
+}
+
+func TestIndexDef_Basic(t *testing.T) {
+	// Test basic B-tree index
+	idx := IndexDef{
+		Name:      "idx_users_email",
+		TableName: "users",
+		Columns:   []string{"email"},
+		Type:      IndexTypeBTree,
+		Unique:    true,
+		RootPage:  5,
+	}
+
+	if idx.Name != "idx_users_email" {
+		t.Errorf("Name: got %q, want 'idx_users_email'", idx.Name)
+	}
+	if idx.TableName != "users" {
+		t.Errorf("TableName: got %q, want 'users'", idx.TableName)
+	}
+	if len(idx.Columns) != 1 || idx.Columns[0] != "email" {
+		t.Errorf("Columns: got %v, want ['email']", idx.Columns)
+	}
+	if idx.Type != IndexTypeBTree {
+		t.Errorf("Type: got %v, want IndexTypeBTree", idx.Type)
+	}
+	if !idx.Unique {
+		t.Error("Unique: expected true")
+	}
+	if idx.RootPage != 5 {
+		t.Errorf("RootPage: got %d, want 5", idx.RootPage)
+	}
+}
+
+func TestIndexDef_MultiColumn(t *testing.T) {
+	// Test multi-column index
+	idx := IndexDef{
+		Name:      "idx_orders_customer_date",
+		TableName: "orders",
+		Columns:   []string{"customer_id", "order_date"},
+		Type:      IndexTypeBTree,
+		Unique:    false,
+		RootPage:  10,
+	}
+
+	if len(idx.Columns) != 2 {
+		t.Fatalf("Columns: got %d columns, want 2", len(idx.Columns))
+	}
+	if idx.Columns[0] != "customer_id" || idx.Columns[1] != "order_date" {
+		t.Errorf("Columns: got %v, want ['customer_id', 'order_date']", idx.Columns)
+	}
+}
