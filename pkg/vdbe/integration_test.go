@@ -431,3 +431,214 @@ func intToStr(n int) string {
 	}
 	return result
 }
+
+// TestVDBEUpdateCompilation tests compiling UPDATE to VDBE bytecode
+func TestVDBEUpdateCompilation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	p, err := pager.Open(path, pager.Options{PageSize: 4096})
+	if err != nil {
+		t.Fatalf("failed to open pager: %v", err)
+	}
+	defer p.Close()
+
+	// Create table and insert data
+	bt, _ := btree.Create(p)
+
+	catalog := schema.NewCatalog()
+	catalog.CreateTable(&schema.TableDef{
+		Name: "products",
+		Columns: []schema.ColumnDef{
+			{Name: "id", Type: types.TypeInt, PrimaryKey: true},
+			{Name: "name", Type: types.TypeText},
+			{Name: "price", Type: types.TypeInt},
+		},
+		RootPage: bt.RootPage(),
+	})
+
+	// Insert test data via VDBE
+	insertSQL := []string{
+		"INSERT INTO products (id, name, price) VALUES (1, 'Apple', 100)",
+		"INSERT INTO products (id, name, price) VALUES (2, 'Banana', 50)",
+		"INSERT INTO products (id, name, price) VALUES (3, 'Cherry', 200)",
+	}
+
+	for _, sql := range insertSQL {
+		stmt, _ := parser.New(sql).Parse()
+		compiler := NewCompiler(catalog, p)
+		prog, _ := compiler.Compile(stmt)
+		vm := NewVM(prog, p)
+		vm.SetNumRegisters(compiler.NumRegisters())
+		vm.Run()
+	}
+
+	// Compile and execute UPDATE with WHERE clause
+	updateSQL := "UPDATE products SET price = 75 WHERE id = 2"
+	updateStmt, err := parser.New(updateSQL).Parse()
+	if err != nil {
+		t.Fatalf("parse update failed: %v", err)
+	}
+
+	updateCompiler := NewCompiler(catalog, p)
+	updateProg, err := updateCompiler.Compile(updateStmt)
+	if err != nil {
+		t.Fatalf("compile update failed: %v", err)
+	}
+
+	updateVM := NewVM(updateProg, p)
+	updateVM.SetNumRegisters(updateCompiler.NumRegisters())
+	if err := updateVM.Run(); err != nil {
+		t.Fatalf("update execution failed: %v", err)
+	}
+
+	// Verify the update
+	selectSQL := "SELECT id, name, price FROM products WHERE id = 2"
+	selectStmt, _ := parser.New(selectSQL).Parse()
+	selectCompiler := NewCompiler(catalog, p)
+	selectProg, _ := selectCompiler.Compile(selectStmt)
+	selectVM := NewVM(selectProg, p)
+	selectVM.SetNumRegisters(selectCompiler.NumRegisters())
+	selectVM.Run()
+
+	results := selectVM.Results()
+	if len(results) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(results))
+	}
+
+	if results[0][2].Int() != 75 {
+		t.Errorf("expected price 75, got %d", results[0][2].Int())
+	}
+}
+
+// TestVDBEUpdateAll tests UPDATE without WHERE clause
+func TestVDBEUpdateAll(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	p, _ := pager.Open(path, pager.Options{PageSize: 4096})
+	defer p.Close()
+
+	bt, _ := btree.Create(p)
+
+	catalog := schema.NewCatalog()
+	catalog.CreateTable(&schema.TableDef{
+		Name: "items",
+		Columns: []schema.ColumnDef{
+			{Name: "id", Type: types.TypeInt, PrimaryKey: true},
+			{Name: "status", Type: types.TypeText},
+		},
+		RootPage: bt.RootPage(),
+	})
+
+	// Insert test data
+	for i := 1; i <= 3; i++ {
+		insertSQL := "INSERT INTO items (id, status) VALUES (" + intToStr(i) + ", 'pending')"
+		stmt, _ := parser.New(insertSQL).Parse()
+		compiler := NewCompiler(catalog, p)
+		prog, _ := compiler.Compile(stmt)
+		vm := NewVM(prog, p)
+		vm.SetNumRegisters(compiler.NumRegisters())
+		vm.Run()
+	}
+
+	// Update all rows
+	updateSQL := "UPDATE items SET status = 'done'"
+	updateStmt, _ := parser.New(updateSQL).Parse()
+	updateCompiler := NewCompiler(catalog, p)
+	updateProg, err := updateCompiler.Compile(updateStmt)
+	if err != nil {
+		t.Fatalf("compile update failed: %v", err)
+	}
+
+	updateVM := NewVM(updateProg, p)
+	updateVM.SetNumRegisters(updateCompiler.NumRegisters())
+	if err := updateVM.Run(); err != nil {
+		t.Fatalf("update execution failed: %v", err)
+	}
+
+	// Verify all rows were updated
+	selectStmt, _ := parser.New("SELECT id, status FROM items").Parse()
+	selectCompiler := NewCompiler(catalog, p)
+	selectProg, _ := selectCompiler.Compile(selectStmt)
+	selectVM := NewVM(selectProg, p)
+	selectVM.SetNumRegisters(selectCompiler.NumRegisters())
+	selectVM.Run()
+
+	results := selectVM.Results()
+	if len(results) != 3 {
+		t.Fatalf("expected 3 rows, got %d", len(results))
+	}
+
+	for i, row := range results {
+		if row[1].Text() != "done" {
+			t.Errorf("row %d: expected status 'done', got '%s'", i, row[1].Text())
+		}
+	}
+}
+
+// TestVDBEUpdateMultipleColumns tests UPDATE with multiple SET assignments
+func TestVDBEUpdateMultipleColumns(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	p, _ := pager.Open(path, pager.Options{PageSize: 4096})
+	defer p.Close()
+
+	bt, _ := btree.Create(p)
+
+	catalog := schema.NewCatalog()
+	catalog.CreateTable(&schema.TableDef{
+		Name: "records",
+		Columns: []schema.ColumnDef{
+			{Name: "id", Type: types.TypeInt, PrimaryKey: true},
+			{Name: "a", Type: types.TypeInt},
+			{Name: "b", Type: types.TypeInt},
+		},
+		RootPage: bt.RootPage(),
+	})
+
+	// Insert test data
+	insertSQL := "INSERT INTO records (id, a, b) VALUES (1, 10, 20)"
+	stmt, _ := parser.New(insertSQL).Parse()
+	compiler := NewCompiler(catalog, p)
+	prog, _ := compiler.Compile(stmt)
+	vm := NewVM(prog, p)
+	vm.SetNumRegisters(compiler.NumRegisters())
+	vm.Run()
+
+	// Update multiple columns
+	updateSQL := "UPDATE records SET a = 100, b = 200 WHERE id = 1"
+	updateStmt, _ := parser.New(updateSQL).Parse()
+	updateCompiler := NewCompiler(catalog, p)
+	updateProg, err := updateCompiler.Compile(updateStmt)
+	if err != nil {
+		t.Fatalf("compile update failed: %v", err)
+	}
+
+	updateVM := NewVM(updateProg, p)
+	updateVM.SetNumRegisters(updateCompiler.NumRegisters())
+	if err := updateVM.Run(); err != nil {
+		t.Fatalf("update execution failed: %v", err)
+	}
+
+	// Verify both columns were updated
+	selectStmt, _ := parser.New("SELECT id, a, b FROM records").Parse()
+	selectCompiler := NewCompiler(catalog, p)
+	selectProg, _ := selectCompiler.Compile(selectStmt)
+	selectVM := NewVM(selectProg, p)
+	selectVM.SetNumRegisters(selectCompiler.NumRegisters())
+	selectVM.Run()
+
+	results := selectVM.Results()
+	if len(results) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(results))
+	}
+
+	if results[0][1].Int() != 100 {
+		t.Errorf("expected a=100, got %d", results[0][1].Int())
+	}
+	if results[0][2].Int() != 200 {
+		t.Errorf("expected b=200, got %d", results[0][2].Int())
+	}
+}
