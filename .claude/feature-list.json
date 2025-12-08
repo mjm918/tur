@@ -357,13 +357,13 @@
     {
       "title": "MVCC - Deadlock Detection",
       "description": "Detect and resolve deadlocks between concurrent transactions",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
-        {"task": "Build wait-for graph of transaction dependencies", "done": false},
-        {"task": "Implement cycle detection in wait-for graph", "done": false},
-        {"task": "Select victim transaction to abort (youngest)", "done": false},
-        {"task": "Return deadlock error to victim transaction", "done": false},
-        {"task": "Add deadlock detection timeout configuration", "done": false}
+        {"task": "Build wait-for graph of transaction dependencies", "done": true},
+        {"task": "Implement cycle detection in wait-for graph", "done": true},
+        {"task": "Select victim transaction to abort (youngest)", "done": true},
+        {"task": "Return deadlock error to victim transaction", "done": true},
+        {"task": "Add deadlock detection timeout configuration", "done": true}
       ]
     },
     {
