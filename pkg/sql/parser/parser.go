@@ -726,6 +726,32 @@ func (p *Parser) parseSelectBody() (*SelectStmt, error) {
 		stmt.Where = expr
 	}
 
+	// Optional GROUP BY
+	if p.peekIs(lexer.GROUP) {
+		p.nextToken() // GROUP
+		if !p.expectPeek(lexer.BY) {
+			return nil, fmt.Errorf("expected BY after GROUP, got %s", p.peek.Literal)
+		}
+
+		groupBy, err := p.parseGroupByList()
+		if err != nil {
+			return nil, err
+		}
+		stmt.GroupBy = groupBy
+	}
+
+	// Optional HAVING
+	if p.peekIs(lexer.HAVING) {
+		p.nextToken() // HAVING
+		p.nextToken() // move to expression start
+
+		having, err := p.parseExpression(0)
+		if err != nil {
+			return nil, err
+		}
+		stmt.Having = having
+	}
+
 	// Optional ORDER BY
 	if p.peekIs(lexer.ORDER) {
 		p.nextToken() // ORDER
@@ -765,6 +791,29 @@ func (p *Parser) parseSelectBody() (*SelectStmt, error) {
 	}
 
 	return stmt, nil
+}
+
+// parseGroupByList parses: expr [, expr ...]
+func (p *Parser) parseGroupByList() ([]Expression, error) {
+	var groupBy []Expression
+
+	for {
+		p.nextToken() // move to expression start
+
+		expr, err := p.parseExpression(0)
+		if err != nil {
+			return nil, err
+		}
+
+		groupBy = append(groupBy, expr)
+
+		if !p.peekIs(lexer.COMMA) {
+			break
+		}
+		p.nextToken() // consume comma
+	}
+
+	return groupBy, nil
 }
 
 // parseOrderByList parses: expr [ASC|DESC] [, expr [ASC|DESC] ...]
@@ -907,7 +956,7 @@ func (p *Parser) parseJoinType() JoinType {
 	}
 }
 
-// parseSelectColumns parses: * | column, column, ...
+// parseSelectColumns parses: * | column, column, ... | function(args), ...
 func (p *Parser) parseSelectColumns() ([]SelectColumn, error) {
 	var cols []SelectColumn
 
@@ -922,8 +971,23 @@ func (p *Parser) parseSelectColumns() ([]SelectColumn, error) {
 		}
 		name := p.cur.Literal
 
-		// Handle qualified name (table.column)
-		if p.peekIs(lexer.DOT) {
+		// Handle function call: name(...)
+		if p.peekIs(lexer.LPAREN) {
+			p.nextToken() // move to (
+			// Consume everything until matching )
+			depth := 1
+			for depth > 0 && !p.peekIs(lexer.EOF) {
+				p.nextToken()
+				if p.cur.Type == lexer.LPAREN {
+					depth++
+				} else if p.cur.Type == lexer.RPAREN {
+					depth--
+				}
+			}
+			// name now includes the function call - we store just the function name
+			// For now, treat function calls as column names (will be parsed properly during execution)
+		} else if p.peekIs(lexer.DOT) {
+			// Handle qualified name (table.column)
 			p.nextToken() // move to DOT
 			p.nextToken() // move to column name
 			if p.cur.Type != lexer.IDENT {
@@ -1119,6 +1183,7 @@ func (p *Parser) parseExpression(precedence int) (Expression, error) {
 	for !p.peekIs(lexer.EOF) && !p.peekIs(lexer.SEMICOLON) && !p.peekIs(lexer.RPAREN) &&
 		!p.peekIs(lexer.COMMA) && !p.peekIs(lexer.ASC) && !p.peekIs(lexer.DESC) &&
 		!p.peekIs(lexer.ORDER) && !p.peekIs(lexer.LIMIT) && !p.peekIs(lexer.OFFSET) &&
+		!p.peekIs(lexer.GROUP) && !p.peekIs(lexer.HAVING) &&
 		precedence < p.peekPrecedence() {
 		p.nextToken()
 		left, err = p.parseInfixExpression(left)
@@ -1148,6 +1213,10 @@ func (p *Parser) parsePrefixExpression() (Expression, error) {
 	case lexer.FALSE_KW:
 		return &Literal{Value: types.NewInt(0)}, nil
 	case lexer.IDENT:
+		// Check if this is a function call (IDENT followed by LPAREN)
+		if p.peekIs(lexer.LPAREN) {
+			return p.parseFunctionCall()
+		}
 		return &ColumnRef{Name: p.cur.Literal}, nil
 	case lexer.MINUS:
 		op := p.cur.Type
@@ -1179,6 +1248,57 @@ func (p *Parser) parsePrefixExpression() (Expression, error) {
 	default:
 		return nil, fmt.Errorf("unexpected token in expression: %s", p.cur.Literal)
 	}
+}
+
+// parseFunctionCall parses a function call: name(arg1, arg2, ...)
+// Handles special cases like COUNT(*) where * is allowed as an argument
+func (p *Parser) parseFunctionCall() (Expression, error) {
+	funcCall := &FunctionCall{
+		Name: p.cur.Literal,
+	}
+
+	if !p.expectPeek(lexer.LPAREN) {
+		return nil, fmt.Errorf("expected '(' after function name")
+	}
+
+	// Handle empty args: func()
+	if p.peekIs(lexer.RPAREN) {
+		p.nextToken()
+		return funcCall, nil
+	}
+
+	// Handle COUNT(*) special case
+	if p.peekIs(lexer.STAR) {
+		p.nextToken() // consume *
+		// For COUNT(*), we use a special representation
+		funcCall.Args = append(funcCall.Args, &Literal{Value: types.NewText("*")})
+		if !p.expectPeek(lexer.RPAREN) {
+			return nil, fmt.Errorf("expected ')' after '*'")
+		}
+		return funcCall, nil
+	}
+
+	// Parse argument list
+	p.nextToken() // move to first argument
+	for {
+		arg, err := p.parseExpression(LOWEST)
+		if err != nil {
+			return nil, err
+		}
+		funcCall.Args = append(funcCall.Args, arg)
+
+		if !p.peekIs(lexer.COMMA) {
+			break
+		}
+		p.nextToken() // consume comma
+		p.nextToken() // move to next argument
+	}
+
+	if !p.expectPeek(lexer.RPAREN) {
+		return nil, fmt.Errorf("expected ')' or ',' in function call")
+	}
+
+	return funcCall, nil
 }
 
 // parseInfixExpression parses a binary expression

@@ -107,6 +107,10 @@ const (
 	COLUMN
 	RENAME
 	TO
+
+	// Aggregation keywords
+	GROUP
+	HAVING
 )
 
 // Token represents a lexical token
@@ -279,6 +283,10 @@ func (t TokenType) String() string {
 		return "RENAME"
 	case TO:
 		return "TO"
+	case GROUP:
+		return "GROUP"
+	case HAVING:
+		return "HAVING"
 	default:
 		return "UNKNOWN"
 	}
@@ -344,6 +352,8 @@ var keywords = map[string]TokenType{
 	"COLUMN":     COLUMN,
 	"RENAME":     RENAME,
 	"TO":         TO,
+	"GROUP":      GROUP,
+	"HAVING":     HAVING,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT

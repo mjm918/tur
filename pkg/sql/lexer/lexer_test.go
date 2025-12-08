@@ -335,3 +335,43 @@ func TestLexer_Position(t *testing.T) {
 		t.Errorf("FROM pos = %d, want 9", tok.Pos)
 	}
 }
+
+func TestLexer_GroupByHavingKeywords(t *testing.T) {
+	input := "SELECT department, COUNT(*) FROM employees GROUP BY department HAVING COUNT(*) > 5"
+	expected := []struct {
+		typ     TokenType
+		literal string
+	}{
+		{SELECT, "SELECT"},
+		{IDENT, "department"},
+		{COMMA, ","},
+		{IDENT, "COUNT"},
+		{LPAREN, "("},
+		{STAR, "*"},
+		{RPAREN, ")"},
+		{FROM, "FROM"},
+		{IDENT, "employees"},
+		{GROUP, "GROUP"},
+		{BY, "BY"},
+		{IDENT, "department"},
+		{HAVING, "HAVING"},
+		{IDENT, "COUNT"},
+		{LPAREN, "("},
+		{STAR, "*"},
+		{RPAREN, ")"},
+		{GT, ">"},
+		{INT, "5"},
+		{EOF, ""},
+	}
+
+	l := New(input)
+	for i, exp := range expected {
+		tok := l.NextToken()
+		if tok.Type != exp.typ {
+			t.Errorf("token[%d]: type = %v, want %v", i, tok.Type, exp.typ)
+		}
+		if tok.Literal != exp.literal {
+			t.Errorf("token[%d]: literal = %q, want %q", i, tok.Literal, exp.literal)
+		}
+	}
+}

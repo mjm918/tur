@@ -1622,3 +1622,116 @@ func TestParser_Select_WhereOrderByLimitOffset(t *testing.T) {
 		t.Errorf("Offset = %d, want 10", offsetLit.Value.Int())
 	}
 }
+
+// ========== GROUP BY Tests ==========
+
+func TestParser_Select_GroupBy(t *testing.T) {
+	input := "SELECT department, COUNT(*) FROM employees GROUP BY department"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel := stmt.(*SelectStmt)
+
+	// Check GROUP BY
+	if len(sel.GroupBy) != 1 {
+		t.Fatalf("GroupBy count = %d, want 1", len(sel.GroupBy))
+	}
+
+	colRef, ok := sel.GroupBy[0].(*ColumnRef)
+	if !ok {
+		t.Fatalf("GroupBy[0] type = %T, want *ColumnRef", sel.GroupBy[0])
+	}
+	if colRef.Name != "department" {
+		t.Errorf("GroupBy[0].Name = %q, want 'department'", colRef.Name)
+	}
+}
+
+func TestParser_Select_GroupByMultipleColumns(t *testing.T) {
+	input := "SELECT department, title, COUNT(*) FROM employees GROUP BY department, title"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel := stmt.(*SelectStmt)
+
+	// Check GROUP BY
+	if len(sel.GroupBy) != 2 {
+		t.Fatalf("GroupBy count = %d, want 2", len(sel.GroupBy))
+	}
+
+	col1 := sel.GroupBy[0].(*ColumnRef)
+	col2 := sel.GroupBy[1].(*ColumnRef)
+
+	if col1.Name != "department" {
+		t.Errorf("GroupBy[0].Name = %q, want 'department'", col1.Name)
+	}
+	if col2.Name != "title" {
+		t.Errorf("GroupBy[1].Name = %q, want 'title'", col2.Name)
+	}
+}
+
+func TestParser_Select_GroupByWithHaving(t *testing.T) {
+	input := "SELECT department, COUNT(*) FROM employees GROUP BY department HAVING COUNT(*) > 5"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel := stmt.(*SelectStmt)
+
+	// Check GROUP BY
+	if len(sel.GroupBy) != 1 {
+		t.Fatalf("GroupBy count = %d, want 1", len(sel.GroupBy))
+	}
+
+	// Check HAVING
+	if sel.Having == nil {
+		t.Fatal("Having = nil, want non-nil")
+	}
+
+	binary, ok := sel.Having.(*BinaryExpr)
+	if !ok {
+		t.Fatalf("Having type = %T, want *BinaryExpr", sel.Having)
+	}
+
+	if binary.Op != lexer.GT {
+		t.Errorf("Having.Op = %v, want GT", binary.Op)
+	}
+}
+
+func TestParser_Select_WhereGroupByHavingOrderBy(t *testing.T) {
+	input := "SELECT department, AVG(salary) FROM employees WHERE status = 'active' GROUP BY department HAVING AVG(salary) > 50000 ORDER BY department"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel := stmt.(*SelectStmt)
+
+	// WHERE
+	if sel.Where == nil {
+		t.Error("Where = nil, want non-nil")
+	}
+
+	// GROUP BY
+	if len(sel.GroupBy) != 1 {
+		t.Fatalf("GroupBy count = %d, want 1", len(sel.GroupBy))
+	}
+
+	// HAVING
+	if sel.Having == nil {
+		t.Error("Having = nil, want non-nil")
+	}
+
+	// ORDER BY
+	if len(sel.OrderBy) != 1 {
+		t.Fatalf("OrderBy count = %d, want 1", len(sel.OrderBy))
+	}
+}
