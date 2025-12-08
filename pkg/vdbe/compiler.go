@@ -57,6 +57,8 @@ func (c *Compiler) Compile(stmt parser.Statement) (*Program, error) {
 		return c.compileSelect(s)
 	case *parser.InsertStmt:
 		return c.compileInsert(s)
+	case *parser.DeleteStmt:
+		return c.compileDelete(s)
 	case *parser.CreateTableStmt:
 		return c.compileCreateTable(s)
 	default:
@@ -447,5 +449,131 @@ func (c *Compiler) compileCreateTable(stmt *parser.CreateTableStmt) (*Program, e
 	// We just generate Init + Halt
 	c.program.AddOp(OpInit, 0, 1, 0)
 	c.program.AddOp(OpHalt, 0, 0, 0)
+	return c.program, nil
+}
+
+// compileDelete compiles a DELETE statement
+// DELETE FROM table [WHERE expr]
+//
+// For DELETE without WHERE (delete all rows):
+//
+//	Init -> start
+//	OpenWrite cursor, rootPage
+//
+// loop:
+//
+//	Rewind cursor, end           ; Jump if empty
+//	Delete cursor                ; Delete first row
+//	Goto loop                    ; Repeat until empty
+//
+// end:
+//
+//	Close cursor
+//	Halt
+//
+// For DELETE with WHERE:
+//
+//	Init -> start
+//	OpenWrite cursor, rootPage
+//	Rewind cursor, end           ; Jump if empty
+//
+// loop:
+//
+//	[Column loads for WHERE clause columns]
+//	[WHERE evaluation]
+//	IfNot condReg, next          ; Skip if WHERE is false
+//	Delete cursor                ; Delete current row
+//
+// next:
+//
+//	Next cursor, loop            ; Continue loop
+//
+// end:
+//
+//	Close cursor
+//	Halt
+func (c *Compiler) compileDelete(stmt *parser.DeleteStmt) (*Program, error) {
+	// Get table
+	table := c.catalog.GetTable(stmt.TableName)
+	if table == nil {
+		return nil, fmt.Errorf("table %s not found", stmt.TableName)
+	}
+
+	// Allocate cursor for writing (delete requires write access)
+	cursorIdx := c.allocCursor()
+
+	// Init
+	addrInit := c.program.AddOp(OpInit, 0, 0, 0)
+
+	// Open for write
+	c.program.AddOp(OpOpenWrite, cursorIdx, int(table.RootPage), 0)
+
+	if stmt.Where == nil {
+		// DELETE without WHERE: delete all rows
+		// Use a loop that keeps rewinding and deleting the first row
+		// until the table is empty
+
+		// Loop start
+		addrLoopStart := c.program.Len()
+
+		// Rewind - jump to end if empty
+		addrRewind := c.program.AddOp(OpRewind, cursorIdx, 0, 0)
+
+		// Delete first row
+		c.program.AddOp(OpDelete, cursorIdx, 0, 0)
+
+		// Goto loop start
+		c.program.AddOp(OpGoto, 0, addrLoopStart, 0)
+
+		// End
+		addrEnd := c.program.Len()
+		c.program.AddOp(OpClose, cursorIdx, 0, 0)
+		c.program.AddOp(OpHalt, 0, 0, 0)
+
+		// Fix jump targets
+		c.program.ChangeP2(addrInit, 1) // Jump past Init to OpenWrite
+		c.program.ChangeP2(addrRewind, addrEnd)
+	} else {
+		// DELETE with WHERE: iterate and selectively delete
+		// Build column map for WHERE clause
+		colMap := make(map[string]int)
+		for i, col := range table.Columns {
+			colMap[col.Name] = i
+		}
+
+		// Rewind - jump to end if empty
+		addrRewind := c.program.AddOp(OpRewind, cursorIdx, 0, 0)
+
+		// Loop start
+		addrLoopStart := c.program.Len()
+
+		// Compile WHERE expression
+		condReg := c.allocReg()
+		if err := c.compileExpr(stmt.Where, colMap, cursorIdx, condReg); err != nil {
+			return nil, err
+		}
+		// If condition is false, skip to next
+		addrSkipDelete := c.program.AddOp(OpIfNot, condReg, 0, 0)
+
+		// Delete current row
+		c.program.AddOp(OpDelete, cursorIdx, 0, 0)
+
+		// Jump address for skip
+		addrNext := c.program.Len()
+		c.program.ChangeP2(addrSkipDelete, addrNext)
+
+		// Next - jump back to loop if more rows
+		c.program.AddOp(OpNext, cursorIdx, addrLoopStart, 0)
+
+		// End
+		addrEnd := c.program.Len()
+		c.program.AddOp(OpClose, cursorIdx, 0, 0)
+		c.program.AddOp(OpHalt, 0, 0, 0)
+
+		// Fix jump targets
+		c.program.ChangeP2(addrInit, 1) // Jump past Init to OpenWrite
+		c.program.ChangeP2(addrRewind, addrEnd)
+	}
+
 	return c.program, nil
 }

@@ -268,3 +268,166 @@ func TestVDBEExpressionEvaluation(t *testing.T) {
 		t.Errorf("expected (10, 5), got (%d, %d)", results[0][0].Int(), results[0][1].Int())
 	}
 }
+
+// TestVDBEDeleteCompilation tests compiling DELETE to VDBE bytecode
+func TestVDBEDeleteCompilation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	p, err := pager.Open(path, pager.Options{PageSize: 4096})
+	if err != nil {
+		t.Fatalf("failed to open pager: %v", err)
+	}
+	defer p.Close()
+
+	// Create table and insert data
+	bt, _ := btree.Create(p)
+
+	catalog := schema.NewCatalog()
+	catalog.CreateTable(&schema.TableDef{
+		Name: "items",
+		Columns: []schema.ColumnDef{
+			{Name: "id", Type: types.TypeInt, PrimaryKey: true},
+			{Name: "name", Type: types.TypeText},
+		},
+		RootPage: bt.RootPage(),
+	})
+
+	// Insert test data via VDBE
+	insertSQL := []string{
+		"INSERT INTO items (id, name) VALUES (1, 'Apple')",
+		"INSERT INTO items (id, name) VALUES (2, 'Banana')",
+		"INSERT INTO items (id, name) VALUES (3, 'Cherry')",
+	}
+
+	for _, sql := range insertSQL {
+		stmt, _ := parser.New(sql).Parse()
+		compiler := NewCompiler(catalog, p)
+		prog, _ := compiler.Compile(stmt)
+		vm := NewVM(prog, p)
+		vm.SetNumRegisters(compiler.NumRegisters())
+		if err := vm.Run(); err != nil {
+			t.Fatalf("insert failed: %v", err)
+		}
+	}
+
+	// Verify initial count is 3
+	selectStmt, _ := parser.New("SELECT id FROM items").Parse()
+	selectCompiler := NewCompiler(catalog, p)
+	selectProg, _ := selectCompiler.Compile(selectStmt)
+	selectVM := NewVM(selectProg, p)
+	selectVM.SetNumRegisters(selectCompiler.NumRegisters())
+	selectVM.Run()
+	if len(selectVM.Results()) != 3 {
+		t.Fatalf("expected 3 rows before delete, got %d", len(selectVM.Results()))
+	}
+
+	// Compile and execute DELETE with WHERE clause
+	deleteSQL := "DELETE FROM items WHERE id = 2"
+	deleteStmt, err := parser.New(deleteSQL).Parse()
+	if err != nil {
+		t.Fatalf("parse delete failed: %v", err)
+	}
+
+	deleteCompiler := NewCompiler(catalog, p)
+	deleteProg, err := deleteCompiler.Compile(deleteStmt)
+	if err != nil {
+		t.Fatalf("compile delete failed: %v", err)
+	}
+
+	deleteVM := NewVM(deleteProg, p)
+	deleteVM.SetNumRegisters(deleteCompiler.NumRegisters())
+	if err := deleteVM.Run(); err != nil {
+		t.Fatalf("delete execution failed: %v", err)
+	}
+
+	// Verify count is now 2
+	selectCompiler2 := NewCompiler(catalog, p)
+	selectProg2, _ := selectCompiler2.Compile(selectStmt)
+	selectVM2 := NewVM(selectProg2, p)
+	selectVM2.SetNumRegisters(selectCompiler2.NumRegisters())
+	selectVM2.Run()
+	if len(selectVM2.Results()) != 2 {
+		t.Errorf("expected 2 rows after delete, got %d", len(selectVM2.Results()))
+	}
+
+	// Verify id=2 is gone
+	for _, row := range selectVM2.Results() {
+		if row[0].Int() == 2 {
+			t.Error("id=2 should have been deleted")
+		}
+	}
+}
+
+// TestVDBEDeleteAll tests DELETE without WHERE clause (delete all rows)
+func TestVDBEDeleteAll(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	p, _ := pager.Open(path, pager.Options{PageSize: 4096})
+	defer p.Close()
+
+	bt, _ := btree.Create(p)
+
+	catalog := schema.NewCatalog()
+	catalog.CreateTable(&schema.TableDef{
+		Name: "temp",
+		Columns: []schema.ColumnDef{
+			{Name: "id", Type: types.TypeInt, PrimaryKey: true},
+		},
+		RootPage: bt.RootPage(),
+	})
+
+	// Insert data
+	for i := 1; i <= 5; i++ {
+		sql := "INSERT INTO temp (id) VALUES (" + string(rune('0'+i)) + ")"
+		// Use proper formatting
+		insertSQL := "INSERT INTO temp (id) VALUES (" + intToStr(i) + ")"
+		stmt, _ := parser.New(insertSQL).Parse()
+		compiler := NewCompiler(catalog, p)
+		prog, _ := compiler.Compile(stmt)
+		vm := NewVM(prog, p)
+		vm.SetNumRegisters(compiler.NumRegisters())
+		_ = sql // suppress unused warning
+		vm.Run()
+	}
+
+	// Delete all rows
+	deleteSQL := "DELETE FROM temp"
+	deleteStmt, _ := parser.New(deleteSQL).Parse()
+	deleteCompiler := NewCompiler(catalog, p)
+	deleteProg, err := deleteCompiler.Compile(deleteStmt)
+	if err != nil {
+		t.Fatalf("compile delete failed: %v", err)
+	}
+
+	deleteVM := NewVM(deleteProg, p)
+	deleteVM.SetNumRegisters(deleteCompiler.NumRegisters())
+	if err := deleteVM.Run(); err != nil {
+		t.Fatalf("delete execution failed: %v", err)
+	}
+
+	// Verify table is empty
+	selectStmt, _ := parser.New("SELECT id FROM temp").Parse()
+	selectCompiler := NewCompiler(catalog, p)
+	selectProg, _ := selectCompiler.Compile(selectStmt)
+	selectVM := NewVM(selectProg, p)
+	selectVM.SetNumRegisters(selectCompiler.NumRegisters())
+	selectVM.Run()
+	if len(selectVM.Results()) != 0 {
+		t.Errorf("expected 0 rows after delete all, got %d", len(selectVM.Results()))
+	}
+}
+
+// intToStr converts int to string (simple helper)
+func intToStr(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	result := ""
+	for n > 0 {
+		result = string(rune('0'+n%10)) + result
+		n /= 10
+	}
+	return result
+}
