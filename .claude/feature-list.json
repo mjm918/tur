@@ -627,7 +627,7 @@
         },
         {
           "task": "Compute histograms for column value distributions",
-          "done": false
+          "done": true
         },
         {
           "task": "Store statistics in system catalog",

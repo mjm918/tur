@@ -143,6 +143,124 @@ func CreateTableStatistics(tableName string, samples [][]types.Value, cols []sch
 	}
 }
 
+// BuildHistogram creates equi-depth histogram buckets from sorted values
+// numBuckets is the target number of buckets (may be less if fewer distinct values)
+func BuildHistogram(values []types.Value, numBuckets int) []schema.HistogramBucket {
+	if len(values) == 0 {
+		return nil
+	}
+
+	// Sort the values first
+	sortedValues := make([]types.Value, len(values))
+	copy(sortedValues, values)
+	sortValues(sortedValues)
+
+	// If fewer values than buckets, create one bucket per unique value
+	if len(sortedValues) <= numBuckets {
+		buckets := make([]schema.HistogramBucket, 0, len(sortedValues))
+		var currentBucket *schema.HistogramBucket
+
+		for _, val := range sortedValues {
+			if currentBucket == nil || compareValues(val, currentBucket.UpperBound) != 0 {
+				// Start new bucket
+				if currentBucket != nil {
+					buckets = append(buckets, *currentBucket)
+				}
+				currentBucket = &schema.HistogramBucket{
+					LowerBound:    val,
+					UpperBound:    val,
+					RowCount:      1,
+					DistinctCount: 1,
+				}
+			} else {
+				// Same value, increment count
+				currentBucket.RowCount++
+			}
+		}
+		if currentBucket != nil {
+			buckets = append(buckets, *currentBucket)
+		}
+		return buckets
+	}
+
+	// Create equi-depth buckets (equal number of rows per bucket)
+	rowsPerBucket := len(sortedValues) / numBuckets
+	if rowsPerBucket < 1 {
+		rowsPerBucket = 1
+	}
+
+	buckets := make([]schema.HistogramBucket, 0, numBuckets)
+	startIdx := 0
+
+	for i := 0; i < numBuckets && startIdx < len(sortedValues); i++ {
+		endIdx := startIdx + rowsPerBucket
+		if i == numBuckets-1 {
+			// Last bucket gets all remaining values
+			endIdx = len(sortedValues)
+		}
+		if endIdx > len(sortedValues) {
+			endIdx = len(sortedValues)
+		}
+
+		// Count distinct values in this bucket
+		distinctSet := make(map[string]struct{})
+		for j := startIdx; j < endIdx; j++ {
+			distinctSet[valueToString(sortedValues[j])] = struct{}{}
+		}
+
+		bucket := schema.HistogramBucket{
+			LowerBound:    sortedValues[startIdx],
+			UpperBound:    sortedValues[endIdx-1],
+			RowCount:      int64(endIdx - startIdx),
+			DistinctCount: int64(len(distinctSet)),
+		}
+		buckets = append(buckets, bucket)
+
+		startIdx = endIdx
+	}
+
+	return buckets
+}
+
+// sortValues sorts values in place using bubble sort (simple for small samples)
+func sortValues(values []types.Value) {
+	n := len(values)
+	for i := 0; i < n-1; i++ {
+		for j := 0; j < n-i-1; j++ {
+			if compareValues(values[j], values[j+1]) > 0 {
+				values[j], values[j+1] = values[j+1], values[j]
+			}
+		}
+	}
+}
+
+// CollectColumnStatisticsWithHistogram collects statistics including histograms
+func CollectColumnStatisticsWithHistogram(samples [][]types.Value, cols []schema.ColumnDef, totalRows int64, numBuckets int) map[string]*schema.ColumnStatistics {
+	result := CollectColumnStatistics(samples, cols, totalRows)
+
+	// Build histograms for each column
+	for colIdx, col := range cols {
+		stats := result[col.Name]
+		if stats == nil {
+			continue
+		}
+
+		// Extract non-null values for histogram
+		values := make([]types.Value, 0, len(samples))
+		for _, row := range samples {
+			if colIdx < len(row) && !row[colIdx].IsNull() {
+				values = append(values, row[colIdx])
+			}
+		}
+
+		if len(values) > 0 {
+			stats.Histogram = BuildHistogram(values, numBuckets)
+		}
+	}
+
+	return result
+}
+
 // valueToString converts a value to a string for distinct counting
 func valueToString(val types.Value) string {
 	switch val.Type() {
