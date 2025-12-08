@@ -226,3 +226,16 @@ type WindowFunction struct {
 }
 
 func (w *WindowFunction) expressionNode() {}
+
+// CTE represents a Common Table Expression
+type CTE struct {
+	Name    string      // CTE name
+	Columns []string    // Optional column list
+	Query   *SelectStmt // The SELECT query defining the CTE
+}
+
+// WithClause represents a WITH clause containing CTEs
+type WithClause struct {
+	Recursive bool  // Whether this is RECURSIVE
+	CTEs      []CTE // List of CTEs
+}

@@ -163,3 +163,80 @@ func TestFunctionCall(t *testing.T) {
 		t.Errorf("Expected 1 argument, got %d", len(fc.Args))
 	}
 }
+
+// TestCTE tests Common Table Expression AST node
+func TestCTE(t *testing.T) {
+	cte := &CTE{
+		Name: "temp_results",
+		Columns: []string{"id", "name"},
+		Query: &SelectStmt{
+			Columns: []SelectColumn{
+				{Star: true},
+			},
+			From: "users",
+		},
+	}
+
+	if cte.Name != "temp_results" {
+		t.Errorf("Expected CTE name temp_results, got %s", cte.Name)
+	}
+	if len(cte.Columns) != 2 {
+		t.Errorf("Expected 2 columns, got %d", len(cte.Columns))
+	}
+	if cte.Query == nil {
+		t.Error("Query should not be nil")
+	}
+}
+
+// TestWithClause tests WITH clause for CTEs
+func TestWithClause(t *testing.T) {
+	withClause := &WithClause{
+		Recursive: false,
+		CTEs: []CTE{
+			{
+				Name: "cte1",
+				Query: &SelectStmt{
+					Columns: []SelectColumn{{Star: true}},
+					From:    "table1",
+				},
+			},
+			{
+				Name: "cte2",
+				Query: &SelectStmt{
+					Columns: []SelectColumn{{Star: true}},
+					From:    "table2",
+				},
+			},
+		},
+	}
+
+	if withClause.Recursive {
+		t.Error("Expected non-recursive WITH clause")
+	}
+	if len(withClause.CTEs) != 2 {
+		t.Errorf("Expected 2 CTEs, got %d", len(withClause.CTEs))
+	}
+}
+
+// TestWithClause_Recursive tests recursive WITH clause
+func TestWithClause_Recursive(t *testing.T) {
+	withClause := &WithClause{
+		Recursive: true,
+		CTEs: []CTE{
+			{
+				Name: "recursive_cte",
+				Query: &SelectStmt{
+					Columns: []SelectColumn{{Star: true}},
+					From:    "base_table",
+				},
+			},
+		},
+	}
+
+	if !withClause.Recursive {
+		t.Error("Expected recursive WITH clause")
+	}
+	if len(withClause.CTEs) != 1 {
+		t.Errorf("Expected 1 CTE, got %d", len(withClause.CTEs))
+	}
+}

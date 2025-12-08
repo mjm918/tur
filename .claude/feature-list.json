@@ -529,7 +529,7 @@
         },
         {
           "task": "Add AST nodes for CTEs (WITH clause)",
-          "done": false
+          "done": true
         },
         {
           "task": "Add AST nodes for set operations (UNION, INTERSECT, EXCEPT)",
