@@ -414,6 +414,78 @@ func TestExecutor_Analyze_TableNotFound(t *testing.T) {
 	}
 }
 
+func TestExecutor_Insert_UpdatesRowCount(t *testing.T) {
+	e, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create a table
+	_, err := e.Execute("CREATE TABLE users (id INT, name TEXT)")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	// First run ANALYZE to establish baseline statistics
+	_, err = e.Execute("ANALYZE users")
+	if err != nil {
+		t.Fatalf("failed to analyze table: %v", err)
+	}
+
+	stats := e.GetCatalog().GetTableStatistics("users")
+	if stats == nil || stats.RowCount != 0 {
+		t.Fatalf("expected 0 rows initially, got %v", stats)
+	}
+
+	// Insert some rows
+	for i := 0; i < 10; i++ {
+		_, err = e.Execute(fmt.Sprintf("INSERT INTO users VALUES (%d, 'user%d')", i, i))
+		if err != nil {
+			t.Fatalf("failed to insert row %d: %v", i, err)
+		}
+	}
+
+	// Check that row count was updated incrementally
+	stats = e.GetCatalog().GetTableStatistics("users")
+	if stats == nil {
+		t.Fatal("expected statistics after inserts")
+	}
+
+	if stats.RowCount != 10 {
+		t.Errorf("expected row count 10 after inserts, got %d", stats.RowCount)
+	}
+}
+
+func TestExecutor_BulkInsert_UpdatesRowCount(t *testing.T) {
+	e, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create a table
+	_, err := e.Execute("CREATE TABLE products (id INT)")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	// Analyze first to create initial statistics
+	_, err = e.Execute("ANALYZE products")
+	if err != nil {
+		t.Fatalf("failed to analyze: %v", err)
+	}
+
+	// Insert 100 rows
+	for i := 0; i < 100; i++ {
+		_, _ = e.Execute(fmt.Sprintf("INSERT INTO products VALUES (%d)", i))
+	}
+
+	// Check statistics
+	stats := e.GetCatalog().GetTableStatistics("products")
+	if stats == nil {
+		t.Fatal("expected statistics")
+	}
+
+	if stats.RowCount != 100 {
+		t.Errorf("expected row count 100, got %d", stats.RowCount)
+	}
+}
+
 func TestCreateTableStatistics(t *testing.T) {
 	samples := [][]types.Value{
 		{types.NewInt(1)},

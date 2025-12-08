@@ -611,7 +611,7 @@
     {
       "title": "SQL - Statistics Collection",
       "description": "Collect table and index statistics for query planning (ANALYZE)",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Design statistics storage format (row count, distinct values)",
@@ -635,7 +635,7 @@
         },
         {
           "task": "Update statistics incrementally on bulk inserts",
-          "done": false
+          "done": true
         }
       ]
     },

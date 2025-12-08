@@ -461,7 +461,28 @@ func (e *Executor) executeInsert(stmt *parser.InsertStmt) (*Result, error) {
 		rowsAffected++
 	}
 
+	// Update statistics incrementally if they exist
+	if rowsAffected > 0 {
+		e.incrementTableRowCount(stmt.TableName, rowsAffected)
+	}
+
 	return &Result{RowsAffected: rowsAffected}, nil
+}
+
+// incrementTableRowCount increments the row count in table statistics
+// This provides lightweight incremental updates without full ANALYZE
+func (e *Executor) incrementTableRowCount(tableName string, delta int64) {
+	stats := e.catalog.GetTableStatistics(tableName)
+	if stats == nil {
+		// No statistics exist yet, nothing to update
+		return
+	}
+
+	// Create updated statistics with new row count
+	stats.RowCount += delta
+	// Note: We don't update column statistics here as that would require
+	// scanning the new data. Full column stats require ANALYZE.
+	_ = e.catalog.UpdateTableStatistics(tableName, stats)
 }
 
 // validateConstraints validates row values against table constraints
