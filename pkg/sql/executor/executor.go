@@ -465,6 +465,11 @@ func (e *Executor) executeInsert(stmt *parser.InsertStmt) (*Result, error) {
 		rowsAffected++
 	}
 
+	// Update statistics incrementally if they exist
+	if rowsAffected > 0 {
+		e.incrementTableRowCount(stmt.TableName, rowsAffected)
+	}
+
 	return &Result{RowsAffected: rowsAffected}, nil
 }
 
@@ -663,9 +668,9 @@ func (e *Executor) executeDelete(stmt *parser.DeleteStmt) (*Result, error) {
 		rowsAffected++
 	}
 
-	// Update statistics incrementally if they exist
+	// Update statistics incrementally if they exist (decrement for DELETE)
 	if rowsAffected > 0 {
-		e.incrementTableRowCount(stmt.TableName, rowsAffected)
+		e.incrementTableRowCount(stmt.TableName, -rowsAffected)
 	}
 
 	return &Result{RowsAffected: rowsAffected}, nil
