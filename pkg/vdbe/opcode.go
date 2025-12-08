@@ -67,6 +67,13 @@ const (
 	OpAggInit  // Initialize aggregate: P1=aggIdx, P4=name (string)
 	OpAggStep  // Step aggregate: P1=aggIdx, P2=valueReg
 	OpAggFinal // Finalize aggregate: P1=aggIdx, P2=destReg
+
+	// Vector operations (TurDB extension)
+	OpVectorDistance  // r[P3] = cosine_distance(r[P1], r[P2])
+	OpVectorNormalize // r[P2] = normalize(r[P1])
+	OpVectorDot       // r[P3] = dot_product(r[P1], r[P2])
+	OpVectorFromBlob  // r[P2] = vector_from_blob(r[P1])
+	OpVectorToBlob    // r[P2] = vector_to_blob(r[P1])
 )
 
 // String returns the name of the opcode
@@ -152,6 +159,16 @@ func (op Opcode) String() string {
 		return "AggStep"
 	case OpAggFinal:
 		return "AggFinal"
+	case OpVectorDistance:
+		return "VectorDistance"
+	case OpVectorNormalize:
+		return "VectorNormalize"
+	case OpVectorDot:
+		return "VectorDot"
+	case OpVectorFromBlob:
+		return "VectorFromBlob"
+	case OpVectorToBlob:
+		return "VectorToBlob"
 	default:
 		return "Unknown"
 	}

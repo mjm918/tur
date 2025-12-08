@@ -4,6 +4,7 @@ package vdbe
 import (
 	"testing"
 
+	"tur/pkg/hnsw"
 	"tur/pkg/types"
 )
 
@@ -374,5 +375,405 @@ func TestVMResultRow(t *testing.T) {
 	}
 	if rows[0][1].Text() != "hello" {
 		t.Errorf("expected second column = 'hello', got '%s'", rows[0][1].Text())
+	}
+}
+
+func TestVMRunVectorDistance(t *testing.T) {
+	// Create two vectors and compute cosine distance
+	// v1 = [1, 0, 0] (normalized)
+	// v2 = [1, 0, 0] (normalized) - same vector, distance should be 0
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	v2 := types.NewVector([]float32{1.0, 0.0, 0.0})
+
+	prog := NewProgram()
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	vm.SetNumRegisters(5)
+
+	// Set vectors in registers (using P4 would be for blobs, we use SetRegister for vectors)
+	vm.SetRegister(1, types.NewVectorValue(v1))
+	vm.SetRegister(2, types.NewVectorValue(v2))
+
+	// Manually invoke distance computation
+	distInstr := &Instruction{Op: OpVectorDistance, P1: 1, P2: 2, P3: 3}
+	err := vm.ExecuteVectorDistance(distInstr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val := vm.Register(3)
+	if val.Type() != types.TypeFloat {
+		t.Errorf("expected TypeFloat, got %v", val.Type())
+	}
+	dist := val.Float()
+	if dist < -0.001 || dist > 0.001 {
+		t.Errorf("expected distance ~0 for identical vectors, got %f", dist)
+	}
+}
+
+func TestVMRunVectorDistance_Orthogonal(t *testing.T) {
+	// v1 = [1, 0, 0], v2 = [0, 1, 0] - orthogonal, cosine distance = 1
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	v2 := types.NewVector([]float32{0.0, 1.0, 0.0})
+
+	prog := NewProgram()
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	vm.SetNumRegisters(5)
+
+	vm.SetRegister(1, types.NewVectorValue(v1))
+	vm.SetRegister(2, types.NewVectorValue(v2))
+
+	distInstr := &Instruction{Op: OpVectorDistance, P1: 1, P2: 2, P3: 3}
+	err := vm.ExecuteVectorDistance(distInstr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val := vm.Register(3)
+	dist := val.Float()
+	// Cosine distance for orthogonal vectors: 1 - 0 = 1
+	if dist < 0.999 || dist > 1.001 {
+		t.Errorf("expected distance ~1 for orthogonal vectors, got %f", dist)
+	}
+}
+
+func TestVMRunVectorDistance_ViaProgram(t *testing.T) {
+	// Test OpVectorDistance through normal VM execution
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	v2 := types.NewVector([]float32{0.0, 1.0, 0.0})
+
+	prog := NewProgram()
+	prog.AddOp(OpVectorDistance, 1, 2, 3) // r[3] = distance(r[1], r[2])
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	vm.SetNumRegisters(5)
+	vm.SetRegister(1, types.NewVectorValue(v1))
+	vm.SetRegister(2, types.NewVectorValue(v2))
+
+	err := vm.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val := vm.Register(3)
+	if val.Type() != types.TypeFloat {
+		t.Errorf("expected TypeFloat, got %v", val.Type())
+	}
+	dist := val.Float()
+	if dist < 0.999 || dist > 1.001 {
+		t.Errorf("expected distance ~1 for orthogonal vectors, got %f", dist)
+	}
+}
+
+func TestVMRunVectorNormalize(t *testing.T) {
+	// Create an unnormalized vector [3, 4, 0] - magnitude = 5
+	v := types.NewVector([]float32{3.0, 4.0, 0.0})
+
+	prog := NewProgram()
+	prog.AddOp(OpVectorNormalize, 1, 2, 0) // r[2] = normalize(r[1])
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	vm.SetNumRegisters(5)
+	vm.SetRegister(1, types.NewVectorValue(v))
+
+	err := vm.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val := vm.Register(2)
+	if val.Type() != types.TypeVector {
+		t.Errorf("expected TypeVector, got %v", val.Type())
+	}
+
+	normalized := val.Vector()
+	if normalized == nil {
+		t.Fatal("expected non-nil vector")
+	}
+
+	// After normalization: [0.6, 0.8, 0.0]
+	data := normalized.Data()
+	if len(data) != 3 {
+		t.Errorf("expected 3 dimensions, got %d", len(data))
+	}
+
+	// Check normalized values (3/5 = 0.6, 4/5 = 0.8)
+	epsilon := float32(0.001)
+	if data[0] < 0.6-epsilon || data[0] > 0.6+epsilon {
+		t.Errorf("expected data[0] ~0.6, got %f", data[0])
+	}
+	if data[1] < 0.8-epsilon || data[1] > 0.8+epsilon {
+		t.Errorf("expected data[1] ~0.8, got %f", data[1])
+	}
+	if data[2] < -epsilon || data[2] > epsilon {
+		t.Errorf("expected data[2] ~0, got %f", data[2])
+	}
+}
+
+func TestVMRunVectorNormalize_AlreadyNormalized(t *testing.T) {
+	// Already normalized vector
+	v := types.NewVector([]float32{1.0, 0.0, 0.0})
+
+	prog := NewProgram()
+	prog.AddOp(OpVectorNormalize, 1, 2, 0)
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	vm.SetNumRegisters(5)
+	vm.SetRegister(1, types.NewVectorValue(v))
+
+	err := vm.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val := vm.Register(2)
+	normalized := val.Vector()
+	data := normalized.Data()
+
+	epsilon := float32(0.001)
+	if data[0] < 1.0-epsilon || data[0] > 1.0+epsilon {
+		t.Errorf("expected data[0] ~1.0, got %f", data[0])
+	}
+}
+
+func TestVMVectorSearchCursor(t *testing.T) {
+	// Create a simple HNSW index with a few vectors
+	cfg := hnsw.DefaultConfig(3)
+	idx := hnsw.NewIndex(cfg)
+
+	// Insert some test vectors
+	idx.Insert(1, types.NewVector([]float32{1.0, 0.0, 0.0}))
+	idx.Insert(2, types.NewVector([]float32{0.0, 1.0, 0.0}))
+	idx.Insert(3, types.NewVector([]float32{0.0, 0.0, 1.0}))
+	idx.Insert(4, types.NewVector([]float32{0.9, 0.1, 0.0})) // Closest to [1,0,0]
+
+	// Query vector closest to [1, 0, 0]
+	queryVec := types.NewVector([]float32{1.0, 0.0, 0.0})
+
+	prog := NewProgram()
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	vm.SetNumRegisters(10)
+
+	// Set up query vector in register 1
+	vm.SetRegister(1, types.NewVectorValue(queryVec))
+
+	// Create vector search cursor
+	cursor := vm.CreateVectorSearchCursor(idx, 2) // k=2
+
+	// Execute search with query from register 1
+	err := cursor.Search(vm.Register(1).Vector())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Get first result
+	if !cursor.Valid() {
+		t.Fatal("expected cursor to be valid after search")
+	}
+
+	rowID1, dist1 := cursor.Current()
+	// First result should be rowID 1 or 4 (both very close to query)
+	if rowID1 != 1 && rowID1 != 4 {
+		t.Errorf("expected first result rowID 1 or 4, got %d", rowID1)
+	}
+	if dist1 > 0.2 {
+		t.Errorf("expected distance < 0.2 for closest vector, got %f", dist1)
+	}
+
+	// Move to second result
+	cursor.Next()
+	if !cursor.Valid() {
+		t.Fatal("expected cursor to be valid for second result")
+	}
+
+	rowID2, _ := cursor.Current()
+	if rowID2 == rowID1 {
+		t.Error("second result should be different from first")
+	}
+
+	// Move past results
+	cursor.Next()
+	if cursor.Valid() {
+		t.Error("expected cursor to be invalid after k results")
+	}
+}
+
+func TestVMRunVectorToBlob(t *testing.T) {
+	// Create a vector and serialize to blob
+	v := types.NewVector([]float32{1.0, 2.0, 3.0})
+
+	prog := NewProgram()
+	prog.AddOp(OpVectorToBlob, 1, 2, 0) // r[2] = vector_to_blob(r[1])
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	vm.SetNumRegisters(5)
+	vm.SetRegister(1, types.NewVectorValue(v))
+
+	err := vm.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val := vm.Register(2)
+	if val.Type() != types.TypeBlob {
+		t.Errorf("expected TypeBlob, got %v", val.Type())
+	}
+
+	blob := val.Blob()
+	// 4 bytes dimension + 3*4 bytes data = 16 bytes
+	if len(blob) != 16 {
+		t.Errorf("expected 16 bytes, got %d", len(blob))
+	}
+}
+
+func TestVMRunVectorFromBlob(t *testing.T) {
+	// Create a blob from a vector, then deserialize it back
+	v := types.NewVector([]float32{1.0, 2.0, 3.0})
+	blob := v.ToBytes()
+
+	prog := NewProgram()
+	prog.AddOp(OpVectorFromBlob, 1, 2, 0) // r[2] = vector_from_blob(r[1])
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	vm.SetNumRegisters(5)
+	vm.SetRegister(1, types.NewBlob(blob))
+
+	err := vm.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val := vm.Register(2)
+	if val.Type() != types.TypeVector {
+		t.Errorf("expected TypeVector, got %v", val.Type())
+	}
+
+	vec := val.Vector()
+	if vec == nil {
+		t.Fatal("expected non-nil vector")
+	}
+
+	data := vec.Data()
+	if len(data) != 3 {
+		t.Errorf("expected 3 dimensions, got %d", len(data))
+	}
+
+	epsilon := float32(0.001)
+	if data[0] < 1.0-epsilon || data[0] > 1.0+epsilon {
+		t.Errorf("expected data[0] ~1.0, got %f", data[0])
+	}
+	if data[1] < 2.0-epsilon || data[1] > 2.0+epsilon {
+		t.Errorf("expected data[1] ~2.0, got %f", data[1])
+	}
+	if data[2] < 3.0-epsilon || data[2] > 3.0+epsilon {
+		t.Errorf("expected data[2] ~3.0, got %f", data[2])
+	}
+}
+
+func TestVMRunVectorRoundtrip(t *testing.T) {
+	// Test complete roundtrip: vector -> blob -> vector
+	v := types.NewVector([]float32{0.5, 0.5, 0.5, 0.5})
+
+	prog := NewProgram()
+	prog.AddOp(OpVectorToBlob, 1, 2, 0)   // r[2] = blob(r[1])
+	prog.AddOp(OpVectorFromBlob, 2, 3, 0) // r[3] = vector(r[2])
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	vm.SetNumRegisters(5)
+	vm.SetRegister(1, types.NewVectorValue(v))
+
+	err := vm.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Compare original and roundtripped vectors
+	originalVec := vm.Register(1).Vector()
+	roundtrippedVec := vm.Register(3).Vector()
+
+	if roundtrippedVec == nil {
+		t.Fatal("expected non-nil roundtripped vector")
+	}
+
+	origData := originalVec.Data()
+	rtData := roundtrippedVec.Data()
+
+	if len(origData) != len(rtData) {
+		t.Errorf("dimension mismatch: %d vs %d", len(origData), len(rtData))
+	}
+
+	epsilon := float32(0.001)
+	for i := range origData {
+		diff := origData[i] - rtData[i]
+		if diff < -epsilon || diff > epsilon {
+			t.Errorf("mismatch at index %d: %f vs %f", i, origData[i], rtData[i])
+		}
+	}
+}
+
+func TestVMRunVectorDot(t *testing.T) {
+	// Test dot product: [1, 2, 3] · [4, 5, 6] = 4 + 10 + 18 = 32
+	v1 := types.NewVector([]float32{1.0, 2.0, 3.0})
+	v2 := types.NewVector([]float32{4.0, 5.0, 6.0})
+
+	prog := NewProgram()
+	prog.AddOp(OpVectorDot, 1, 2, 3) // r[3] = dot(r[1], r[2])
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	vm.SetNumRegisters(5)
+	vm.SetRegister(1, types.NewVectorValue(v1))
+	vm.SetRegister(2, types.NewVectorValue(v2))
+
+	err := vm.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val := vm.Register(3)
+	if val.Type() != types.TypeFloat {
+		t.Errorf("expected TypeFloat, got %v", val.Type())
+	}
+
+	dot := val.Float()
+	if dot < 31.99 || dot > 32.01 {
+		t.Errorf("expected dot product ~32, got %f", dot)
+	}
+}
+
+func TestVMRunVectorDot_Orthogonal(t *testing.T) {
+	// Orthogonal vectors: [1, 0, 0] · [0, 1, 0] = 0
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	v2 := types.NewVector([]float32{0.0, 1.0, 0.0})
+
+	prog := NewProgram()
+	prog.AddOp(OpVectorDot, 1, 2, 3)
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	vm.SetNumRegisters(5)
+	vm.SetRegister(1, types.NewVectorValue(v1))
+	vm.SetRegister(2, types.NewVectorValue(v2))
+
+	err := vm.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val := vm.Register(3)
+	dot := val.Float()
+	if dot < -0.001 || dot > 0.001 {
+		t.Errorf("expected dot product ~0 for orthogonal vectors, got %f", dot)
 	}
 }

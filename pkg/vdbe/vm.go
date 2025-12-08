@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"tur/pkg/btree"
+	"tur/pkg/hnsw"
 	"tur/pkg/pager"
 	"tur/pkg/record"
 	"tur/pkg/types"
@@ -15,6 +16,66 @@ type VDBECursor struct {
 	btree  *btree.BTree
 	cursor *btree.Cursor
 	isOpen bool
+}
+
+// VectorSearchCursor represents a cursor for iterating HNSW search results
+type VectorSearchCursor struct {
+	index   *hnsw.Index
+	k       int                  // Number of results to return
+	results []hnsw.SearchResult  // Cached search results
+	pos     int                  // Current position in results
+}
+
+// NewVectorSearchCursor creates a new vector search cursor
+func NewVectorSearchCursor(index *hnsw.Index, k int) *VectorSearchCursor {
+	return &VectorSearchCursor{
+		index:   index,
+		k:       k,
+		results: nil,
+		pos:     0,
+	}
+}
+
+// Search executes a KNN search with the given query vector
+func (c *VectorSearchCursor) Search(query *types.Vector) error {
+	if query == nil {
+		return fmt.Errorf("nil query vector")
+	}
+
+	results, err := c.index.SearchKNN(query, c.k)
+	if err != nil {
+		return err
+	}
+
+	c.results = results
+	c.pos = 0
+	return nil
+}
+
+// Valid returns true if the cursor is positioned on a valid result
+func (c *VectorSearchCursor) Valid() bool {
+	return c.results != nil && c.pos < len(c.results)
+}
+
+// Current returns the current result (rowID, distance)
+func (c *VectorSearchCursor) Current() (int64, float32) {
+	if !c.Valid() {
+		return 0, 0
+	}
+	r := c.results[c.pos]
+	return r.RowID, r.Distance
+}
+
+// Next advances to the next result
+func (c *VectorSearchCursor) Next() {
+	if c.results != nil && c.pos < len(c.results) {
+		c.pos++
+	}
+}
+
+// Reset moves back to the first result
+func (c *VectorSearchCursor) Reset() {
+	c.pos = 0
 }
 
 // VM is the Virtual Database Engine - a bytecode interpreter for SQL
@@ -78,6 +139,11 @@ func (vm *VM) SetRegister(i int, val types.Value) {
 // Results returns the result rows collected during execution
 func (vm *VM) Results() [][]types.Value {
 	return vm.results
+}
+
+// CreateVectorSearchCursor creates a new vector search cursor for an HNSW index
+func (vm *VM) CreateVectorSearchCursor(index *hnsw.Index, k int) *VectorSearchCursor {
+	return NewVectorSearchCursor(index, k)
 }
 
 // GetAggregateContext returns the aggregate function at the given index
@@ -267,6 +333,26 @@ func (vm *VM) step(instr *Instruction) error {
 	case OpAggFinal:
 		// Finalize aggregate: P1=aggIdx, P2=destReg
 		return vm.execAggFinal(instr)
+
+	case OpVectorDistance:
+		// r[P3] = cosine_distance(r[P1], r[P2])
+		return vm.ExecuteVectorDistance(instr)
+
+	case OpVectorNormalize:
+		// r[P2] = normalize(r[P1])
+		return vm.executeVectorNormalize(instr)
+
+	case OpVectorToBlob:
+		// r[P2] = vector_to_blob(r[P1])
+		return vm.executeVectorToBlob(instr)
+
+	case OpVectorFromBlob:
+		// r[P2] = vector_from_blob(r[P1])
+		return vm.executeVectorFromBlob(instr)
+
+	case OpVectorDot:
+		// r[P3] = dot_product(r[P1], r[P2])
+		return vm.executeVectorDot(instr)
 
 	default:
 		return fmt.Errorf("unimplemented opcode: %s", instr.Op)
@@ -640,6 +726,163 @@ func (vm *VM) execAggFinal(instr *Instruction) error {
 
 	result := vm.aggregates[aggIdx].Finalize()
 	vm.registers[destReg] = result
+
+	vm.pc++
+	return nil
+}
+
+// executeVectorDot computes dot product of two vectors
+// r[P3] = dot_product(r[P1], r[P2])
+func (vm *VM) executeVectorDot(instr *Instruction) error {
+	v1Reg := instr.P1
+	v2Reg := instr.P2
+	destReg := instr.P3
+
+	v1Val := vm.registers[v1Reg]
+	v2Val := vm.registers[v2Reg]
+
+	if v1Val.Type() != types.TypeVector || v2Val.Type() != types.TypeVector {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	vec1 := v1Val.Vector()
+	vec2 := v2Val.Vector()
+
+	if vec1 == nil || vec2 == nil {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	dot := vec1.DotProduct(vec2)
+	vm.registers[destReg] = types.NewFloat(float64(dot))
+
+	vm.pc++
+	return nil
+}
+
+// executeVectorToBlob serializes a vector to a blob
+// r[P2] = vector_to_blob(r[P1])
+func (vm *VM) executeVectorToBlob(instr *Instruction) error {
+	srcReg := instr.P1
+	destReg := instr.P2
+
+	srcVal := vm.registers[srcReg]
+
+	if srcVal.Type() != types.TypeVector {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	vec := srcVal.Vector()
+	if vec == nil {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	blob := vec.ToBytes()
+	vm.registers[destReg] = types.NewBlob(blob)
+
+	vm.pc++
+	return nil
+}
+
+// executeVectorFromBlob deserializes a blob to a vector
+// r[P2] = vector_from_blob(r[P1])
+func (vm *VM) executeVectorFromBlob(instr *Instruction) error {
+	srcReg := instr.P1
+	destReg := instr.P2
+
+	srcVal := vm.registers[srcReg]
+
+	if srcVal.Type() != types.TypeBlob {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	blob := srcVal.Blob()
+	if blob == nil {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	vec, err := types.VectorFromBytes(blob)
+	if err != nil {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	vm.registers[destReg] = types.NewVectorValue(vec)
+
+	vm.pc++
+	return nil
+}
+
+// executeVectorNormalize normalizes a vector to unit length
+// r[P2] = normalize(r[P1])
+func (vm *VM) executeVectorNormalize(instr *Instruction) error {
+	srcReg := instr.P1
+	destReg := instr.P2
+
+	srcVal := vm.registers[srcReg]
+
+	if srcVal.Type() != types.TypeVector {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	srcVec := srcVal.Vector()
+	if srcVec == nil {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	// Create a copy and normalize it
+	normalized := srcVec.NormalizedCopy()
+	vm.registers[destReg] = types.NewVectorValue(normalized)
+
+	vm.pc++
+	return nil
+}
+
+// ExecuteVectorDistance computes cosine distance between two vectors
+// r[P3] = cosine_distance(r[P1], r[P2])
+func (vm *VM) ExecuteVectorDistance(instr *Instruction) error {
+	v1Reg := instr.P1
+	v2Reg := instr.P2
+	destReg := instr.P3
+
+	v1Val := vm.registers[v1Reg]
+	v2Val := vm.registers[v2Reg]
+
+	// Check if both values are vectors
+	if v1Val.Type() != types.TypeVector || v2Val.Type() != types.TypeVector {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	vec1 := v1Val.Vector()
+	vec2 := v2Val.Vector()
+
+	if vec1 == nil || vec2 == nil {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	// Compute cosine distance
+	dist := vec1.CosineDistance(vec2)
+	vm.registers[destReg] = types.NewFloat(float64(dist))
 
 	vm.pc++
 	return nil

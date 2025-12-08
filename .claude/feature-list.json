@@ -724,27 +724,27 @@
     {
       "title": "VDBE - Vector Functions",
       "description": "Vector-specific functions integrated into VDBE execution",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Add vector function opcodes to VDBE",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement vector distance computation in VM",
-          "done": false
+          "done": true
         },
         {
           "task": "Add vector normalization function",
-          "done": false
+          "done": true
         },
         {
           "task": "Integrate HNSW search with VDBE cursors",
-          "done": false
+          "done": true
         },
         {
           "task": "Handle vector serialization for function parameters",
-          "done": false
+          "done": true
         }
       ]
     },

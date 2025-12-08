@@ -15,11 +15,12 @@ const (
 
 // Value represents a database value (like SQLite's Mem structure)
 type Value struct {
-	typ      ValueType
-	intVal   int64
-	floatVal float64
-	textVal  string
-	blobVal  []byte
+	typ       ValueType
+	intVal    int64
+	floatVal  float64
+	textVal   string
+	blobVal   []byte
+	vectorVal *Vector
 }
 
 func NewNull() Value {
@@ -47,6 +48,10 @@ func NewBlob(b []byte) Value {
 	return Value{typ: TypeBlob, blobVal: copied}
 }
 
+func NewVectorValue(v *Vector) Value {
+	return Value{typ: TypeVector, vectorVal: v}
+}
+
 func (v Value) Type() ValueType { return v.typ }
 func (v Value) IsNull() bool    { return v.typ == TypeNull }
 func (v Value) Int() int64      { return v.intVal }
@@ -59,4 +64,8 @@ func (v Value) Blob() []byte {
 	copied := make([]byte, len(v.blobVal))
 	copy(copied, v.blobVal)
 	return copied
+}
+
+func (v Value) Vector() *Vector {
+	return v.vectorVal
 }
