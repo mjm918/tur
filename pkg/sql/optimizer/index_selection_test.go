@@ -648,3 +648,188 @@ func TestSelectBestAccessPath_NilWhereClauseUsesTableScan(t *testing.T) {
 		t.Error("should recommend table scan without WHERE clause")
 	}
 }
+
+// Test Task 5: Handle multi-column index prefix matching
+
+func TestFindCandidateIndexes_MultiColumnIndexFirstColumn(t *testing.T) {
+	// A composite index (a, b, c) should be usable when querying on column 'a' only
+	catalog := schema.NewCatalog()
+	tableDef := &schema.TableDef{
+		Name: "orders",
+		Columns: []schema.ColumnDef{
+			{Name: "customer_id", Type: types.TypeInt},
+			{Name: "order_date", Type: types.TypeText},
+			{Name: "status", Type: types.TypeText},
+		},
+	}
+	catalog.CreateTable(tableDef)
+
+	// Composite index on (customer_id, order_date, status)
+	indexDef := &schema.IndexDef{
+		Name:      "idx_orders_composite",
+		TableName: "orders",
+		Columns:   []string{"customer_id", "order_date", "status"},
+		Type:      schema.IndexTypeBTree,
+	}
+	catalog.CreateIndex(indexDef)
+
+	// WHERE customer_id = 123 (uses first column of composite index)
+	whereClause := &parser.BinaryExpr{
+		Left:  &parser.ColumnRef{Name: "customer_id"},
+		Op:    lexer.EQ,
+		Right: &parser.Literal{Value: types.NewInt(123)},
+	}
+
+	candidates := FindCandidateIndexes(tableDef, whereClause, catalog)
+
+	if len(candidates) != 1 {
+		t.Fatalf("expected 1 candidate index, got %d", len(candidates))
+	}
+	if candidates[0].Index.Name != "idx_orders_composite" {
+		t.Errorf("expected composite index, got '%s'", candidates[0].Index.Name)
+	}
+	if candidates[0].PrefixLength != 1 {
+		t.Errorf("expected prefix length 1, got %d", candidates[0].PrefixLength)
+	}
+}
+
+func TestFindCandidateIndexes_MultiColumnIndexPrefix(t *testing.T) {
+	// A composite index should be usable for prefix predicates
+	catalog := schema.NewCatalog()
+	tableDef := &schema.TableDef{
+		Name: "orders",
+		Columns: []schema.ColumnDef{
+			{Name: "customer_id", Type: types.TypeInt},
+			{Name: "order_date", Type: types.TypeText},
+			{Name: "status", Type: types.TypeText},
+		},
+	}
+	catalog.CreateTable(tableDef)
+
+	indexDef := &schema.IndexDef{
+		Name:      "idx_orders_composite",
+		TableName: "orders",
+		Columns:   []string{"customer_id", "order_date", "status"},
+		Type:      schema.IndexTypeBTree,
+	}
+	catalog.CreateIndex(indexDef)
+
+	// WHERE customer_id = 123 AND order_date = '2024-01-01'
+	// Uses first two columns of the composite index
+	whereClause := &parser.BinaryExpr{
+		Left: &parser.BinaryExpr{
+			Left:  &parser.ColumnRef{Name: "customer_id"},
+			Op:    lexer.EQ,
+			Right: &parser.Literal{Value: types.NewInt(123)},
+		},
+		Op: lexer.AND,
+		Right: &parser.BinaryExpr{
+			Left:  &parser.ColumnRef{Name: "order_date"},
+			Op:    lexer.EQ,
+			Right: &parser.Literal{Value: types.NewText("2024-01-01")},
+		},
+	}
+
+	candidates := FindCandidateIndexes(tableDef, whereClause, catalog)
+
+	// Should find the composite index with prefix length 2
+	found := false
+	for _, c := range candidates {
+		if c.Index.Name == "idx_orders_composite" && c.PrefixLength == 2 {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("should find composite index with prefix length 2")
+	}
+}
+
+func TestFindCandidateIndexes_MultiColumnIndexNotPrefix(t *testing.T) {
+	// A composite index (a, b, c) should NOT be usable when querying only 'b'
+	// because 'b' is not a prefix of the index
+	catalog := schema.NewCatalog()
+	tableDef := &schema.TableDef{
+		Name: "orders",
+		Columns: []schema.ColumnDef{
+			{Name: "customer_id", Type: types.TypeInt},
+			{Name: "order_date", Type: types.TypeText},
+			{Name: "status", Type: types.TypeText},
+		},
+	}
+	catalog.CreateTable(tableDef)
+
+	indexDef := &schema.IndexDef{
+		Name:      "idx_orders_composite",
+		TableName: "orders",
+		Columns:   []string{"customer_id", "order_date", "status"},
+		Type:      schema.IndexTypeBTree,
+	}
+	catalog.CreateIndex(indexDef)
+
+	// WHERE order_date = '2024-01-01' (second column only - not a prefix)
+	whereClause := &parser.BinaryExpr{
+		Left:  &parser.ColumnRef{Name: "order_date"},
+		Op:    lexer.EQ,
+		Right: &parser.Literal{Value: types.NewText("2024-01-01")},
+	}
+
+	candidates := FindCandidateIndexes(tableDef, whereClause, catalog)
+
+	// Should NOT find the composite index because order_date is not the first column
+	for _, c := range candidates {
+		if c.Index.Name == "idx_orders_composite" {
+			t.Error("should not match composite index when predicate is not on prefix column")
+		}
+	}
+}
+
+func TestFindCandidateIndexes_FullMultiColumnMatch(t *testing.T) {
+	// Using all columns of a composite index should work
+	catalog := schema.NewCatalog()
+	tableDef := &schema.TableDef{
+		Name: "orders",
+		Columns: []schema.ColumnDef{
+			{Name: "a", Type: types.TypeInt},
+			{Name: "b", Type: types.TypeInt},
+		},
+	}
+	catalog.CreateTable(tableDef)
+
+	indexDef := &schema.IndexDef{
+		Name:      "idx_ab",
+		TableName: "orders",
+		Columns:   []string{"a", "b"},
+		Type:      schema.IndexTypeBTree,
+	}
+	catalog.CreateIndex(indexDef)
+
+	// WHERE a = 1 AND b = 2
+	whereClause := &parser.BinaryExpr{
+		Left: &parser.BinaryExpr{
+			Left:  &parser.ColumnRef{Name: "a"},
+			Op:    lexer.EQ,
+			Right: &parser.Literal{Value: types.NewInt(1)},
+		},
+		Op: lexer.AND,
+		Right: &parser.BinaryExpr{
+			Left:  &parser.ColumnRef{Name: "b"},
+			Op:    lexer.EQ,
+			Right: &parser.Literal{Value: types.NewInt(2)},
+		},
+	}
+
+	candidates := FindCandidateIndexes(tableDef, whereClause, catalog)
+
+	// Should find index with full prefix length
+	found := false
+	for _, c := range candidates {
+		if c.Index.Name == "idx_ab" && c.PrefixLength == 2 {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("should find composite index with full prefix length 2")
+	}
+}

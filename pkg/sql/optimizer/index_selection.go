@@ -9,14 +9,16 @@ import (
 
 // IndexCandidate represents an index that could be used for a query predicate
 type IndexCandidate struct {
-	Index    *schema.IndexDef   // The index definition
-	Column   string             // The column that matched
-	Operator lexer.TokenType    // The operator used in the predicate
-	Value    parser.Expression  // The value being compared (for selectivity estimation)
+	Index        *schema.IndexDef  // The index definition
+	Column       string            // The column that matched (first matched column for multi-column)
+	Operator     lexer.TokenType   // The operator used in the predicate
+	Value        parser.Expression // The value being compared (for selectivity estimation)
+	PrefixLength int               // Number of index columns matched (for composite indexes)
 }
 
 // FindCandidateIndexes analyzes a WHERE clause and returns all indexes
 // that could potentially be used to satisfy the predicates.
+// For composite indexes, it checks for prefix matching (leftmost columns first).
 func FindCandidateIndexes(table *schema.TableDef, where parser.Expression, catalog *schema.Catalog) []IndexCandidate {
 	if where == nil {
 		return nil
@@ -24,18 +26,46 @@ func FindCandidateIndexes(table *schema.TableDef, where parser.Expression, catal
 
 	// Extract all column predicates from the WHERE clause
 	predicates := extractPredicates(where)
+	if len(predicates) == 0 {
+		return nil
+	}
 
-	// Find indexes for each predicate
-	var candidates []IndexCandidate
+	// Build a map of column -> predicate for quick lookup
+	predMap := make(map[string]predicate)
 	for _, pred := range predicates {
-		// Look up index for this column
-		idx := catalog.GetIndexByColumn(table.Name, pred.Column)
-		if idx != nil {
+		predMap[pred.Column] = pred
+	}
+
+	// Get all indexes for this table
+	indexes := catalog.GetIndexesForTable(table.Name)
+
+	var candidates []IndexCandidate
+	for _, idx := range indexes {
+		// Check if this index can be used with the predicates
+		// For composite indexes, we need to match a prefix of columns
+		prefixLength := 0
+		var firstPred *predicate
+
+		for i, col := range idx.Columns {
+			pred, exists := predMap[col]
+			if !exists {
+				// Can't skip columns in a composite index
+				break
+			}
+			prefixLength = i + 1
+			if firstPred == nil {
+				firstPred = &pred
+			}
+		}
+
+		// Only add if at least the first column matches
+		if prefixLength > 0 && firstPred != nil {
 			candidates = append(candidates, IndexCandidate{
-				Index:    idx,
-				Column:   pred.Column,
-				Operator: pred.Operator,
-				Value:    pred.Value,
+				Index:        idx,
+				Column:       firstPred.Column,
+				Operator:     firstPred.Operator,
+				Value:        firstPred.Value,
+				PrefixLength: prefixLength,
 			})
 		}
 	}
