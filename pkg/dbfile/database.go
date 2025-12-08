@@ -140,6 +140,28 @@ func (db *Database) initialize() error {
 	return db.file.Sync()
 }
 
+// Sync writes the header and syncs the file to disk.
+func (db *Database) Sync() error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	if db.closed {
+		return ErrDatabaseClosed
+	}
+
+	if db.readOnly {
+		return nil
+	}
+
+	// Write header
+	headerData := db.header.Encode()
+	if _, err := db.file.WriteAt(headerData, 0); err != nil {
+		return err
+	}
+
+	return db.file.Sync()
+}
+
 // Close closes the database file.
 func (db *Database) Close() error {
 	db.mu.Lock()
