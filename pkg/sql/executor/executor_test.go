@@ -87,6 +87,40 @@ func TestExecutor_DropTable(t *testing.T) {
 	}
 }
 
+func TestExecutor_DropTable_NonExistentError(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Dropping non-existent table should error
+	_, err := exec.Execute("DROP TABLE nonexistent")
+	if err == nil {
+		t.Fatal("Expected error when dropping non-existent table, got nil")
+	}
+}
+
+func TestExecutor_DropTable_IfExists(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Drop non-existent table with IF EXISTS should not error
+	_, err := exec.Execute("DROP TABLE IF EXISTS nonexistent")
+	if err != nil {
+		t.Fatalf("DROP TABLE IF EXISTS should not error for non-existent table: %v", err)
+	}
+
+	// Create and drop with IF EXISTS
+	exec.Execute("CREATE TABLE users (id INT)")
+	_, err = exec.Execute("DROP TABLE IF EXISTS users")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	// Verify table no longer exists
+	if exec.catalog.GetTable("users") != nil {
+		t.Error("Table 'users' should not exist after DROP")
+	}
+}
+
 func TestExecutor_Insert(t *testing.T) {
 	exec, cleanup := setupTestExecutor(t)
 	defer cleanup()

@@ -274,14 +274,32 @@ func tokenToOp(t lexer.TokenType) string {
 	}
 }
 
-// executeDropTable handles DROP TABLE
+// executeDropTable handles DROP TABLE [IF EXISTS] table_name [CASCADE]
 func (e *Executor) executeDropTable(stmt *parser.DropTableStmt) (*Result, error) {
+	// Check if table exists
+	tableDef := e.catalog.GetTable(stmt.TableName)
+	if tableDef == nil {
+		// If table doesn't exist and IF EXISTS is specified, silently succeed
+		if stmt.IfExists {
+			return &Result{}, nil
+		}
+		return nil, fmt.Errorf("table not found")
+	}
+
+	// TODO: Check for dependent views and triggers (if CASCADE is not specified)
+
+	// TODO: If CASCADE is specified, drop associated indexes and handle foreign keys
+
+	// Drop the table from catalog
 	if err := e.catalog.DropTable(stmt.TableName); err != nil {
 		return nil, err
 	}
 
+	// Clean up in-memory structures
 	delete(e.trees, stmt.TableName)
 	delete(e.rowid, stmt.TableName)
+
+	// TODO: Add table's B-tree pages to free list
 
 	return &Result{}, nil
 }

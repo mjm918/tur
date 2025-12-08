@@ -786,31 +786,31 @@
     {
       "title": "SQL Statements - DROP TABLE",
       "description": "DROP TABLE implementation with cascade option",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse DROP TABLE statement with optional IF EXISTS",
-          "done": false
+          "done": true
         },
         {
           "task": "Check for dependent views and triggers",
-          "done": false
+          "done": true
         },
         {
           "task": "Remove table entry from schema catalog",
-          "done": false
+          "done": true
         },
         {
           "task": "Add table's B-tree pages to free list",
-          "done": false
+          "done": true
         },
         {
           "task": "Drop associated indexes",
-          "done": false
+          "done": true
         },
         {
           "task": "Handle CASCADE option for foreign keys",
-          "done": false
+          "done": true
         }
       ]
     },
