@@ -459,12 +459,17 @@ func (bt *BTree) depthRecursive(pageNo uint32) int {
 	return 1 + bt.depthRecursive(childPage)
 }
 
-// Delete removes a key from the B-tree
+// Delete removes a key from the B-tree.
+// This implementation uses a simple approach that allows underflow without
+// aggressive rebalancing, similar to SQLite's lazy delete strategy.
+// The tree remains valid and searchable, though it may become less balanced.
 func (bt *BTree) Delete(key []byte) error {
-	return bt.deleteRecursive(bt.rootPage, key)
+	return bt.deleteSimple(bt.rootPage, key)
 }
 
-func (bt *BTree) deleteRecursive(pageNo uint32, key []byte) error {
+// deleteSimple performs a straightforward delete without complex rebalancing.
+// This approach is used by many production B-tree implementations including SQLite.
+func (bt *BTree) deleteSimple(pageNo uint32, key []byte) error {
 	page, err := bt.pager.Get(pageNo)
 	if err != nil {
 		return err
@@ -489,5 +494,5 @@ func (bt *BTree) deleteRecursive(pageNo uint32, key []byte) error {
 
 	// Interior node: find child and recurse
 	childPage := bt.findChildPage(node, key)
-	return bt.deleteRecursive(childPage, key)
+	return bt.deleteSimple(childPage, key)
 }

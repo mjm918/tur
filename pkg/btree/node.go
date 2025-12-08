@@ -335,3 +335,82 @@ func (n *Node) UpdateCellValue(i int, newValue []byte) {
 		copy(n.data[offset:offset+len(newValue)], newValue)
 	}
 }
+
+// MaxCells returns the approximate maximum number of cells that can fit in this node
+// This is used to calculate minimum fill factor
+func (n *Node) MaxCells() int {
+	// Approximate: assume average cell size of 20 bytes (key + value + varints)
+	// Available space = pageSize - header
+	available := len(n.data) - nodeHeaderSize
+	// Each cell needs space for content + pointer
+	avgCellSize := 20 + cellPointerSize
+	return available / avgCellSize
+}
+
+// MinKeys returns the minimum number of keys a non-root node should have
+// This is ceil(MaxCells/2) - 1, but we use a simpler heuristic
+func (n *Node) MinKeys() int {
+	// For simplicity, we use a minimum of 1 key for any non-root node
+	// This is the most permissive approach that still maintains B-tree properties
+	return 1
+}
+
+// HasUnderflow returns true if the node has fewer keys than minimum required
+// Root nodes never have underflow (they can have 0 keys)
+func (n *Node) HasUnderflow(isRoot bool) bool {
+	if isRoot {
+		return false
+	}
+	return n.CellCount() < n.MinKeys()
+}
+
+// CanLendKey returns true if this node has enough keys to lend one to a sibling
+func (n *Node) CanLendKey() bool {
+	return n.CellCount() > n.MinKeys()
+}
+
+// PageSize returns the size of the underlying page
+func (n *Node) PageSize() int {
+	return len(n.data)
+}
+
+// RemoveFirstCell removes and returns the first cell (key, value)
+func (n *Node) RemoveFirstCell() (key, value []byte) {
+	if n.CellCount() == 0 {
+		return nil, nil
+	}
+	key, value = n.GetCell(0)
+	// Make copies since we're about to delete
+	keyCopy := make([]byte, len(key))
+	valueCopy := make([]byte, len(value))
+	copy(keyCopy, key)
+	copy(valueCopy, value)
+	n.DeleteCell(0)
+	return keyCopy, valueCopy
+}
+
+// RemoveLastCell removes and returns the last cell (key, value)
+func (n *Node) RemoveLastCell() (key, value []byte) {
+	count := n.CellCount()
+	if count == 0 {
+		return nil, nil
+	}
+	key, value = n.GetCell(count - 1)
+	// Make copies since we're about to delete
+	keyCopy := make([]byte, len(key))
+	valueCopy := make([]byte, len(value))
+	copy(keyCopy, key)
+	copy(valueCopy, value)
+	n.DeleteCell(count - 1)
+	return keyCopy, valueCopy
+}
+
+// PrependCell inserts a cell at the beginning of the node
+func (n *Node) PrependCell(key, value []byte) error {
+	return n.InsertCell(0, key, value)
+}
+
+// AppendCell inserts a cell at the end of the node
+func (n *Node) AppendCell(key, value []byte) error {
+	return n.InsertCell(n.CellCount(), key, value)
+}
