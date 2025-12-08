@@ -342,6 +342,18 @@ func (vm *VM) step(instr *Instruction) error {
 		// r[P2] = normalize(r[P1])
 		return vm.executeVectorNormalize(instr)
 
+	case OpVectorToBlob:
+		// r[P2] = vector_to_blob(r[P1])
+		return vm.executeVectorToBlob(instr)
+
+	case OpVectorFromBlob:
+		// r[P2] = vector_from_blob(r[P1])
+		return vm.executeVectorFromBlob(instr)
+
+	case OpVectorDot:
+		// r[P3] = dot_product(r[P1], r[P2])
+		return vm.executeVectorDot(instr)
+
 	default:
 		return fmt.Errorf("unimplemented opcode: %s", instr.Op)
 	}
@@ -714,6 +726,100 @@ func (vm *VM) execAggFinal(instr *Instruction) error {
 
 	result := vm.aggregates[aggIdx].Finalize()
 	vm.registers[destReg] = result
+
+	vm.pc++
+	return nil
+}
+
+// executeVectorDot computes dot product of two vectors
+// r[P3] = dot_product(r[P1], r[P2])
+func (vm *VM) executeVectorDot(instr *Instruction) error {
+	v1Reg := instr.P1
+	v2Reg := instr.P2
+	destReg := instr.P3
+
+	v1Val := vm.registers[v1Reg]
+	v2Val := vm.registers[v2Reg]
+
+	if v1Val.Type() != types.TypeVector || v2Val.Type() != types.TypeVector {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	vec1 := v1Val.Vector()
+	vec2 := v2Val.Vector()
+
+	if vec1 == nil || vec2 == nil {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	dot := vec1.DotProduct(vec2)
+	vm.registers[destReg] = types.NewFloat(float64(dot))
+
+	vm.pc++
+	return nil
+}
+
+// executeVectorToBlob serializes a vector to a blob
+// r[P2] = vector_to_blob(r[P1])
+func (vm *VM) executeVectorToBlob(instr *Instruction) error {
+	srcReg := instr.P1
+	destReg := instr.P2
+
+	srcVal := vm.registers[srcReg]
+
+	if srcVal.Type() != types.TypeVector {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	vec := srcVal.Vector()
+	if vec == nil {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	blob := vec.ToBytes()
+	vm.registers[destReg] = types.NewBlob(blob)
+
+	vm.pc++
+	return nil
+}
+
+// executeVectorFromBlob deserializes a blob to a vector
+// r[P2] = vector_from_blob(r[P1])
+func (vm *VM) executeVectorFromBlob(instr *Instruction) error {
+	srcReg := instr.P1
+	destReg := instr.P2
+
+	srcVal := vm.registers[srcReg]
+
+	if srcVal.Type() != types.TypeBlob {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	blob := srcVal.Blob()
+	if blob == nil {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	vec, err := types.VectorFromBytes(blob)
+	if err != nil {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	vm.registers[destReg] = types.NewVectorValue(vec)
 
 	vm.pc++
 	return nil

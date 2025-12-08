@@ -64,6 +64,18 @@ func (v *Vector) NormalizedCopy() *Vector {
 	return &Vector{data: copied}
 }
 
+// DotProduct computes the dot product of two vectors
+func (v *Vector) DotProduct(other *Vector) float32 {
+	if len(v.data) != len(other.data) {
+		return 0 // return 0 for mismatched dimensions
+	}
+	var dot float32
+	for i := range v.data {
+		dot += v.data[i] * other.data[i]
+	}
+	return dot
+}
+
 // CosineDistance returns 1 - dot_product (assumes normalized vectors)
 func (v *Vector) CosineDistance(other *Vector) float32 {
 	if len(v.data) != len(other.data) {

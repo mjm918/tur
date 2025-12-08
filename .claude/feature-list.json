@@ -724,7 +724,7 @@
     {
       "title": "VDBE - Vector Functions",
       "description": "Vector-specific functions integrated into VDBE execution",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Add vector function opcodes to VDBE",
@@ -744,7 +744,7 @@
         },
         {
           "task": "Handle vector serialization for function parameters",
-          "done": false
+          "done": true
         }
       ]
     },
