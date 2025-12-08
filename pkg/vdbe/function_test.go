@@ -112,3 +112,95 @@ func TestFunctionRegistry_VariadicFunction(t *testing.T) {
 		t.Errorf("expected NumArgs=-1 for variadic, got %d", found.NumArgs)
 	}
 }
+
+// Tests for built-in scalar functions
+
+func TestSubstr_TwoArgs(t *testing.T) {
+	// SUBSTR(string, start) - returns substring from start to end
+	// SQLite uses 1-based indexing
+	tests := []struct {
+		str    string
+		start  int64
+		expect string
+	}{
+		{"Hello, World!", 1, "Hello, World!"},
+		{"Hello, World!", 8, "World!"},
+		{"Hello, World!", 7, " World!"},
+		{"Hello", 3, "llo"},
+		{"Hello", 6, ""},  // past end
+		{"Hello", 0, "Hello"}, // 0 is treated as 1 in SQLite
+		{"Hello", -2, "lo"},   // negative counts from end
+	}
+
+	registry := DefaultFunctionRegistry()
+	substr := registry.Lookup("SUBSTR")
+	if substr == nil {
+		t.Fatal("SUBSTR function not found in default registry")
+	}
+
+	for _, tc := range tests {
+		args := []types.Value{types.NewText(tc.str), types.NewInt(tc.start)}
+		result := substr.Call(args)
+
+		if result.Type() != types.TypeText {
+			t.Errorf("SUBSTR(%q, %d): expected text, got %v", tc.str, tc.start, result.Type())
+			continue
+		}
+		if result.Text() != tc.expect {
+			t.Errorf("SUBSTR(%q, %d): expected %q, got %q", tc.str, tc.start, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestSubstr_ThreeArgs(t *testing.T) {
+	// SUBSTR(string, start, length) - returns substring
+	tests := []struct {
+		str    string
+		start  int64
+		length int64
+		expect string
+	}{
+		{"Hello, World!", 1, 5, "Hello"},
+		{"Hello, World!", 8, 5, "World"},
+		{"Hello, World!", 1, 0, ""},
+		{"Hello", 3, 2, "ll"},
+		{"Hello", 1, 100, "Hello"}, // length beyond string
+		{"Hello", -2, 2, "lo"},     // negative start
+	}
+
+	registry := DefaultFunctionRegistry()
+	substr := registry.Lookup("SUBSTR")
+
+	for _, tc := range tests {
+		args := []types.Value{types.NewText(tc.str), types.NewInt(tc.start), types.NewInt(tc.length)}
+		result := substr.Call(args)
+
+		if result.Type() != types.TypeText {
+			t.Errorf("SUBSTR(%q, %d, %d): expected text, got %v", tc.str, tc.start, tc.length, result.Type())
+			continue
+		}
+		if result.Text() != tc.expect {
+			t.Errorf("SUBSTR(%q, %d, %d): expected %q, got %q", tc.str, tc.start, tc.length, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestSubstr_NullHandling(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	substr := registry.Lookup("SUBSTR")
+
+	// If any argument is NULL, result is NULL
+	tests := [][]types.Value{
+		{types.NewNull(), types.NewInt(1)},
+		{types.NewText("Hello"), types.NewNull()},
+		{types.NewNull(), types.NewNull()},
+		{types.NewText("Hello"), types.NewInt(1), types.NewNull()},
+	}
+
+	for i, args := range tests {
+		result := substr.Call(args)
+		if !result.IsNull() {
+			t.Errorf("test %d: expected NULL result when any arg is NULL", i)
+		}
+	}
+}

@@ -46,3 +46,114 @@ func (r *FunctionRegistry) Register(fn *ScalarFunction) {
 func (r *FunctionRegistry) Lookup(name string) *ScalarFunction {
 	return r.functions[strings.ToUpper(name)]
 }
+
+// DefaultFunctionRegistry returns a registry with all built-in scalar functions.
+func DefaultFunctionRegistry() *FunctionRegistry {
+	r := NewFunctionRegistry()
+
+	// Register SUBSTR function
+	r.Register(&ScalarFunction{
+		Name:     "SUBSTR",
+		NumArgs:  -1, // 2 or 3 arguments
+		Function: builtinSubstr,
+	})
+
+	// Also register as SUBSTRING (alias)
+	r.Register(&ScalarFunction{
+		Name:     "SUBSTRING",
+		NumArgs:  -1,
+		Function: builtinSubstr,
+	})
+
+	return r
+}
+
+// builtinSubstr implements SUBSTR(string, start[, length])
+// SQLite uses 1-based indexing. Negative start counts from the end.
+func builtinSubstr(args []types.Value) types.Value {
+	if len(args) < 2 || len(args) > 3 {
+		return types.NewNull()
+	}
+
+	// If any argument is NULL, return NULL
+	for _, arg := range args {
+		if arg.IsNull() {
+			return types.NewNull()
+		}
+	}
+
+	// Get the string (coerce to text if needed)
+	var str string
+	if args[0].Type() == types.TypeText {
+		str = args[0].Text()
+	} else {
+		// For non-text types, return NULL for now
+		return types.NewNull()
+	}
+
+	// Get start position (1-based in SQLite)
+	start := args[0].Int()
+	if args[1].Type() == types.TypeInt {
+		start = args[1].Int()
+	} else if args[1].Type() == types.TypeFloat {
+		start = int64(args[1].Float())
+	} else {
+		return types.NewNull()
+	}
+
+	// Convert to runes for proper Unicode handling
+	runes := []rune(str)
+	strLen := int64(len(runes))
+
+	// Handle special case: 0 is treated as 1 in SQLite
+	if start == 0 {
+		start = 1
+	}
+
+	// Handle negative start (count from end)
+	// In SQLite, -1 means last character, -2 means second to last, etc.
+	// SUBSTR("Hello", -2) should return "lo" (last 2 characters)
+	var startIdx int64
+	if start < 0 {
+		startIdx = strLen + start
+		if startIdx < 0 {
+			startIdx = 0
+		}
+	} else {
+		startIdx = start - 1 // Convert from 1-based to 0-based
+	}
+
+	// If start is past the end, return empty string
+	if startIdx >= strLen {
+		return types.NewText("")
+	}
+	if startIdx < 0 {
+		startIdx = 0
+	}
+
+	// Determine length
+	var length int64
+	if len(args) == 3 {
+		if args[2].Type() == types.TypeInt {
+			length = args[2].Int()
+		} else if args[2].Type() == types.TypeFloat {
+			length = int64(args[2].Float())
+		} else {
+			return types.NewNull()
+		}
+		if length < 0 {
+			length = 0
+		}
+	} else {
+		// No length specified, go to end of string
+		length = strLen - startIdx
+	}
+
+	// Calculate end index
+	endIdx := startIdx + length
+	if endIdx > strLen {
+		endIdx = strLen
+	}
+
+	return types.NewText(string(runes[startIdx:endIdx]))
+}
