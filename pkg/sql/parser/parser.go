@@ -46,6 +46,8 @@ func (p *Parser) Parse() (Statement, error) {
 		return p.parseUpdate()
 	case lexer.DELETE:
 		return p.parseDelete()
+	case lexer.ANALYZE:
+		return p.parseAnalyze()
 	default:
 		return nil, fmt.Errorf("unexpected token: %s", p.cur.Literal)
 	}
@@ -1156,6 +1158,22 @@ func (p *Parser) parseFloatLiteral() (*Literal, error) {
 		return nil, fmt.Errorf("invalid float: %s", p.cur.Literal)
 	}
 	return &Literal{Value: types.NewFloat(val)}, nil
+}
+
+// parseAnalyze parses an ANALYZE statement
+// ANALYZE [table_or_index_name]
+func (p *Parser) parseAnalyze() (*AnalyzeStmt, error) {
+	stmt := &AnalyzeStmt{}
+
+	p.nextToken() // consume ANALYZE
+
+	// Check if there's a table/index name
+	if p.cur.Type == lexer.IDENT {
+		stmt.TableName = p.cur.Literal
+	}
+	// If EOF or semicolon, it's ANALYZE without a target (analyze all)
+
+	return stmt, nil
 }
 
 // Helper functions

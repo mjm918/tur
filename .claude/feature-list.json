@@ -611,31 +611,31 @@
     {
       "title": "SQL - Statistics Collection",
       "description": "Collect table and index statistics for query planning (ANALYZE)",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Design statistics storage format (row count, distinct values)",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement ANALYZE statement parser",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement table sampling for large tables",
-          "done": false
+          "done": true
         },
         {
           "task": "Compute histograms for column value distributions",
-          "done": false
+          "done": true
         },
         {
           "task": "Store statistics in system catalog",
-          "done": false
+          "done": true
         },
         {
           "task": "Update statistics incrementally on bulk inserts",
-          "done": false
+          "done": true
         }
       ]
     },

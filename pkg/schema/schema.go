@@ -234,16 +234,18 @@ func (t *TableDef) ColumnCount() int {
 
 // Catalog holds all schema definitions
 type Catalog struct {
-	mu      sync.RWMutex
-	tables  map[string]*TableDef
-	indexes map[string]*IndexDef
+	mu         sync.RWMutex
+	tables     map[string]*TableDef
+	indexes    map[string]*IndexDef
+	statistics map[string]*TableStatistics
 }
 
 // NewCatalog creates a new empty catalog
 func NewCatalog() *Catalog {
 	return &Catalog{
-		tables:  make(map[string]*TableDef),
-		indexes: make(map[string]*IndexDef),
+		tables:     make(map[string]*TableDef),
+		indexes:    make(map[string]*IndexDef),
+		statistics: make(map[string]*TableStatistics),
 	}
 }
 
@@ -270,6 +272,7 @@ func (c *Catalog) DropTable(name string) error {
 	}
 
 	delete(c.tables, name)
+	delete(c.statistics, name) // Also clear any statistics
 	return nil
 }
 
@@ -395,4 +398,39 @@ func (c *Catalog) GetIndexByColumn(tableName, columnName string) *IndexDef {
 	}
 
 	return nil
+}
+
+// GetTableStatistics returns the statistics for a table, or nil if not found
+func (c *Catalog) GetTableStatistics(tableName string) *TableStatistics {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.statistics[tableName]
+}
+
+// UpdateTableStatistics updates the statistics for a table
+// Returns ErrTableNotFound if the table doesn't exist
+func (c *Catalog) UpdateTableStatistics(tableName string, stats *TableStatistics) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if _, exists := c.tables[tableName]; !exists {
+		return ErrTableNotFound
+	}
+
+	c.statistics[tableName] = stats
+	return nil
+}
+
+// GetColumnStatistics returns the statistics for a specific column, or nil if not found
+func (c *Catalog) GetColumnStatistics(tableName, columnName string) *ColumnStatistics {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	tableStats := c.statistics[tableName]
+	if tableStats == nil || tableStats.ColumnStats == nil {
+		return nil
+	}
+
+	return tableStats.ColumnStats[columnName]
 }

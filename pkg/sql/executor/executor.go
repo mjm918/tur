@@ -4,6 +4,7 @@ package executor
 import (
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	"tur/pkg/btree"
 	"tur/pkg/pager"
@@ -45,6 +46,11 @@ func (e *Executor) Close() error {
 	return e.pager.Close()
 }
 
+// GetCatalog returns the schema catalog for inspecting statistics
+func (e *Executor) GetCatalog() *schema.Catalog {
+	return e.catalog
+}
+
 // Execute parses and executes a SQL statement
 func (e *Executor) Execute(sql string) (*Result, error) {
 	p := parser.New(sql)
@@ -70,6 +76,8 @@ func (e *Executor) Execute(sql string) (*Result, error) {
 		return e.executeUpdate(s)
 	case *parser.DeleteStmt:
 		return e.executeDelete(s)
+	case *parser.AnalyzeStmt:
+		return e.executeAnalyze(s)
 	default:
 		return nil, fmt.Errorf("unsupported statement type: %T", stmt)
 	}
@@ -655,7 +663,28 @@ func (e *Executor) executeDelete(stmt *parser.DeleteStmt) (*Result, error) {
 		rowsAffected++
 	}
 
+	// Update statistics incrementally if they exist
+	if rowsAffected > 0 {
+		e.incrementTableRowCount(stmt.TableName, rowsAffected)
+	}
+
 	return &Result{RowsAffected: rowsAffected}, nil
+}
+
+// incrementTableRowCount increments the row count in table statistics
+// This provides lightweight incremental updates without full ANALYZE
+func (e *Executor) incrementTableRowCount(tableName string, delta int64) {
+	stats := e.catalog.GetTableStatistics(tableName)
+	if stats == nil {
+		// No statistics exist yet, nothing to update
+		return
+	}
+
+	// Create updated statistics with new row count
+	stats.RowCount += delta
+	// Note: We don't update column statistics here as that would require
+	// scanning the new data. Full column stats require ANALYZE.
+	_ = e.catalog.UpdateTableStatistics(tableName, stats)
 }
 
 // validateConstraints validates row values against table constraints
@@ -1205,4 +1234,105 @@ func (e *Executor) compareValues(left, right types.Value) int {
 		return -1
 	}
 	return 1
+}
+
+// executeAnalyze handles ANALYZE statement
+// Collects statistics for the specified table(s) and stores them in the catalog
+func (e *Executor) executeAnalyze(stmt *parser.AnalyzeStmt) (*Result, error) {
+	var tablesToAnalyze []string
+
+	if stmt.TableName == "" {
+		// Analyze all tables
+		tablesToAnalyze = e.catalog.ListTables()
+	} else {
+		// Check if the name is a table
+		if e.catalog.GetTable(stmt.TableName) != nil {
+			tablesToAnalyze = []string{stmt.TableName}
+		} else {
+			return nil, fmt.Errorf("table not found: %s", stmt.TableName)
+		}
+	}
+
+	tablesAnalyzed := int64(0)
+
+	for _, tableName := range tablesToAnalyze {
+		table := e.catalog.GetTable(tableName)
+		if table == nil {
+			continue
+		}
+
+		// Get the B-tree for this table
+		tree := e.trees[tableName]
+		if tree == nil {
+			// Table exists but no tree (empty table)
+			stats := CreateTableStatistics(tableName, nil, table.Columns, 0)
+			_ = e.catalog.UpdateTableStatistics(tableName, stats)
+			tablesAnalyzed++
+			continue
+		}
+
+		// Scan all rows from the table
+		rows, err := e.scanAllRows(tableName, table)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan table %s: %w", tableName, err)
+		}
+
+		totalRows := int64(len(rows))
+
+		// Sample if necessary
+		sampler := NewTableSampler(1000) // Default sample size
+		samples := sampler.Sample(rows)
+
+		// Collect statistics with histogram (4 buckets by default)
+		stats := &schema.TableStatistics{
+			TableName:    tableName,
+			RowCount:     totalRows,
+			LastAnalyzed: time.Now(),
+			ColumnStats:  CollectColumnStatisticsWithHistogram(samples, table.Columns, totalRows, 4),
+		}
+
+		// Store in catalog
+		err = e.catalog.UpdateTableStatistics(tableName, stats)
+		if err != nil {
+			return nil, fmt.Errorf("failed to update statistics for %s: %w", tableName, err)
+		}
+
+		tablesAnalyzed++
+	}
+
+	return &Result{
+		RowsAffected: tablesAnalyzed,
+	}, nil
+}
+
+// scanAllRows scans all rows from a table and returns them as a slice of value slices
+func (e *Executor) scanAllRows(tableName string, table *schema.TableDef) ([][]types.Value, error) {
+	tree := e.trees[tableName]
+	if tree == nil {
+		return nil, nil
+	}
+
+	var rows [][]types.Value
+
+	// Iterate through the B-tree using a cursor
+	cursor := tree.Cursor()
+	cursor.First()
+
+	for cursor.Valid() {
+		valBytes := cursor.Value()
+		if valBytes != nil {
+			// Decode the record - returns []types.Value directly
+			row := record.Decode(valBytes)
+			if row != nil {
+				// Copy to avoid any potential buffer reuse issues
+				rowCopy := make([]types.Value, len(row))
+				copy(rowCopy, row)
+				rows = append(rows, rowCopy)
+			}
+		}
+		cursor.Next()
+	}
+
+	cursor.Close()
+	return rows, nil
 }
