@@ -615,7 +615,7 @@
       "tasks": [
         {
           "task": "Design statistics storage format (row count, distinct values)",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement ANALYZE statement parser",
