@@ -631,7 +631,7 @@
         },
         {
           "task": "Store statistics in system catalog",
-          "done": false
+          "done": true
         },
         {
           "task": "Update statistics incrementally on bulk inserts",

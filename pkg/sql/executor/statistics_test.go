@@ -2,6 +2,7 @@
 package executor
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -305,6 +306,111 @@ func TestCollectColumnStatistics_WithHistogram(t *testing.T) {
 
 	if len(idStats.Histogram) != 4 {
 		t.Errorf("expected 4 histogram buckets, got %d", len(idStats.Histogram))
+	}
+}
+
+func TestExecutor_Analyze_SpecificTable(t *testing.T) {
+	e, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create a table and insert data
+	_, err := e.Execute("CREATE TABLE users (id INT, name TEXT)")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	// Insert multiple rows
+	for i := 0; i < 100; i++ {
+		_, err = e.Execute(fmt.Sprintf("INSERT INTO users VALUES (%d, 'user%d')", i, i))
+		if err != nil {
+			t.Fatalf("failed to insert row %d: %v", i, err)
+		}
+	}
+
+	// Run ANALYZE
+	result, err := e.Execute("ANALYZE users")
+	if err != nil {
+		t.Fatalf("ANALYZE failed: %v", err)
+	}
+
+	if result.RowsAffected != 1 {
+		t.Errorf("expected 1 table analyzed, got %d", result.RowsAffected)
+	}
+
+	// Check that statistics were stored
+	stats := e.GetCatalog().GetTableStatistics("users")
+	if stats == nil {
+		t.Fatal("expected statistics to be stored")
+	}
+
+	if stats.RowCount != 100 {
+		t.Errorf("expected row count 100, got %d", stats.RowCount)
+	}
+
+	if stats.ColumnStats == nil {
+		t.Fatal("expected column stats to be populated")
+	}
+
+	idStats := stats.ColumnStats["id"]
+	if idStats == nil {
+		t.Fatal("expected stats for 'id' column")
+	}
+
+	if idStats.DistinctCount < 1 {
+		t.Errorf("expected positive distinct count, got %d", idStats.DistinctCount)
+	}
+}
+
+func TestExecutor_Analyze_AllTables(t *testing.T) {
+	e, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create two tables
+	_, err := e.Execute("CREATE TABLE users (id INT)")
+	if err != nil {
+		t.Fatalf("failed to create users table: %v", err)
+	}
+
+	_, err = e.Execute("CREATE TABLE products (id INT)")
+	if err != nil {
+		t.Fatalf("failed to create products table: %v", err)
+	}
+
+	// Insert data
+	for i := 0; i < 10; i++ {
+		_, _ = e.Execute(fmt.Sprintf("INSERT INTO users VALUES (%d)", i))
+		_, _ = e.Execute(fmt.Sprintf("INSERT INTO products VALUES (%d)", i*10))
+	}
+
+	// Run ANALYZE without table name (analyze all)
+	result, err := e.Execute("ANALYZE")
+	if err != nil {
+		t.Fatalf("ANALYZE failed: %v", err)
+	}
+
+	if result.RowsAffected != 2 {
+		t.Errorf("expected 2 tables analyzed, got %d", result.RowsAffected)
+	}
+
+	// Both tables should have statistics
+	usersStats := e.GetCatalog().GetTableStatistics("users")
+	if usersStats == nil {
+		t.Error("expected statistics for users table")
+	}
+
+	productsStats := e.GetCatalog().GetTableStatistics("products")
+	if productsStats == nil {
+		t.Error("expected statistics for products table")
+	}
+}
+
+func TestExecutor_Analyze_TableNotFound(t *testing.T) {
+	e, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := e.Execute("ANALYZE nonexistent")
+	if err == nil {
+		t.Error("expected error for non-existent table")
 	}
 }
 
