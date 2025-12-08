@@ -91,3 +91,109 @@ func (t *FreelistTrunkPage) IsEmpty() bool {
 func (t *FreelistTrunkPage) LeafCount() int {
 	return len(t.LeafPages)
 }
+
+// Freelist manages the free page list in memory.
+// This is a simplified in-memory implementation that will later be
+// integrated with the pager for persistent storage.
+//
+// The freelist uses a LIFO (Last In, First Out) strategy for allocation
+// to maximize locality of reference.
+type Freelist struct {
+	pageSize  int
+	headPage  uint32   // Page number of first trunk (0 if empty)
+	freeCount uint32   // Total number of free pages
+	trunks    []*FreelistTrunkPage // In-memory trunk pages
+}
+
+// NewFreelist creates a new empty freelist.
+func NewFreelist(pageSize int) *Freelist {
+	return &Freelist{
+		pageSize:  pageSize,
+		headPage:  0,
+		freeCount: 0,
+		trunks:    nil,
+	}
+}
+
+// HeadPage returns the page number of the first trunk page (0 if empty).
+func (f *Freelist) HeadPage() uint32 {
+	return f.headPage
+}
+
+// FreeCount returns the total number of free pages.
+func (f *Freelist) FreeCount() uint32 {
+	return f.freeCount
+}
+
+// Allocate removes and returns a free page from the freelist.
+// Returns (0, false) if the freelist is empty.
+func (f *Freelist) Allocate() (uint32, bool) {
+	if f.freeCount == 0 || len(f.trunks) == 0 {
+		return 0, false
+	}
+
+	// Get the first trunk (head)
+	trunk := f.trunks[0]
+
+	// Try to pop a leaf page
+	if pageNo, ok := trunk.PopLeaf(); ok {
+		f.freeCount--
+
+		// If trunk is now empty and there are more trunks, remove this trunk
+		if trunk.IsEmpty() && len(f.trunks) > 1 {
+			f.trunks = f.trunks[1:]
+			f.headPage = trunk.NextTrunk
+		} else if trunk.IsEmpty() {
+			// Last trunk is now empty
+			f.trunks = nil
+			f.headPage = 0
+		}
+
+		return pageNo, true
+	}
+
+	// Trunk was already empty - remove it and try the next trunk
+	if len(f.trunks) > 1 {
+		f.trunks = f.trunks[1:]
+		f.headPage = trunk.NextTrunk
+		return f.Allocate()
+	}
+
+	// This was the last trunk and it's empty - freelist is empty
+	f.trunks = nil
+	f.headPage = 0
+	return 0, false
+}
+
+// Free adds a page to the freelist.
+func (f *Freelist) Free(pageNo uint32) {
+	// If no trunks exist, create one
+	if len(f.trunks) == 0 {
+		trunk := &FreelistTrunkPage{
+			NextTrunk: 0,
+			LeafPages: []uint32{pageNo},
+		}
+		f.trunks = []*FreelistTrunkPage{trunk}
+		f.headPage = 1 // Placeholder - in real implementation, this would be allocated
+		f.freeCount = 1
+		return
+	}
+
+	// Try to add to the first trunk
+	trunk := f.trunks[0]
+	if !trunk.IsFull(f.pageSize) {
+		trunk.AddLeaf(pageNo)
+		f.freeCount++
+		return
+	}
+
+	// First trunk is full - create a new trunk
+	// In the real implementation, we'd allocate a new page for this trunk
+	newTrunk := &FreelistTrunkPage{
+		NextTrunk: f.headPage,
+		LeafPages: []uint32{pageNo},
+	}
+	f.trunks = append([]*FreelistTrunkPage{newTrunk}, f.trunks...)
+	f.headPage = f.headPage + 1 // Placeholder
+	f.freeCount++
+}

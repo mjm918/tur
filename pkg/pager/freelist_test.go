@@ -143,3 +143,119 @@ func TestFreelistTrunkPage_PopLeaf(t *testing.T) {
 		t.Error("PopLeaf should fail on empty trunk")
 	}
 }
+
+// Freelist manager tests
+
+func TestFreelist_New(t *testing.T) {
+	fl := NewFreelist(4096)
+
+	if fl.HeadPage() != 0 {
+		t.Errorf("New freelist should have head page 0, got %d", fl.HeadPage())
+	}
+
+	if fl.FreeCount() != 0 {
+		t.Errorf("New freelist should have 0 free pages, got %d", fl.FreeCount())
+	}
+}
+
+func TestFreelist_AllocateFromEmpty(t *testing.T) {
+	fl := NewFreelist(4096)
+
+	// Allocating from empty freelist should return 0 (not found)
+	pageNo, ok := fl.Allocate()
+	if ok {
+		t.Errorf("Allocate from empty freelist should return ok=false, got page %d", pageNo)
+	}
+}
+
+func TestFreelist_FreeAndAllocate(t *testing.T) {
+	fl := NewFreelist(4096)
+
+	// Free page 5
+	fl.Free(5)
+
+	if fl.FreeCount() != 1 {
+		t.Errorf("Expected 1 free page, got %d", fl.FreeCount())
+	}
+
+	// Allocate should return page 5
+	pageNo, ok := fl.Allocate()
+	if !ok {
+		t.Fatal("Allocate should succeed when freelist is not empty")
+	}
+
+	if pageNo != 5 {
+		t.Errorf("Expected page 5, got %d", pageNo)
+	}
+
+	if fl.FreeCount() != 0 {
+		t.Errorf("Expected 0 free pages after allocate, got %d", fl.FreeCount())
+	}
+}
+
+func TestFreelist_LIFO(t *testing.T) {
+	fl := NewFreelist(4096)
+
+	// Free pages in order: 10, 20, 30
+	fl.Free(10)
+	fl.Free(20)
+	fl.Free(30)
+
+	if fl.FreeCount() != 3 {
+		t.Fatalf("Expected 3 free pages, got %d", fl.FreeCount())
+	}
+
+	// Allocate should return in LIFO order: 30, 20, 10
+	p1, _ := fl.Allocate()
+	p2, _ := fl.Allocate()
+	p3, _ := fl.Allocate()
+
+	if p1 != 30 {
+		t.Errorf("First allocate: expected 30, got %d", p1)
+	}
+	if p2 != 20 {
+		t.Errorf("Second allocate: expected 20, got %d", p2)
+	}
+	if p3 != 10 {
+		t.Errorf("Third allocate: expected 10, got %d", p3)
+	}
+}
+
+func TestFreelist_MultipleTrunks(t *testing.T) {
+	// Use small page size to force multiple trunks
+	pageSize := 32 // Can hold (32-8)/4 = 6 leaves per trunk
+
+	fl := NewFreelist(pageSize)
+
+	// Free more pages than one trunk can hold
+	for i := uint32(10); i <= 20; i++ {
+		fl.Free(i)
+	}
+
+	// Should have 11 free pages
+	if fl.FreeCount() != 11 {
+		t.Errorf("Expected 11 free pages, got %d", fl.FreeCount())
+	}
+
+	// Allocate all and verify we get them back
+	allocated := make([]uint32, 0, 11)
+	for i := 0; i < 11; i++ {
+		p, ok := fl.Allocate()
+		if !ok {
+			t.Fatalf("Allocate failed at iteration %d", i)
+		}
+		allocated = append(allocated, p)
+	}
+
+	// Verify all pages were in range 10-20
+	seen := make(map[uint32]bool)
+	for _, p := range allocated {
+		if p < 10 || p > 20 {
+			t.Errorf("Unexpected page %d returned", p)
+		}
+		if seen[p] {
+			t.Errorf("Duplicate page %d returned", p)
+		}
+		seen[p] = true
+	}
+}
