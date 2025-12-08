@@ -112,3 +112,22 @@ func TestProgramGet(t *testing.T) {
 		t.Errorf("expected P1=100, got %d", instr.P1)
 	}
 }
+
+func TestVectorOpcodeString(t *testing.T) {
+	tests := []struct {
+		op   Opcode
+		want string
+	}{
+		{OpVectorDistance, "VectorDistance"},
+		{OpVectorNormalize, "VectorNormalize"},
+		{OpVectorDot, "VectorDot"},
+		{OpVectorFromBlob, "VectorFromBlob"},
+		{OpVectorToBlob, "VectorToBlob"},
+	}
+
+	for _, tt := range tests {
+		if got := tt.op.String(); got != tt.want {
+			t.Errorf("Opcode(%d).String() = %q, want %q", tt.op, got, tt.want)
+		}
+	}
+}

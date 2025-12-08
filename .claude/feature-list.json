@@ -728,7 +728,7 @@
       "tasks": [
         {
           "task": "Add vector function opcodes to VDBE",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement vector distance computation in VM",
