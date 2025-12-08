@@ -3,7 +3,9 @@ package optimizer
 
 import (
 	"math"
+
 	"tur/pkg/schema"
+	"tur/pkg/sql/lexer"
 )
 
 // Cost constants for estimation
@@ -175,4 +177,24 @@ func calculateBTreeHeight(entries int64) int {
 	}
 
 	return height
+}
+
+// EstimateIndexSelectivity estimates the selectivity for an index lookup
+// based on the comparison operator used. Returns a value between 0.0 and 1.0.
+func (e *CostEstimator) EstimateIndexSelectivity(op lexer.TokenType) float64 {
+	switch op {
+	case lexer.EQ:
+		return 0.01 // 1% - equality is highly selective
+	case lexer.NEQ:
+		return 0.9 // 90% - not-equal is not selective
+	case lexer.LT, lexer.GT, lexer.LTE, lexer.GTE:
+		return 0.33 // 33% - range operators are moderately selective
+	default:
+		return 0.1 // Default conservative estimate
+	}
+}
+
+// EstimateCandidateSelectivity estimates the selectivity for an IndexCandidate
+func (e *CostEstimator) EstimateCandidateSelectivity(candidate IndexCandidate) float64 {
+	return e.EstimateIndexSelectivity(candidate.Operator)
 }

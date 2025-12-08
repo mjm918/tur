@@ -237,3 +237,94 @@ func TestFindCandidateIndexes_NilWhereClause(t *testing.T) {
 		t.Fatalf("expected 0 candidate indexes for nil WHERE, got %d", len(candidates))
 	}
 }
+
+// Test Task 2: Estimate selectivity of index lookups
+
+func TestEstimateIndexSelectivity_Equality(t *testing.T) {
+	// Equality predicates are highly selective (estimate ~1% of rows)
+	estimator := NewCostEstimator()
+
+	selectivity := estimator.EstimateIndexSelectivity(lexer.EQ)
+
+	// Equality should be very selective
+	if selectivity > 0.05 {
+		t.Errorf("equality selectivity should be <= 0.05, got %f", selectivity)
+	}
+	if selectivity <= 0 {
+		t.Errorf("selectivity should be positive, got %f", selectivity)
+	}
+}
+
+func TestEstimateIndexSelectivity_Range(t *testing.T) {
+	// Range predicates (>, <, >=, <=) are moderately selective
+	estimator := NewCostEstimator()
+
+	tests := []struct {
+		op       lexer.TokenType
+		name     string
+		minSel   float64
+		maxSel   float64
+	}{
+		{lexer.LT, "less than", 0.1, 0.5},
+		{lexer.GT, "greater than", 0.1, 0.5},
+		{lexer.LTE, "less than or equal", 0.1, 0.5},
+		{lexer.GTE, "greater than or equal", 0.1, 0.5},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			selectivity := estimator.EstimateIndexSelectivity(tt.op)
+
+			if selectivity < tt.minSel || selectivity > tt.maxSel {
+				t.Errorf("%s selectivity should be between %f and %f, got %f",
+					tt.name, tt.minSel, tt.maxSel, selectivity)
+			}
+		})
+	}
+}
+
+func TestEstimateIndexSelectivity_NotEqual(t *testing.T) {
+	// Not equal is not selective (most rows pass)
+	estimator := NewCostEstimator()
+
+	selectivity := estimator.EstimateIndexSelectivity(lexer.NEQ)
+
+	// Not-equal should have low selectivity (high fraction passes)
+	if selectivity < 0.5 {
+		t.Errorf("not-equal selectivity should be >= 0.5, got %f", selectivity)
+	}
+}
+
+func TestEstimateCandidateSelectivity(t *testing.T) {
+	// Test that we can estimate selectivity for an IndexCandidate
+	catalog := schema.NewCatalog()
+	tableDef := &schema.TableDef{
+		Name: "users",
+		Columns: []schema.ColumnDef{
+			{Name: "email", Type: types.TypeText},
+		},
+	}
+	catalog.CreateTable(tableDef)
+
+	indexDef := &schema.IndexDef{
+		Name:      "idx_users_email",
+		TableName: "users",
+		Columns:   []string{"email"},
+		Type:      schema.IndexTypeBTree,
+	}
+	catalog.CreateIndex(indexDef)
+
+	candidate := IndexCandidate{
+		Index:    indexDef,
+		Column:   "email",
+		Operator: lexer.EQ,
+		Value:    &parser.Literal{Value: types.NewText("test@example.com")},
+	}
+
+	estimator := NewCostEstimator()
+	selectivity := estimator.EstimateCandidateSelectivity(candidate)
+
+	if selectivity <= 0 || selectivity > 1 {
+		t.Errorf("selectivity should be between 0 and 1, got %f", selectivity)
+	}
+}
