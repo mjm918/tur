@@ -917,13 +917,13 @@
         },
         {
           "task": "Update indexes after row insertion",
-          "done": false,
-          "note": "Deferred: requires index system to be complete"
+          "done": true,
+          "note": "Implemented"
         },
         {
           "task": "Handle vector column normalization on insert",
-          "done": false,
-          "note": "Deferred: requires BLOB literal parsing to be implemented"
+          "done": true,
+          "note": "Implemented"
         }
       ]
     },

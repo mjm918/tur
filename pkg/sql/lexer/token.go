@@ -13,6 +13,7 @@ const (
 	INT    // 123
 	FLOAT  // 1.23
 	STRING // 'hello'
+	BLOB   // x'1234'
 
 	// Operators
 	PLUS  // +
@@ -112,6 +113,8 @@ func (t TokenType) String() string {
 		return "FLOAT"
 	case STRING:
 		return "STRING"
+	case BLOB:
+		return "BLOB"
 	case PLUS:
 		return "+"
 	case MINUS:
@@ -241,37 +244,37 @@ func (t TokenType) String() string {
 
 // keywords maps SQL keywords to their token types
 var keywords = map[string]TokenType{
-	"SELECT":  SELECT,
-	"FROM":    FROM,
-	"WHERE":   WHERE,
-	"INSERT":  INSERT,
-	"INTO":    INTO,
-	"VALUES":  VALUES,
-	"CREATE":  CREATE,
-	"TABLE":   TABLE,
-	"DROP":    DROP,
-	"DELETE":  DELETE,
-	"UPDATE":  UPDATE,
-	"SET":     SET,
-	"INT":     INT_TYPE,
-	"INTEGER": INTEGER,
-	"TEXT":    TEXT_TYPE,
-	"FLOAT":   FLOAT_TYPE,
-	"REAL":    REAL,
-	"BLOB":    BLOB_TYPE,
-	"VECTOR":  VECTOR,
-	"PRIMARY": PRIMARY,
-	"KEY":     KEY,
-	"NOT":     NOT,
-	"NULL":    NULL_KW,
-	"AND":     AND,
-	"OR":      OR,
-	"TRUE":    TRUE_KW,
-	"FALSE":   FALSE_KW,
-	"ASC":     ASC,
-	"DESC":    DESC,
-	"ORDER":   ORDER,
-	"BY":      BY,
+	"SELECT":     SELECT,
+	"FROM":       FROM,
+	"WHERE":      WHERE,
+	"INSERT":     INSERT,
+	"INTO":       INTO,
+	"VALUES":     VALUES,
+	"CREATE":     CREATE,
+	"TABLE":      TABLE,
+	"DROP":       DROP,
+	"DELETE":     DELETE,
+	"UPDATE":     UPDATE,
+	"SET":        SET,
+	"INT":        INT_TYPE,
+	"INTEGER":    INTEGER,
+	"TEXT":       TEXT_TYPE,
+	"FLOAT":      FLOAT_TYPE,
+	"REAL":       REAL,
+	"BLOB":       BLOB_TYPE,
+	"VECTOR":     VECTOR,
+	"PRIMARY":    PRIMARY,
+	"KEY":        KEY,
+	"NOT":        NOT,
+	"NULL":       NULL_KW,
+	"AND":        AND,
+	"OR":         OR,
+	"TRUE":       TRUE_KW,
+	"FALSE":      FALSE_KW,
+	"ASC":        ASC,
+	"DESC":       DESC,
+	"ORDER":      ORDER,
+	"BY":         BY,
 	"LIMIT":      LIMIT,
 	"OFFSET":     OFFSET,
 	"UNIQUE":     UNIQUE,

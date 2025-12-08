@@ -404,19 +404,28 @@ func (e *Executor) executeInsert(stmt *parser.InsertStmt) (*Result, error) {
 			return nil, err
 		}
 
-		// Validate types (basic check for Vector)
-		// We iterate values assuming they align with table columns (current existing assumption in executor)
+		// Validate types and Normalize Vectors
 		for idx, val := range values {
 			colDef := table.Columns[idx]
 			if colDef.Type == types.TypeVector && !val.IsNull() {
 				if val.Type() != types.TypeBlob {
 					return nil, fmt.Errorf("column %s expects VECTOR (blob), got %v", colDef.Name, val.Type())
 				}
+
+				// Parse vector to validate dimension and normalize
 				blob := val.Blob()
-				expectedSize := 4 + colDef.VectorDim*4
-				if len(blob) != expectedSize {
-					return nil, fmt.Errorf("column %s expects VECTOR(%d) with size %d, got %d bytes", colDef.Name, colDef.VectorDim, expectedSize, len(blob))
+				vec, err := types.VectorFromBytes(blob)
+				if err != nil {
+					return nil, fmt.Errorf("invalid vector data for column %s: %w", colDef.Name, err)
 				}
+
+				if vec.Dimension() != colDef.VectorDim {
+					return nil, fmt.Errorf("column %s expects VECTOR(%d), got dimension %d", colDef.Name, colDef.VectorDim, vec.Dimension())
+				}
+
+				// Normalize and update value
+				vec.Normalize()
+				values[idx] = types.NewBlob(vec.ToBytes())
 			}
 		}
 
@@ -433,6 +442,11 @@ func (e *Executor) executeInsert(stmt *parser.InsertStmt) (*Result, error) {
 		// Insert into B-tree
 		if err := tree.Insert(key, data); err != nil {
 			return nil, fmt.Errorf("failed to insert: %w", err)
+		}
+
+		// Update indexes
+		if err := e.updateIndexes(table, rowid, values); err != nil {
+			return nil, err
 		}
 
 		rowsAffected++

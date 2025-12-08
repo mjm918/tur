@@ -846,6 +846,8 @@ func (p *Parser) parsePrefixExpression() (Expression, error) {
 		return p.parseFloatLiteral()
 	case lexer.STRING:
 		return &Literal{Value: types.NewText(p.cur.Literal)}, nil
+	case lexer.BLOB:
+		return p.parseBlobLiteral()
 	case lexer.NULL_KW:
 		return &Literal{Value: types.NewNull()}, nil
 	case lexer.TRUE_KW:

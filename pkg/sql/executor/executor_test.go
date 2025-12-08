@@ -433,12 +433,61 @@ func TestExecutor_VectorType_DimensionCheck(t *testing.T) {
 }
 
 func TestExecutor_VectorNormalization(t *testing.T) {
-	// Skipped: Requires BLOB literal parsing to be implemented first
-	// Once BLOB literals are supported, this test should:
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
 	// 1. Create table with VECTOR(3) column
+	_, err := exec.Execute("CREATE TABLE items (v VECTOR(3))")
+	if err != nil {
+		t.Fatalf("Create table: %v", err)
+	}
+
 	// 2. Insert non-normalized vector [3.0, 4.0, 0.0] (magnitude 5.0)
+	// Encoded as little-endian float32:
+	// 3.0 = 0x40400000
+	// 4.0 = 0x40800000
+	// 0.0 = 0x00000000
+	// Header (dim=3): 0x03000000
+	// Full hex: 03000000000040400000804000000000
+	_, err = exec.Execute("INSERT INTO items VALUES (x'03000000000040400000804000000000')")
+	if err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+
 	// 3. SELECT and verify vector is normalized to [0.6, 0.8, 0.0]
-	t.Skip("Skipping until BLOB literal parsing is implemented")
+	result, err := exec.Execute("SELECT * FROM items")
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+
+	if len(result.Rows) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result.Rows))
+	}
+
+	val := result.Rows[0][0]
+	if val.Type() != types.TypeBlob { // Vector relies on underlying Blob storage for now
+		t.Fatalf("Expected blob, got %v", val.Type())
+	}
+
+	// Decode vector
+	vec, err := types.VectorFromBytes(val.Blob())
+	if err != nil {
+		t.Fatalf("VectorFromBytes: %v", err)
+	}
+
+	data := vec.Data()
+	if len(data) != 3 {
+		t.Fatalf("Expected dim 3, got %d", len(data))
+	}
+
+	// Check values with tolerance
+	epsilon := float32(0.0001)
+	if data[0] < 0.6-epsilon || data[0] > 0.6+epsilon {
+		t.Errorf("v[0] = %f, want 0.6", data[0])
+	}
+	if data[1] < 0.8-epsilon || data[1] > 0.8+epsilon {
+		t.Errorf("v[1] = %f, want 0.8", data[1])
+	}
 }
 
 // ========== Constraint Catalog Tests ==========

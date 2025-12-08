@@ -106,6 +106,13 @@ func (l *Lexer) NextToken() Token {
 		return tok
 	default:
 		if isLetter(l.ch) || l.ch == '_' {
+			// Check for BLOB literal: x'...' or X'...'
+			if (l.ch == 'x' || l.ch == 'X') && l.peekChar() == '\'' {
+				l.readChar() // consume 'x'
+				tok.Literal = l.readString()
+				tok.Type = BLOB
+				return tok
+			}
 			tok.Literal = l.readIdentifier()
 			tok.Type = LookupIdent(strings.ToUpper(tok.Literal))
 			return tok
