@@ -219,14 +219,16 @@ func (t *TableDef) ColumnCount() int {
 
 // Catalog holds all schema definitions
 type Catalog struct {
-	mu     sync.RWMutex
-	tables map[string]*TableDef
+	mu      sync.RWMutex
+	tables  map[string]*TableDef
+	indexes map[string]*IndexDef
 }
 
 // NewCatalog creates a new empty catalog
 func NewCatalog() *Catalog {
 	return &Catalog{
-		tables: make(map[string]*TableDef),
+		tables:  make(map[string]*TableDef),
+		indexes: make(map[string]*IndexDef),
 	}
 }
 
@@ -283,4 +285,59 @@ func (c *Catalog) TableCount() int {
 	defer c.mu.RUnlock()
 
 	return len(c.tables)
+}
+
+// CreateIndex adds an index to the catalog
+func (c *Catalog) CreateIndex(index *IndexDef) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if _, exists := c.indexes[index.Name]; exists {
+		return ErrIndexExists
+	}
+
+	c.indexes[index.Name] = index
+	return nil
+}
+
+// DropIndex removes an index from the catalog
+func (c *Catalog) DropIndex(name string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if _, exists := c.indexes[name]; !exists {
+		return ErrIndexNotFound
+	}
+
+	delete(c.indexes, name)
+	return nil
+}
+
+// GetIndex returns an index definition by name
+func (c *Catalog) GetIndex(name string) *IndexDef {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.indexes[name]
+}
+
+// ListIndexes returns all index names in sorted order
+func (c *Catalog) ListIndexes() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	names := make([]string, 0, len(c.indexes))
+	for name := range c.indexes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// IndexCount returns the number of indexes
+func (c *Catalog) IndexCount() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return len(c.indexes)
 }

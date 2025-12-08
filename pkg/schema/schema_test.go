@@ -497,3 +497,129 @@ func TestIndexDef_MultiColumn(t *testing.T) {
 		t.Errorf("Columns: got %v, want ['customer_id', 'order_date']", idx.Columns)
 	}
 }
+
+// ========== Index Catalog Tests ==========
+
+func TestCatalog_CreateIndex(t *testing.T) {
+	catalog := NewCatalog()
+
+	// Create a table first
+	table := &TableDef{
+		Name: "users",
+		Columns: []ColumnDef{
+			{Name: "id", Type: types.TypeInt},
+			{Name: "email", Type: types.TypeText},
+		},
+		RootPage: 2,
+	}
+	catalog.CreateTable(table)
+
+	// Create an index
+	idx := &IndexDef{
+		Name:      "idx_users_email",
+		TableName: "users",
+		Columns:   []string{"email"},
+		Type:      IndexTypeBTree,
+		Unique:    true,
+		RootPage:  5,
+	}
+
+	err := catalog.CreateIndex(idx)
+	if err != nil {
+		t.Fatalf("CreateIndex: %v", err)
+	}
+
+	// Index should exist
+	got := catalog.GetIndex("idx_users_email")
+	if got == nil {
+		t.Fatal("GetIndex: index not found")
+	}
+	if got.Name != "idx_users_email" {
+		t.Errorf("GetIndex: got name %q", got.Name)
+	}
+}
+
+func TestCatalog_CreateIndex_Duplicate(t *testing.T) {
+	catalog := NewCatalog()
+
+	// Create a table first
+	catalog.CreateTable(&TableDef{Name: "users", Columns: []ColumnDef{{Name: "email", Type: types.TypeText}}})
+
+	idx := &IndexDef{Name: "idx_users_email", TableName: "users", Columns: []string{"email"}}
+	catalog.CreateIndex(idx)
+
+	// Try to create duplicate
+	err := catalog.CreateIndex(idx)
+	if err == nil {
+		t.Error("CreateIndex: expected error for duplicate index")
+	}
+	if err != ErrIndexExists {
+		t.Errorf("CreateIndex: got error %v, want ErrIndexExists", err)
+	}
+}
+
+func TestCatalog_DropIndex(t *testing.T) {
+	catalog := NewCatalog()
+
+	catalog.CreateTable(&TableDef{Name: "users", Columns: []ColumnDef{{Name: "email", Type: types.TypeText}}})
+	catalog.CreateIndex(&IndexDef{Name: "idx_users_email", TableName: "users", Columns: []string{"email"}})
+
+	err := catalog.DropIndex("idx_users_email")
+	if err != nil {
+		t.Fatalf("DropIndex: %v", err)
+	}
+
+	if catalog.GetIndex("idx_users_email") != nil {
+		t.Error("DropIndex: index still exists")
+	}
+}
+
+func TestCatalog_DropIndex_NotExists(t *testing.T) {
+	catalog := NewCatalog()
+
+	err := catalog.DropIndex("nonexistent")
+	if err == nil {
+		t.Error("DropIndex: expected error for nonexistent index")
+	}
+	if err != ErrIndexNotFound {
+		t.Errorf("DropIndex: got error %v, want ErrIndexNotFound", err)
+	}
+}
+
+func TestCatalog_ListIndexes(t *testing.T) {
+	catalog := NewCatalog()
+
+	catalog.CreateTable(&TableDef{Name: "users", Columns: []ColumnDef{{Name: "email", Type: types.TypeText}, {Name: "name", Type: types.TypeText}}})
+	catalog.CreateIndex(&IndexDef{Name: "idx_users_email", TableName: "users", Columns: []string{"email"}})
+	catalog.CreateIndex(&IndexDef{Name: "idx_users_name", TableName: "users", Columns: []string{"name"}})
+
+	indexes := catalog.ListIndexes()
+	if len(indexes) != 2 {
+		t.Fatalf("ListIndexes: got %d indexes, want 2", len(indexes))
+	}
+
+	// Check sorted order
+	if indexes[0] != "idx_users_email" || indexes[1] != "idx_users_name" {
+		t.Errorf("ListIndexes: got %v, want [idx_users_email, idx_users_name]", indexes)
+	}
+}
+
+func TestCatalog_IndexCount(t *testing.T) {
+	catalog := NewCatalog()
+
+	catalog.CreateTable(&TableDef{Name: "users", Columns: []ColumnDef{{Name: "email", Type: types.TypeText}}})
+
+	if catalog.IndexCount() != 0 {
+		t.Errorf("IndexCount: got %d, want 0", catalog.IndexCount())
+	}
+
+	catalog.CreateIndex(&IndexDef{Name: "idx1", TableName: "users", Columns: []string{"email"}})
+	if catalog.IndexCount() != 1 {
+		t.Errorf("IndexCount: got %d, want 1", catalog.IndexCount())
+	}
+
+	catalog.CreateIndex(&IndexDef{Name: "idx2", TableName: "users", Columns: []string{"email"}})
+	if catalog.IndexCount() != 2 {
+		t.Errorf("IndexCount: got %d, want 2", catalog.IndexCount())
+	}
+}

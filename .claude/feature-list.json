@@ -409,11 +409,11 @@
       "tasks": [
         {
           "task": "Design index metadata structure (name, table, columns, type)",
-          "done": false
+          "done": true
         },
         {
           "task": "Add index catalog storage in schema pages",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement index registration on CREATE INDEX",
