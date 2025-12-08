@@ -793,7 +793,15 @@
           "done": true
         },
         {
-          "task": "Check for dependent views and triggers",
+          "task": "Parse CASCADE option in DROP TABLE",
+          "done": true
+        },
+        {
+          "task": "Implement basic DROP TABLE executor",
+          "done": true
+        },
+        {
+          "task": "Handle IF EXISTS clause (silent success for non-existent tables)",
           "done": true
         },
         {
@@ -801,16 +809,52 @@
           "done": true
         },
         {
-          "task": "Add table's B-tree pages to free list",
+          "task": "Clean up in-memory structures (trees, rowid maps)",
           "done": true
+        }
+      ],
+      "futureEnhancements": [
+        {
+          "task": "Check for dependent views before dropping table",
+          "done": false,
+          "blockedBy": "CREATE VIEW and DROP VIEW features",
+          "description": "When DROP TABLE is called without CASCADE, check if any views depend on this table and error if found"
         },
         {
-          "task": "Drop associated indexes",
-          "done": true
+          "task": "Check for dependent triggers before dropping table",
+          "done": false,
+          "blockedBy": "CREATE TRIGGER and DROP TRIGGER features",
+          "description": "When DROP TABLE is called without CASCADE, check if any triggers are attached to this table and error if found"
         },
         {
-          "task": "Handle CASCADE option for foreign keys",
-          "done": true
+          "task": "Automatically drop associated indexes when CASCADE is specified",
+          "done": false,
+          "blockedBy": "CREATE INDEX feature needs index-to-table tracking",
+          "description": "When CASCADE is specified, automatically drop all indexes associated with the table"
+        },
+        {
+          "task": "Handle CASCADE for foreign key constraints",
+          "done": false,
+          "blockedBy": "FOREIGN KEY constraint enforcement",
+          "description": "When CASCADE is specified, handle foreign key references (either cascade delete or prevent drop)"
+        },
+        {
+          "task": "Return table's B-tree pages to free list",
+          "done": false,
+          "blockedBy": "B-tree page tracking in schema catalog",
+          "description": "Free all pages used by the table's B-tree structure back to the database free list"
+        },
+        {
+          "task": "Drop dependent views automatically when CASCADE is specified",
+          "done": false,
+          "blockedBy": "CREATE VIEW feature",
+          "description": "When CASCADE is specified, automatically drop all views that depend on this table"
+        },
+        {
+          "task": "Drop dependent triggers automatically when CASCADE is specified",
+          "done": false,
+          "blockedBy": "CREATE TRIGGER feature",
+          "description": "When CASCADE is specified, automatically drop all triggers attached to this table"
         }
       ]
     },
