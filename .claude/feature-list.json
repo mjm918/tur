@@ -299,27 +299,27 @@
     {
       "title": "HNSW - Incremental Updates",
       "description": "Efficient incremental updates without full index rebuild",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Design WAL-based change log for HNSW modifications",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement background merge of deltas into main index",
-          "done": false
+          "done": true
         },
         {
           "task": "Add version tracking for index snapshots",
-          "done": false
+          "done": true
         },
         {
           "task": "Optimize memory usage during incremental updates",
-          "done": false
+          "done": true
         },
         {
           "task": "Test incremental update correctness vs full rebuild",
-          "done": false
+          "done": true
         }
       ]
     },
