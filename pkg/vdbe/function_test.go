@@ -397,3 +397,70 @@ func TestLower_Null(t *testing.T) {
 		t.Error("LOWER(NULL) should return NULL")
 	}
 }
+
+func TestCoalesce(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	coalesce := registry.Lookup("COALESCE")
+	if coalesce == nil {
+		t.Fatal("COALESCE function not found in default registry")
+	}
+
+	tests := []struct {
+		args   []types.Value
+		expect types.Value
+	}{
+		// First non-null value
+		{[]types.Value{types.NewNull(), types.NewInt(1)}, types.NewInt(1)},
+		{[]types.Value{types.NewNull(), types.NewNull(), types.NewText("hello")}, types.NewText("hello")},
+		// First value is non-null
+		{[]types.Value{types.NewInt(42), types.NewNull()}, types.NewInt(42)},
+		{[]types.Value{types.NewText("first"), types.NewText("second")}, types.NewText("first")},
+		// All null
+		{[]types.Value{types.NewNull(), types.NewNull()}, types.NewNull()},
+		// Single value
+		{[]types.Value{types.NewInt(5)}, types.NewInt(5)},
+		{[]types.Value{types.NewNull()}, types.NewNull()},
+		// Mixed types
+		{[]types.Value{types.NewNull(), types.NewFloat(3.14)}, types.NewFloat(3.14)},
+	}
+
+	for i, tc := range tests {
+		result := coalesce.Call(tc.args)
+
+		if tc.expect.IsNull() {
+			if !result.IsNull() {
+				t.Errorf("test %d: expected NULL, got %v", i, result)
+			}
+		} else {
+			if result.Type() != tc.expect.Type() {
+				t.Errorf("test %d: expected type %v, got %v", i, tc.expect.Type(), result.Type())
+				continue
+			}
+			switch result.Type() {
+			case types.TypeInt:
+				if result.Int() != tc.expect.Int() {
+					t.Errorf("test %d: expected %d, got %d", i, tc.expect.Int(), result.Int())
+				}
+			case types.TypeText:
+				if result.Text() != tc.expect.Text() {
+					t.Errorf("test %d: expected %q, got %q", i, tc.expect.Text(), result.Text())
+				}
+			case types.TypeFloat:
+				if result.Float() != tc.expect.Float() {
+					t.Errorf("test %d: expected %f, got %f", i, tc.expect.Float(), result.Float())
+				}
+			}
+		}
+	}
+}
+
+func TestCoalesce_NoArgs(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	coalesce := registry.Lookup("COALESCE")
+
+	// Empty args should return NULL
+	result := coalesce.Call([]types.Value{})
+	if !result.IsNull() {
+		t.Error("COALESCE() with no args should return NULL")
+	}
+}

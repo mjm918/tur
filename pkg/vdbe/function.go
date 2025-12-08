@@ -87,6 +87,13 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Function: builtinLower,
 	})
 
+	// Register COALESCE function (variadic)
+	r.Register(&ScalarFunction{
+		Name:     "COALESCE",
+		NumArgs:  -1,
+		Function: builtinCoalesce,
+	})
+
 	return r
 }
 
@@ -254,4 +261,15 @@ func builtinLower(args []types.Value) types.Value {
 	}
 
 	return types.NewText(strings.ToLower(val.Text()))
+}
+
+// builtinCoalesce implements COALESCE(val1, val2, ...)
+// Returns the first non-NULL argument, or NULL if all arguments are NULL.
+func builtinCoalesce(args []types.Value) types.Value {
+	for _, arg := range args {
+		if !arg.IsNull() {
+			return arg
+		}
+	}
+	return types.NewNull()
 }
