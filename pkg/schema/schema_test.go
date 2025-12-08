@@ -680,3 +680,105 @@ func TestHNSWParams_DefaultValues(t *testing.T) {
 		t.Errorf("EfConstruction: got %d, want 200", params.EfConstruction)
 	}
 }
+
+// ========== Index Lookup Tests ==========
+
+func TestCatalog_GetIndexesForTable(t *testing.T) {
+	catalog := NewCatalog()
+
+	catalog.CreateTable(&TableDef{Name: "users", Columns: []ColumnDef{
+		{Name: "id", Type: types.TypeInt},
+		{Name: "email", Type: types.TypeText},
+		{Name: "name", Type: types.TypeText},
+	}})
+	catalog.CreateTable(&TableDef{Name: "orders", Columns: []ColumnDef{
+		{Name: "id", Type: types.TypeInt},
+	}})
+
+	catalog.CreateIndex(&IndexDef{Name: "idx_users_email", TableName: "users", Columns: []string{"email"}})
+	catalog.CreateIndex(&IndexDef{Name: "idx_users_name", TableName: "users", Columns: []string{"name"}})
+	catalog.CreateIndex(&IndexDef{Name: "idx_orders_id", TableName: "orders", Columns: []string{"id"}})
+
+	// Get indexes for users table
+	usersIndexes := catalog.GetIndexesForTable("users")
+	if len(usersIndexes) != 2 {
+		t.Fatalf("GetIndexesForTable('users'): got %d, want 2", len(usersIndexes))
+	}
+
+	// Check names are in sorted order
+	if usersIndexes[0].Name != "idx_users_email" || usersIndexes[1].Name != "idx_users_name" {
+		t.Errorf("GetIndexesForTable('users'): got %v, want sorted by name", usersIndexes)
+	}
+
+	// Get indexes for orders table
+	ordersIndexes := catalog.GetIndexesForTable("orders")
+	if len(ordersIndexes) != 1 {
+		t.Fatalf("GetIndexesForTable('orders'): got %d, want 1", len(ordersIndexes))
+	}
+
+	// Get indexes for nonexistent table
+	noneIndexes := catalog.GetIndexesForTable("nonexistent")
+	if len(noneIndexes) != 0 {
+		t.Errorf("GetIndexesForTable('nonexistent'): got %d, want 0", len(noneIndexes))
+	}
+}
+
+func TestCatalog_GetIndexByColumn(t *testing.T) {
+	catalog := NewCatalog()
+
+	catalog.CreateTable(&TableDef{Name: "users", Columns: []ColumnDef{
+		{Name: "id", Type: types.TypeInt},
+		{Name: "email", Type: types.TypeText},
+	}})
+
+	catalog.CreateIndex(&IndexDef{Name: "idx_users_email", TableName: "users", Columns: []string{"email"}})
+
+	// Find index by table and column
+	idx := catalog.GetIndexByColumn("users", "email")
+	if idx == nil {
+		t.Fatal("GetIndexByColumn('users', 'email'): expected non-nil")
+	}
+	if idx.Name != "idx_users_email" {
+		t.Errorf("Name: got %q, want 'idx_users_email'", idx.Name)
+	}
+
+	// Column without index
+	idx = catalog.GetIndexByColumn("users", "id")
+	if idx != nil {
+		t.Errorf("GetIndexByColumn('users', 'id'): expected nil, got %v", idx)
+	}
+
+	// Nonexistent table
+	idx = catalog.GetIndexByColumn("nonexistent", "col")
+	if idx != nil {
+		t.Errorf("GetIndexByColumn('nonexistent', 'col'): expected nil, got %v", idx)
+	}
+}
+
+func TestCatalog_GetIndexByColumn_MultiColumn(t *testing.T) {
+	catalog := NewCatalog()
+
+	catalog.CreateTable(&TableDef{Name: "orders", Columns: []ColumnDef{
+		{Name: "customer_id", Type: types.TypeInt},
+		{Name: "order_date", Type: types.TypeText},
+	}})
+
+	catalog.CreateIndex(&IndexDef{
+		Name:      "idx_orders_composite",
+		TableName: "orders",
+		Columns:   []string{"customer_id", "order_date"},
+	})
+
+	// First column of composite index should be found
+	idx := catalog.GetIndexByColumn("orders", "customer_id")
+	if idx == nil {
+		t.Fatal("GetIndexByColumn('orders', 'customer_id'): expected non-nil for first column of composite index")
+	}
+
+	// Second column of composite index may not be directly indexable (only first column is usable for prefix matching)
+	// But for simplicity, we still return the index if the column is part of it
+	idx = catalog.GetIndexByColumn("orders", "order_date")
+	if idx == nil {
+		t.Fatal("GetIndexByColumn('orders', 'order_date'): expected non-nil for second column of composite index")
+	}
+}

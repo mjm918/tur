@@ -405,7 +405,7 @@
     {
       "title": "Schema - Index Definitions",
       "description": "Schema entries for B-tree and HNSW indexes with metadata",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Design index metadata structure (name, table, columns, type)",
@@ -425,7 +425,7 @@
         },
         {
           "task": "Add index lookup by table and column names",
-          "done": false
+          "done": true
         }
       ]
     },

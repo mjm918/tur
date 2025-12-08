@@ -356,3 +356,43 @@ func (c *Catalog) IndexCount() int {
 
 	return len(c.indexes)
 }
+
+// GetIndexesForTable returns all indexes for a given table, sorted by name
+func (c *Catalog) GetIndexesForTable(tableName string) []*IndexDef {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var indexes []*IndexDef
+	for _, idx := range c.indexes {
+		if idx.TableName == tableName {
+			indexes = append(indexes, idx)
+		}
+	}
+
+	// Sort by name for consistent ordering
+	sort.Slice(indexes, func(i, j int) bool {
+		return indexes[i].Name < indexes[j].Name
+	})
+
+	return indexes
+}
+
+// GetIndexByColumn returns the first index that includes the given column
+// for the specified table. Returns nil if no matching index is found.
+func (c *Catalog) GetIndexByColumn(tableName, columnName string) *IndexDef {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	for _, idx := range c.indexes {
+		if idx.TableName != tableName {
+			continue
+		}
+		for _, col := range idx.Columns {
+			if col == columnName {
+				return idx
+			}
+		}
+	}
+
+	return nil
+}
