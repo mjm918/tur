@@ -127,3 +127,44 @@ func (s *SumAggregate) Finalize() types.Value {
 	}
 	return types.NewInt(s.intSum)
 }
+
+// AvgAggregate implements AVG(column) - computes average of numeric values
+type AvgAggregate struct {
+	sum   float64
+	count int64
+}
+
+// NewAvgAggregate creates a new AVG aggregate
+func NewAvgAggregate() *AvgAggregate {
+	return &AvgAggregate{}
+}
+
+// Init resets the avg state
+func (a *AvgAggregate) Init() {
+	a.sum = 0
+	a.count = 0
+}
+
+// Step adds a value to the average calculation, ignoring nulls
+func (a *AvgAggregate) Step(value types.Value) {
+	if value.IsNull() {
+		return
+	}
+
+	a.count++
+
+	switch value.Type() {
+	case types.TypeInt:
+		a.sum += float64(value.Int())
+	case types.TypeFloat:
+		a.sum += value.Float()
+	}
+}
+
+// Finalize returns the average as float, or NULL if no values
+func (a *AvgAggregate) Finalize() types.Value {
+	if a.count == 0 {
+		return types.NewNull()
+	}
+	return types.NewFloat(a.sum / float64(a.count))
+}

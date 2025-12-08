@@ -155,3 +155,70 @@ func TestSumAggregate_EmptyReturnsNull(t *testing.T) {
 		t.Errorf("expected NULL for empty SUM, got %v", result.Type())
 	}
 }
+
+// ============ AVG Aggregate Tests ============
+
+// Test 10: AVG aggregate computes average of integers
+func TestAvgAggregate_AveragesIntegers(t *testing.T) {
+	avg := NewAvgAggregate()
+	avg.Init()
+
+	avg.Step(types.NewInt(10))
+	avg.Step(types.NewInt(20))
+	avg.Step(types.NewInt(30))
+
+	result := avg.Finalize()
+
+	// AVG always returns float
+	if result.Type() != types.TypeFloat {
+		t.Errorf("expected float result, got %v", result.Type())
+	}
+	if result.Float() != 20.0 {
+		t.Errorf("expected average of 20.0, got %f", result.Float())
+	}
+}
+
+// Test 11: AVG aggregate computes average of floats
+func TestAvgAggregate_AveragesFloats(t *testing.T) {
+	avg := NewAvgAggregate()
+	avg.Init()
+
+	avg.Step(types.NewFloat(1.0))
+	avg.Step(types.NewFloat(2.0))
+	avg.Step(types.NewFloat(3.0))
+	avg.Step(types.NewFloat(4.0))
+
+	result := avg.Finalize()
+
+	if result.Float() != 2.5 {
+		t.Errorf("expected average of 2.5, got %f", result.Float())
+	}
+}
+
+// Test 12: AVG ignores null values
+func TestAvgAggregate_IgnoresNulls(t *testing.T) {
+	avg := NewAvgAggregate()
+	avg.Init()
+
+	avg.Step(types.NewInt(10))
+	avg.Step(types.NewNull())
+	avg.Step(types.NewInt(30))
+
+	result := avg.Finalize()
+
+	// Average of 10, 30 is 20 (null ignored)
+	if result.Float() != 20.0 {
+		t.Errorf("expected average of 20.0 (ignoring null), got %f", result.Float())
+	}
+}
+
+// Test 13: AVG with no values returns NULL
+func TestAvgAggregate_EmptyReturnsNull(t *testing.T) {
+	avg := NewAvgAggregate()
+	avg.Init()
+	result := avg.Finalize()
+
+	if !result.IsNull() {
+		t.Errorf("expected NULL for empty AVG, got %v", result.Type())
+	}
+}
