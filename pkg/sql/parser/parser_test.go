@@ -954,3 +954,156 @@ func TestParser_DropIndex(t *testing.T) {
 		t.Errorf("IndexName = %q, want 'idx_users_email'", drop.IndexName)
 	}
 }
+
+// UPDATE statement tests
+
+func TestParser_Update_Simple(t *testing.T) {
+	input := "UPDATE users SET name = 'Alice'"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	update, ok := stmt.(*UpdateStmt)
+	if !ok {
+		t.Fatalf("Expected *UpdateStmt, got %T", stmt)
+	}
+
+	if update.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", update.TableName)
+	}
+
+	if len(update.Assignments) != 1 {
+		t.Fatalf("Assignments count = %d, want 1", len(update.Assignments))
+	}
+
+	if update.Assignments[0].Column != "name" {
+		t.Errorf("Assignment column = %q, want 'name'", update.Assignments[0].Column)
+	}
+
+	lit, ok := update.Assignments[0].Value.(*Literal)
+	if !ok {
+		t.Fatalf("Expected *Literal value, got %T", update.Assignments[0].Value)
+	}
+	if lit.Value.Text() != "Alice" {
+		t.Errorf("Assignment value = %q, want 'Alice'", lit.Value.Text())
+	}
+
+	if update.Where != nil {
+		t.Error("Where should be nil for UPDATE without WHERE")
+	}
+}
+
+func TestParser_Update_MultipleAssignments(t *testing.T) {
+	input := "UPDATE users SET name = 'Bob', age = 30"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	update := stmt.(*UpdateStmt)
+
+	if len(update.Assignments) != 2 {
+		t.Fatalf("Assignments count = %d, want 2", len(update.Assignments))
+	}
+
+	if update.Assignments[0].Column != "name" {
+		t.Errorf("Assignment[0] column = %q, want 'name'", update.Assignments[0].Column)
+	}
+	if update.Assignments[1].Column != "age" {
+		t.Errorf("Assignment[1] column = %q, want 'age'", update.Assignments[1].Column)
+	}
+
+	// Check second assignment value
+	lit, ok := update.Assignments[1].Value.(*Literal)
+	if !ok {
+		t.Fatalf("Expected *Literal value, got %T", update.Assignments[1].Value)
+	}
+	if lit.Value.Int() != 30 {
+		t.Errorf("Assignment[1] value = %d, want 30", lit.Value.Int())
+	}
+}
+
+func TestParser_Update_WithWhere(t *testing.T) {
+	input := "UPDATE users SET name = 'Charlie' WHERE id = 1"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	update := stmt.(*UpdateStmt)
+
+	if update.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", update.TableName)
+	}
+
+	if len(update.Assignments) != 1 {
+		t.Fatalf("Assignments count = %d, want 1", len(update.Assignments))
+	}
+
+	if update.Where == nil {
+		t.Fatal("Where should not be nil")
+	}
+
+	// Check WHERE is id = 1
+	bin, ok := update.Where.(*BinaryExpr)
+	if !ok {
+		t.Fatalf("Expected *BinaryExpr for WHERE, got %T", update.Where)
+	}
+
+	col, ok := bin.Left.(*ColumnRef)
+	if !ok || col.Name != "id" {
+		t.Errorf("WHERE left side should be column 'id', got %v", bin.Left)
+	}
+
+	if bin.Op != lexer.EQ {
+		t.Errorf("WHERE op = %v, want EQ", bin.Op)
+	}
+
+	lit, ok := bin.Right.(*Literal)
+	if !ok || lit.Value.Int() != 1 {
+		t.Errorf("WHERE right side should be 1, got %v", bin.Right)
+	}
+}
+
+func TestParser_Update_ExpressionValue(t *testing.T) {
+	input := "UPDATE counters SET value = value + 1 WHERE id = 5"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	update := stmt.(*UpdateStmt)
+
+	if len(update.Assignments) != 1 {
+		t.Fatalf("Assignments count = %d, want 1", len(update.Assignments))
+	}
+
+	if update.Assignments[0].Column != "value" {
+		t.Errorf("Assignment column = %q, want 'value'", update.Assignments[0].Column)
+	}
+
+	// Value should be expression: value + 1
+	bin, ok := update.Assignments[0].Value.(*BinaryExpr)
+	if !ok {
+		t.Fatalf("Expected *BinaryExpr value, got %T", update.Assignments[0].Value)
+	}
+
+	if bin.Op != lexer.PLUS {
+		t.Errorf("Expression op = %v, want PLUS", bin.Op)
+	}
+
+	col, ok := bin.Left.(*ColumnRef)
+	if !ok || col.Name != "value" {
+		t.Errorf("Expression left should be column 'value', got %v", bin.Left)
+	}
+
+	lit, ok := bin.Right.(*Literal)
+	if !ok || lit.Value.Int() != 1 {
+		t.Errorf("Expression right should be 1, got %v", bin.Right)
+	}
+}

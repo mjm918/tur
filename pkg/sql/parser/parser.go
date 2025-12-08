@@ -42,6 +42,8 @@ func (p *Parser) Parse() (Statement, error) {
 		return p.parseSelect()
 	case lexer.DROP:
 		return p.parseDrop()
+	case lexer.UPDATE:
+		return p.parseUpdate()
 	default:
 		return nil, fmt.Errorf("unexpected token: %s", p.cur.Literal)
 	}
@@ -581,6 +583,67 @@ func (p *Parser) parseInsert() (*InsertStmt, error) {
 		stmt.SelectStmt = selectStmt
 	} else {
 		return nil, fmt.Errorf("expected VALUES or SELECT, got %s", p.cur.Literal)
+	}
+
+	return stmt, nil
+}
+
+// parseUpdate parses: UPDATE table SET col1=val1, col2=val2 [WHERE expr]
+func (p *Parser) parseUpdate() (*UpdateStmt, error) {
+	stmt := &UpdateStmt{}
+
+	// UPDATE - consume and move to table name
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected table name after UPDATE, got %s", p.peek.Literal)
+	}
+	stmt.TableName = p.cur.Literal
+
+	// SET
+	if !p.expectPeek(lexer.SET) {
+		return nil, fmt.Errorf("expected SET, got %s", p.peek.Literal)
+	}
+
+	// Parse assignments: col1 = val1, col2 = val2, ...
+	for {
+		// Column name
+		if !p.expectPeek(lexer.IDENT) {
+			return nil, fmt.Errorf("expected column name, got %s", p.peek.Literal)
+		}
+		column := p.cur.Literal
+
+		// =
+		if !p.expectPeek(lexer.EQ) {
+			return nil, fmt.Errorf("expected '=' after column name, got %s", p.peek.Literal)
+		}
+
+		// Value expression
+		p.nextToken()
+		value, err := p.parseExpression(LOWEST)
+		if err != nil {
+			return nil, err
+		}
+
+		stmt.Assignments = append(stmt.Assignments, Assignment{
+			Column: column,
+			Value:  value,
+		})
+
+		// Check for more assignments or end
+		if !p.peekIs(lexer.COMMA) {
+			break
+		}
+		p.nextToken() // consume comma
+	}
+
+	// Optional WHERE clause
+	if p.peekIs(lexer.WHERE) {
+		p.nextToken() // consume WHERE
+		p.nextToken() // move to expression
+		where, err := p.parseExpression(LOWEST)
+		if err != nil {
+			return nil, err
+		}
+		stmt.Where = where
 	}
 
 	return stmt, nil
