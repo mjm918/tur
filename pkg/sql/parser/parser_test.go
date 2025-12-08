@@ -1263,3 +1263,209 @@ func TestParser_Analyze_SpecificIndex(t *testing.T) {
 		t.Errorf("TableName = %q, want 'idx_users_email'", analyze.TableName)
 	}
 }
+
+func TestParser_Select_OrderBy(t *testing.T) {
+	input := "SELECT * FROM users ORDER BY name"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel, ok := stmt.(*SelectStmt)
+	if !ok {
+		t.Fatalf("Expected *SelectStmt, got %T", stmt)
+	}
+
+	if len(sel.OrderBy) != 1 {
+		t.Fatalf("OrderBy count = %d, want 1", len(sel.OrderBy))
+	}
+
+	colRef, ok := sel.OrderBy[0].Expr.(*ColumnRef)
+	if !ok {
+		t.Fatalf("OrderBy[0].Expr type = %T, want *ColumnRef", sel.OrderBy[0].Expr)
+	}
+	if colRef.Name != "name" {
+		t.Errorf("OrderBy[0].Expr.Name = %q, want 'name'", colRef.Name)
+	}
+
+	if sel.OrderBy[0].Direction != OrderAsc {
+		t.Errorf("OrderBy[0].Direction = %v, want OrderAsc", sel.OrderBy[0].Direction)
+	}
+}
+
+func TestParser_Select_OrderByDesc(t *testing.T) {
+	input := "SELECT * FROM users ORDER BY age DESC"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel := stmt.(*SelectStmt)
+
+	if len(sel.OrderBy) != 1 {
+		t.Fatalf("OrderBy count = %d, want 1", len(sel.OrderBy))
+	}
+
+	if sel.OrderBy[0].Direction != OrderDesc {
+		t.Errorf("OrderBy[0].Direction = %v, want OrderDesc", sel.OrderBy[0].Direction)
+	}
+}
+
+func TestParser_Select_OrderByMultiple(t *testing.T) {
+	input := "SELECT * FROM users ORDER BY age DESC, name ASC"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel := stmt.(*SelectStmt)
+
+	if len(sel.OrderBy) != 2 {
+		t.Fatalf("OrderBy count = %d, want 2", len(sel.OrderBy))
+	}
+
+	// First: age DESC
+	col0, _ := sel.OrderBy[0].Expr.(*ColumnRef)
+	if col0.Name != "age" || sel.OrderBy[0].Direction != OrderDesc {
+		t.Errorf("OrderBy[0] = {%q, %v}, want {age, DESC}", col0.Name, sel.OrderBy[0].Direction)
+	}
+
+	// Second: name ASC
+	col1, _ := sel.OrderBy[1].Expr.(*ColumnRef)
+	if col1.Name != "name" || sel.OrderBy[1].Direction != OrderAsc {
+		t.Errorf("OrderBy[1] = {%q, %v}, want {name, ASC}", col1.Name, sel.OrderBy[1].Direction)
+	}
+}
+
+func TestParser_Select_Limit(t *testing.T) {
+	input := "SELECT * FROM users LIMIT 10"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel := stmt.(*SelectStmt)
+
+	if sel.Limit == nil {
+		t.Fatal("Limit = nil, expected expression")
+	}
+
+	lit, ok := sel.Limit.(*Literal)
+	if !ok {
+		t.Fatalf("Limit type = %T, want *Literal", sel.Limit)
+	}
+	if lit.Value.Int() != 10 {
+		t.Errorf("Limit = %d, want 10", lit.Value.Int())
+	}
+}
+
+func TestParser_Select_LimitOffset(t *testing.T) {
+	input := "SELECT * FROM users LIMIT 10 OFFSET 5"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel := stmt.(*SelectStmt)
+
+	if sel.Limit == nil {
+		t.Fatal("Limit = nil, expected expression")
+	}
+	if sel.Offset == nil {
+		t.Fatal("Offset = nil, expected expression")
+	}
+
+	limitLit := sel.Limit.(*Literal)
+	if limitLit.Value.Int() != 10 {
+		t.Errorf("Limit = %d, want 10", limitLit.Value.Int())
+	}
+
+	offsetLit := sel.Offset.(*Literal)
+	if offsetLit.Value.Int() != 5 {
+		t.Errorf("Offset = %d, want 5", offsetLit.Value.Int())
+	}
+}
+
+func TestParser_Select_OrderByLimitOffset(t *testing.T) {
+	input := "SELECT * FROM users ORDER BY name LIMIT 10 OFFSET 5"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel := stmt.(*SelectStmt)
+
+	// ORDER BY
+	if len(sel.OrderBy) != 1 {
+		t.Fatalf("OrderBy count = %d, want 1", len(sel.OrderBy))
+	}
+	colRef := sel.OrderBy[0].Expr.(*ColumnRef)
+	if colRef.Name != "name" {
+		t.Errorf("OrderBy[0].Expr.Name = %q, want 'name'", colRef.Name)
+	}
+
+	// LIMIT
+	if sel.Limit == nil {
+		t.Fatal("Limit = nil, expected expression")
+	}
+	limitLit := sel.Limit.(*Literal)
+	if limitLit.Value.Int() != 10 {
+		t.Errorf("Limit = %d, want 10", limitLit.Value.Int())
+	}
+
+	// OFFSET
+	if sel.Offset == nil {
+		t.Fatal("Offset = nil, expected expression")
+	}
+	offsetLit := sel.Offset.(*Literal)
+	if offsetLit.Value.Int() != 5 {
+		t.Errorf("Offset = %d, want 5", offsetLit.Value.Int())
+	}
+}
+
+func TestParser_Select_WhereOrderByLimitOffset(t *testing.T) {
+	input := "SELECT id, name FROM users WHERE age > 18 ORDER BY name DESC LIMIT 20 OFFSET 10"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel := stmt.(*SelectStmt)
+
+	// Columns
+	if len(sel.Columns) != 2 {
+		t.Fatalf("Columns count = %d, want 2", len(sel.Columns))
+	}
+
+	// WHERE
+	if sel.Where == nil {
+		t.Fatal("Where = nil, expected expression")
+	}
+
+	// ORDER BY
+	if len(sel.OrderBy) != 1 {
+		t.Fatalf("OrderBy count = %d, want 1", len(sel.OrderBy))
+	}
+	if sel.OrderBy[0].Direction != OrderDesc {
+		t.Errorf("OrderBy[0].Direction = %v, want OrderDesc", sel.OrderBy[0].Direction)
+	}
+
+	// LIMIT
+	limitLit := sel.Limit.(*Literal)
+	if limitLit.Value.Int() != 20 {
+		t.Errorf("Limit = %d, want 20", limitLit.Value.Int())
+	}
+
+	// OFFSET
+	offsetLit := sel.Offset.(*Literal)
+	if offsetLit.Value.Int() != 10 {
+		t.Errorf("Offset = %d, want 10", offsetLit.Value.Int())
+	}
+}

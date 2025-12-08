@@ -930,8 +930,74 @@ func (e *Executor) executePlan(plan optimizer.PlanNode) (RowIterator, []string, 
 			leftSchemaLen: len(leftCols),
 		}, combinedCols, nil
 
+	case *optimizer.SortNode:
+		inputIter, inputCols, err := e.executePlan(node.Input)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		colMap := e.buildColMap(inputCols)
+
+		return &SortIterator{
+			child:    inputIter,
+			orderBy:  node.OrderBy,
+			colMap:   colMap,
+			executor: e,
+		}, inputCols, nil
+
+	case *optimizer.LimitNode:
+		inputIter, inputCols, err := e.executePlan(node.Input)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		// Evaluate limit and offset expressions to get integer values
+		limit := int64(-1) // -1 means no limit
+		offset := int64(0)
+
+		if node.Limit != nil {
+			limitVal, err := e.evaluateLiteralExpr(node.Limit)
+			if err != nil {
+				inputIter.Close()
+				return nil, nil, fmt.Errorf("evaluating LIMIT: %w", err)
+			}
+			limit = limitVal
+		}
+
+		if node.Offset != nil {
+			offsetVal, err := e.evaluateLiteralExpr(node.Offset)
+			if err != nil {
+				inputIter.Close()
+				return nil, nil, fmt.Errorf("evaluating OFFSET: %w", err)
+			}
+			offset = offsetVal
+		}
+
+		return &LimitIterator{
+			child:  inputIter,
+			limit:  limit,
+			offset: offset,
+		}, inputCols, nil
+
 	default:
 		return nil, nil, fmt.Errorf("unsupported plan node: %T", plan)
+	}
+}
+
+// evaluateLiteralExpr evaluates an expression that should be a literal integer
+func (e *Executor) evaluateLiteralExpr(expr parser.Expression) (int64, error) {
+	switch ex := expr.(type) {
+	case *parser.Literal:
+		switch ex.Value.Type() {
+		case types.TypeInt:
+			return ex.Value.Int(), nil
+		case types.TypeFloat:
+			return int64(ex.Value.Float()), nil
+		default:
+			return 0, fmt.Errorf("expected integer literal, got %v", ex.Value.Type())
+		}
+	default:
+		return 0, fmt.Errorf("expected literal expression for LIMIT/OFFSET, got %T", expr)
 	}
 }
 

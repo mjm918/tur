@@ -1323,3 +1323,132 @@ func TestExecutor_Delete_EmptyTable(t *testing.T) {
 		t.Errorf("RowsAffected = %d, want 0", result.RowsAffected)
 	}
 }
+
+func TestExecutor_Select_OrderByAsc(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	exec.Execute("INSERT INTO users VALUES (3, 'Charlie')")
+	exec.Execute("INSERT INTO users VALUES (1, 'Alice')")
+	exec.Execute("INSERT INTO users VALUES (2, 'Bob')")
+
+	result, err := exec.Execute("SELECT * FROM users ORDER BY id")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if len(result.Rows) != 3 {
+		t.Fatalf("Rows = %d, want 3", len(result.Rows))
+	}
+
+	// Should be sorted by id ascending: Alice(1), Bob(2), Charlie(3)
+	expected := []string{"Alice", "Bob", "Charlie"}
+	for i, name := range expected {
+		if result.Rows[i][1].Text() != name {
+			t.Errorf("Row[%d][1] = %q, want %q", i, result.Rows[i][1].Text(), name)
+		}
+	}
+}
+
+func TestExecutor_Select_OrderByDesc(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	exec.Execute("INSERT INTO users VALUES (1, 'Alice')")
+	exec.Execute("INSERT INTO users VALUES (2, 'Bob')")
+	exec.Execute("INSERT INTO users VALUES (3, 'Charlie')")
+
+	result, err := exec.Execute("SELECT * FROM users ORDER BY id DESC")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if len(result.Rows) != 3 {
+		t.Fatalf("Rows = %d, want 3", len(result.Rows))
+	}
+
+	// Should be sorted by id descending: Charlie(3), Bob(2), Alice(1)
+	expected := []string{"Charlie", "Bob", "Alice"}
+	for i, name := range expected {
+		if result.Rows[i][1].Text() != name {
+			t.Errorf("Row[%d][1] = %q, want %q", i, result.Rows[i][1].Text(), name)
+		}
+	}
+}
+
+func TestExecutor_Select_Limit(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	exec.Execute("INSERT INTO users VALUES (1, 'Alice')")
+	exec.Execute("INSERT INTO users VALUES (2, 'Bob')")
+	exec.Execute("INSERT INTO users VALUES (3, 'Charlie')")
+
+	result, err := exec.Execute("SELECT * FROM users LIMIT 2")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if len(result.Rows) != 2 {
+		t.Fatalf("Rows = %d, want 2", len(result.Rows))
+	}
+}
+
+func TestExecutor_Select_LimitOffset(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	exec.Execute("INSERT INTO users VALUES (1, 'Alice')")
+	exec.Execute("INSERT INTO users VALUES (2, 'Bob')")
+	exec.Execute("INSERT INTO users VALUES (3, 'Charlie')")
+	exec.Execute("INSERT INTO users VALUES (4, 'Diana')")
+
+	result, err := exec.Execute("SELECT * FROM users LIMIT 2 OFFSET 1")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if len(result.Rows) != 2 {
+		t.Fatalf("Rows = %d, want 2", len(result.Rows))
+	}
+
+	// With offset 1, should skip Alice, return Bob and Charlie
+	if result.Rows[0][1].Text() != "Bob" {
+		t.Errorf("Row[0][1] = %q, want 'Bob'", result.Rows[0][1].Text())
+	}
+	if result.Rows[1][1].Text() != "Charlie" {
+		t.Errorf("Row[1][1] = %q, want 'Charlie'", result.Rows[1][1].Text())
+	}
+}
+
+func TestExecutor_Select_OrderByLimit(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	exec.Execute("INSERT INTO users VALUES (3, 'Charlie')")
+	exec.Execute("INSERT INTO users VALUES (1, 'Alice')")
+	exec.Execute("INSERT INTO users VALUES (2, 'Bob')")
+	exec.Execute("INSERT INTO users VALUES (4, 'Diana')")
+
+	result, err := exec.Execute("SELECT * FROM users ORDER BY id DESC LIMIT 2")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if len(result.Rows) != 2 {
+		t.Fatalf("Rows = %d, want 2", len(result.Rows))
+	}
+
+	// Top 2 by id DESC: Diana(4), Charlie(3)
+	if result.Rows[0][1].Text() != "Diana" {
+		t.Errorf("Row[0][1] = %q, want 'Diana'", result.Rows[0][1].Text())
+	}
+	if result.Rows[1][1].Text() != "Charlie" {
+		t.Errorf("Row[1][1] = %q, want 'Charlie'", result.Rows[1][1].Text())
+	}
+}
