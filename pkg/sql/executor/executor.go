@@ -57,6 +57,10 @@ func (e *Executor) Execute(sql string) (*Result, error) {
 		return e.executeCreateTable(s)
 	case *parser.DropTableStmt:
 		return e.executeDropTable(s)
+	case *parser.CreateIndexStmt:
+		return e.executeCreateIndex(s)
+	case *parser.DropIndexStmt:
+		return e.executeDropIndex(s)
 	case *parser.InsertStmt:
 		return e.executeInsert(s)
 	case *parser.SelectStmt:
@@ -278,6 +282,55 @@ func (e *Executor) executeDropTable(stmt *parser.DropTableStmt) (*Result, error)
 
 	delete(e.trees, stmt.TableName)
 	delete(e.rowid, stmt.TableName)
+
+	return &Result{}, nil
+}
+
+// executeCreateIndex handles CREATE INDEX
+func (e *Executor) executeCreateIndex(stmt *parser.CreateIndexStmt) (*Result, error) {
+	// Check if table exists
+	table := e.catalog.GetTable(stmt.TableName)
+	if table == nil {
+		return nil, fmt.Errorf("table %s not found", stmt.TableName)
+	}
+
+	// Validate all columns exist in the table
+	for _, colName := range stmt.Columns {
+		col, _ := table.GetColumn(colName)
+		if col == nil {
+			return nil, fmt.Errorf("column %s not found in table %s", colName, stmt.TableName)
+		}
+	}
+
+	// Create B-tree for the index
+	tree, err := btree.Create(e.pager)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create index btree: %w", err)
+	}
+
+	// Create index definition
+	idx := &schema.IndexDef{
+		Name:      stmt.IndexName,
+		TableName: stmt.TableName,
+		Columns:   stmt.Columns,
+		Type:      schema.IndexTypeBTree,
+		Unique:    stmt.Unique,
+		RootPage:  tree.RootPage(),
+	}
+
+	// Add to catalog
+	if err := e.catalog.CreateIndex(idx); err != nil {
+		return nil, err
+	}
+
+	return &Result{}, nil
+}
+
+// executeDropIndex handles DROP INDEX
+func (e *Executor) executeDropIndex(stmt *parser.DropIndexStmt) (*Result, error) {
+	if err := e.catalog.DropIndex(stmt.IndexName); err != nil {
+		return nil, err
+	}
 
 	return &Result{}, nil
 }

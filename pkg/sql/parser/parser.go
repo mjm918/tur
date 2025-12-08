@@ -35,28 +35,58 @@ func (p *Parser) nextToken() {
 func (p *Parser) Parse() (Statement, error) {
 	switch p.cur.Type {
 	case lexer.CREATE:
-		return p.parseCreateTable()
+		return p.parseCreate()
 	case lexer.INSERT:
 		return p.parseInsert()
 	case lexer.SELECT:
 		return p.parseSelect()
 	case lexer.DROP:
-		return p.parseDropTable()
+		return p.parseDrop()
 	default:
 		return nil, fmt.Errorf("unexpected token: %s", p.cur.Literal)
 	}
 }
 
-// parseCreateTable parses: CREATE TABLE name (column_def, ..., [table_constraints])
-func (p *Parser) parseCreateTable() (*CreateTableStmt, error) {
+// parseCreate handles CREATE TABLE and CREATE INDEX statements
+func (p *Parser) parseCreate() (Statement, error) {
+	p.nextToken() // consume CREATE
+
+	switch p.cur.Type {
+	case lexer.TABLE:
+		return p.parseCreateTableBody()
+	case lexer.INDEX:
+		return p.parseCreateIndex(false)
+	case lexer.UNIQUE:
+		// CREATE UNIQUE INDEX
+		if !p.expectPeek(lexer.INDEX) {
+			return nil, fmt.Errorf("expected INDEX after UNIQUE, got %s", p.peek.Literal)
+		}
+		return p.parseCreateIndex(true)
+	default:
+		return nil, fmt.Errorf("expected TABLE, INDEX, or UNIQUE after CREATE, got %s", p.cur.Literal)
+	}
+}
+
+// parseDrop handles DROP TABLE and DROP INDEX statements
+func (p *Parser) parseDrop() (Statement, error) {
+	p.nextToken() // consume DROP
+
+	switch p.cur.Type {
+	case lexer.TABLE:
+		return p.parseDropTableBody()
+	case lexer.INDEX:
+		return p.parseDropIndex()
+	default:
+		return nil, fmt.Errorf("expected TABLE or INDEX after DROP, got %s", p.cur.Literal)
+	}
+}
+
+// parseCreateTableBody parses: TABLE name (column_def, ..., [table_constraints])
+// Called after CREATE has been consumed and current token is TABLE
+func (p *Parser) parseCreateTableBody() (*CreateTableStmt, error) {
 	stmt := &CreateTableStmt{}
 
-	// CREATE
-	if !p.expectPeek(lexer.TABLE) {
-		return nil, fmt.Errorf("expected TABLE, got %s", p.peek.Literal)
-	}
-
-	// TABLE
+	// Current token is TABLE, move to table name
 	if !p.expectPeek(lexer.IDENT) {
 		return nil, fmt.Errorf("expected table name, got %s", p.peek.Literal)
 	}
@@ -611,20 +641,72 @@ func (p *Parser) parseSelectColumns() ([]SelectColumn, error) {
 	return cols, nil
 }
 
-// parseDropTable parses: DROP TABLE name
-func (p *Parser) parseDropTable() (*DropTableStmt, error) {
+// parseDropTableBody parses: TABLE name
+// Called after DROP has been consumed and current token is TABLE
+func (p *Parser) parseDropTableBody() (*DropTableStmt, error) {
 	stmt := &DropTableStmt{}
 
-	// DROP
-	if !p.expectPeek(lexer.TABLE) {
-		return nil, fmt.Errorf("expected TABLE, got %s", p.peek.Literal)
-	}
-
-	// TABLE name
+	// Current token is TABLE, move to table name
 	if !p.expectPeek(lexer.IDENT) {
 		return nil, fmt.Errorf("expected table name, got %s", p.peek.Literal)
 	}
 	stmt.TableName = p.cur.Literal
+
+	return stmt, nil
+}
+
+// parseCreateIndex parses: INDEX name ON table (column, ...)
+// Called after CREATE [UNIQUE] INDEX has been consumed and current token is INDEX
+func (p *Parser) parseCreateIndex(unique bool) (*CreateIndexStmt, error) {
+	stmt := &CreateIndexStmt{Unique: unique}
+
+	// Current token is INDEX, move to index name
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected index name, got %s", p.peek.Literal)
+	}
+	stmt.IndexName = p.cur.Literal
+
+	// ON
+	if !p.expectPeek(lexer.ON) {
+		return nil, fmt.Errorf("expected ON, got %s", p.peek.Literal)
+	}
+
+	// Table name
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected table name, got %s", p.peek.Literal)
+	}
+	stmt.TableName = p.cur.Literal
+
+	// (
+	if !p.expectPeek(lexer.LPAREN) {
+		return nil, fmt.Errorf("expected '(', got %s", p.peek.Literal)
+	}
+
+	// Column names
+	columns, err := p.parseIdentList()
+	if err != nil {
+		return nil, err
+	}
+	stmt.Columns = columns
+
+	// )
+	if !p.expectPeek(lexer.RPAREN) {
+		return nil, fmt.Errorf("expected ')' or ',', got %s", p.peek.Literal)
+	}
+
+	return stmt, nil
+}
+
+// parseDropIndex parses: INDEX name
+// Called after DROP has been consumed and current token is INDEX
+func (p *Parser) parseDropIndex() (*DropIndexStmt, error) {
+	stmt := &DropIndexStmt{}
+
+	// Current token is INDEX, move to index name
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected index name, got %s", p.peek.Literal)
+	}
+	stmt.IndexName = p.cur.Literal
 
 	return stmt, nil
 }

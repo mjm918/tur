@@ -417,7 +417,7 @@
         },
         {
           "task": "Implement index registration on CREATE INDEX",
-          "done": false
+          "done": true
         },
         {
           "task": "Store HNSW parameters (M, efConstruction) in metadata",

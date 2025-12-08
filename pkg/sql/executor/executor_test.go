@@ -668,3 +668,145 @@ func TestExecutor_Insert_CheckViolation_NullAllowed(t *testing.T) {
 		t.Fatalf("CHECK constraint should allow NULL: %v", err)
 	}
 }
+
+// ========== Index Executor Tests ==========
+
+func TestExecutor_CreateIndex(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// First create a table
+	_, err := exec.Execute("CREATE TABLE users (id INT, email TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Create index
+	result, err := exec.Execute("CREATE INDEX idx_users_email ON users (email)")
+	if err != nil {
+		t.Fatalf("CREATE INDEX: %v", err)
+	}
+
+	if result.RowsAffected != 0 {
+		t.Errorf("RowsAffected = %d, want 0", result.RowsAffected)
+	}
+
+	// Verify index exists in catalog
+	idx := exec.catalog.GetIndex("idx_users_email")
+	if idx == nil {
+		t.Fatal("Index 'idx_users_email' not found in catalog")
+	}
+
+	if idx.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", idx.TableName)
+	}
+	if len(idx.Columns) != 1 || idx.Columns[0] != "email" {
+		t.Errorf("Columns = %v, want ['email']", idx.Columns)
+	}
+	if idx.Type != schema.IndexTypeBTree {
+		t.Errorf("Type = %v, want IndexTypeBTree", idx.Type)
+	}
+	if idx.Unique {
+		t.Error("Unique = true, want false")
+	}
+}
+
+func TestExecutor_CreateIndex_Unique(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, email TEXT)")
+
+	_, err := exec.Execute("CREATE UNIQUE INDEX idx_users_email ON users (email)")
+	if err != nil {
+		t.Fatalf("CREATE UNIQUE INDEX: %v", err)
+	}
+
+	idx := exec.catalog.GetIndex("idx_users_email")
+	if !idx.Unique {
+		t.Error("Unique = false, want true")
+	}
+}
+
+func TestExecutor_CreateIndex_MultiColumn(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE orders (id INT, customer_id INT, order_date TEXT)")
+
+	_, err := exec.Execute("CREATE INDEX idx_orders ON orders (customer_id, order_date)")
+	if err != nil {
+		t.Fatalf("CREATE INDEX: %v", err)
+	}
+
+	idx := exec.catalog.GetIndex("idx_orders")
+	if len(idx.Columns) != 2 {
+		t.Fatalf("Columns count = %d, want 2", len(idx.Columns))
+	}
+	if idx.Columns[0] != "customer_id" || idx.Columns[1] != "order_date" {
+		t.Errorf("Columns = %v, want ['customer_id', 'order_date']", idx.Columns)
+	}
+}
+
+func TestExecutor_CreateIndex_Duplicate(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, email TEXT)")
+	exec.Execute("CREATE INDEX idx_users_email ON users (email)")
+
+	_, err := exec.Execute("CREATE INDEX idx_users_email ON users (email)")
+	if err == nil {
+		t.Error("Expected error for duplicate index")
+	}
+}
+
+func TestExecutor_CreateIndex_TableNotFound(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE INDEX idx ON nonexistent (col)")
+	if err == nil {
+		t.Error("Expected error for nonexistent table")
+	}
+}
+
+func TestExecutor_CreateIndex_ColumnNotFound(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT)")
+
+	_, err := exec.Execute("CREATE INDEX idx ON users (nonexistent)")
+	if err == nil {
+		t.Error("Expected error for nonexistent column")
+	}
+}
+
+func TestExecutor_DropIndex(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, email TEXT)")
+	exec.Execute("CREATE INDEX idx_users_email ON users (email)")
+
+	_, err := exec.Execute("DROP INDEX idx_users_email")
+	if err != nil {
+		t.Fatalf("DROP INDEX: %v", err)
+	}
+
+	// Verify index no longer exists
+	if exec.catalog.GetIndex("idx_users_email") != nil {
+		t.Error("Index should not exist after DROP")
+	}
+}
+
+func TestExecutor_DropIndex_NotFound(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("DROP INDEX nonexistent")
+	if err == nil {
+		t.Error("Expected error for nonexistent index")
+	}
+}

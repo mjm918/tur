@@ -81,6 +81,9 @@ const (
 	RESTRICT
 	ACTION
 	CONSTRAINT
+
+	// Index keywords
+	INDEX
 )
 
 // Token represents a lexical token
@@ -221,6 +224,8 @@ func (t TokenType) String() string {
 		return "ACTION"
 	case CONSTRAINT:
 		return "CONSTRAINT"
+	case INDEX:
+		return "INDEX"
 	default:
 		return "UNKNOWN"
 	}
@@ -271,6 +276,7 @@ var keywords = map[string]TokenType{
 	"RESTRICT":   RESTRICT,
 	"ACTION":     ACTION,
 	"CONSTRAINT": CONSTRAINT,
+	"INDEX":      INDEX,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT
