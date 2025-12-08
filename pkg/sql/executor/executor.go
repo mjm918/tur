@@ -79,7 +79,7 @@ func (e *Executor) executeCreateTable(stmt *parser.CreateTableStmt) (*Result, er
 		return nil, fmt.Errorf("failed to create btree: %w", err)
 	}
 
-	// Convert column definitions
+	// Convert column definitions with constraints
 	columns := make([]schema.ColumnDef, len(stmt.Columns))
 	for i, col := range stmt.Columns {
 		columns[i] = schema.ColumnDef{
@@ -89,13 +89,86 @@ func (e *Executor) executeCreateTable(stmt *parser.CreateTableStmt) (*Result, er
 			NotNull:    col.NotNull,
 			VectorDim:  col.VectorDim,
 		}
+
+		// Build column constraints
+		var constraints []schema.Constraint
+
+		// PRIMARY KEY
+		if col.PrimaryKey {
+			constraints = append(constraints, schema.Constraint{
+				Type: schema.ConstraintPrimaryKey,
+			})
+		}
+
+		// NOT NULL
+		if col.NotNull {
+			constraints = append(constraints, schema.Constraint{
+				Type: schema.ConstraintNotNull,
+			})
+		}
+
+		// UNIQUE
+		if col.Unique {
+			constraints = append(constraints, schema.Constraint{
+				Type: schema.ConstraintUnique,
+			})
+		}
+
+		// CHECK
+		if col.CheckExpr != nil {
+			constraints = append(constraints, schema.Constraint{
+				Type:            schema.ConstraintCheck,
+				CheckExpression: exprToString(col.CheckExpr),
+			})
+		}
+
+		// FOREIGN KEY (column-level REFERENCES)
+		if col.ForeignKey != nil {
+			constraints = append(constraints, schema.Constraint{
+				Type:      schema.ConstraintForeignKey,
+				RefTable:  col.ForeignKey.RefTable,
+				RefColumn: col.ForeignKey.RefColumn,
+				OnDelete:  convertFKAction(col.ForeignKey.OnDelete),
+				OnUpdate:  convertFKAction(col.ForeignKey.OnUpdate),
+			})
+		}
+
+		columns[i].Constraints = constraints
+	}
+
+	// Convert table-level constraints
+	var tableConstraints []schema.TableConstraint
+	for _, tc := range stmt.TableConstraints {
+		schemaTC := schema.TableConstraint{
+			Name:    tc.Name,
+			Columns: tc.Columns,
+		}
+
+		switch tc.Type {
+		case parser.TableConstraintPrimaryKey:
+			schemaTC.Type = schema.ConstraintPrimaryKey
+		case parser.TableConstraintUnique:
+			schemaTC.Type = schema.ConstraintUnique
+		case parser.TableConstraintForeignKey:
+			schemaTC.Type = schema.ConstraintForeignKey
+			schemaTC.RefTable = tc.RefTable
+			schemaTC.RefColumns = tc.RefColumns
+			schemaTC.OnDelete = convertFKAction(tc.OnDelete)
+			schemaTC.OnUpdate = convertFKAction(tc.OnUpdate)
+		case parser.TableConstraintCheck:
+			schemaTC.Type = schema.ConstraintCheck
+			schemaTC.CheckExpression = exprToString(tc.CheckExpr)
+		}
+
+		tableConstraints = append(tableConstraints, schemaTC)
 	}
 
 	// Create table definition
 	table := &schema.TableDef{
-		Name:     stmt.TableName,
-		Columns:  columns,
-		RootPage: tree.RootPage(),
+		Name:             stmt.TableName,
+		Columns:          columns,
+		RootPage:         tree.RootPage(),
+		TableConstraints: tableConstraints,
 	}
 
 	// Add to catalog
@@ -108,6 +181,93 @@ func (e *Executor) executeCreateTable(stmt *parser.CreateTableStmt) (*Result, er
 	e.rowid[stmt.TableName] = 1
 
 	return &Result{}, nil
+}
+
+// convertFKAction converts parser FK action to schema FK action
+func convertFKAction(action parser.FKAction) schema.ForeignKeyAction {
+	switch action {
+	case parser.FKActionNoAction:
+		return schema.FKActionNoAction
+	case parser.FKActionRestrict:
+		return schema.FKActionRestrict
+	case parser.FKActionCascade:
+		return schema.FKActionCascade
+	case parser.FKActionSetNull:
+		return schema.FKActionSetNull
+	case parser.FKActionSetDefault:
+		return schema.FKActionSetDefault
+	default:
+		return schema.FKActionNoAction
+	}
+}
+
+// exprToString converts an expression to a string representation
+func exprToString(expr parser.Expression) string {
+	if expr == nil {
+		return ""
+	}
+
+	switch e := expr.(type) {
+	case *parser.Literal:
+		if e.Value.IsNull() {
+			return "NULL"
+		}
+		switch e.Value.Type() {
+		case types.TypeInt:
+			return fmt.Sprintf("%d", e.Value.Int())
+		case types.TypeFloat:
+			return fmt.Sprintf("%g", e.Value.Float())
+		case types.TypeText:
+			return fmt.Sprintf("'%s'", e.Value.Text())
+		default:
+			return "?"
+		}
+	case *parser.ColumnRef:
+		return e.Name
+	case *parser.BinaryExpr:
+		left := exprToString(e.Left)
+		right := exprToString(e.Right)
+		op := tokenToOp(e.Op)
+		return fmt.Sprintf("%s %s %s", left, op, right)
+	case *parser.UnaryExpr:
+		right := exprToString(e.Right)
+		op := tokenToOp(e.Op)
+		return fmt.Sprintf("%s%s", op, right)
+	default:
+		return ""
+	}
+}
+
+// tokenToOp converts a lexer token type to operator string
+func tokenToOp(t lexer.TokenType) string {
+	switch t {
+	case lexer.PLUS:
+		return "+"
+	case lexer.MINUS:
+		return "-"
+	case lexer.STAR:
+		return "*"
+	case lexer.SLASH:
+		return "/"
+	case lexer.EQ:
+		return "="
+	case lexer.NEQ:
+		return "!="
+	case lexer.LT:
+		return "<"
+	case lexer.GT:
+		return ">"
+	case lexer.LTE:
+		return "<="
+	case lexer.GTE:
+		return ">="
+	case lexer.AND:
+		return "AND"
+	case lexer.OR:
+		return "OR"
+	default:
+		return "?"
+	}
 }
 
 // executeDropTable handles DROP TABLE

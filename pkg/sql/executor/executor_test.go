@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"tur/pkg/pager"
+	"tur/pkg/schema"
 	"tur/pkg/types"
 )
 
@@ -326,4 +327,278 @@ func TestExecutor_VectorType_DimensionCheck(t *testing.T) {
 
 	// Since we can't parse vector literals yet, we manually verify strict typing logic
 	// would go here if we could insert them. For now, we verified schema storage.
+}
+
+// ========== Constraint Catalog Tests ==========
+
+func TestExecutor_CreateTable_StoresUniqueConstraint(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE users (email TEXT UNIQUE)")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	table := exec.catalog.GetTable("users")
+	if table == nil {
+		t.Fatal("Table not found")
+	}
+
+	col, _ := table.GetColumn("email")
+	if col == nil {
+		t.Fatal("Column 'email' not found")
+	}
+
+	if !col.HasConstraint(schema.ConstraintUnique) {
+		t.Error("Column should have UNIQUE constraint")
+	}
+}
+
+func TestExecutor_CreateTable_StoresCheckConstraint(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE products (price INT CHECK (price >= 0))")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	table := exec.catalog.GetTable("products")
+	if table == nil {
+		t.Fatal("Table not found")
+	}
+
+	col, _ := table.GetColumn("price")
+	if col == nil {
+		t.Fatal("Column 'price' not found")
+	}
+
+	if !col.HasConstraint(schema.ConstraintCheck) {
+		t.Error("Column should have CHECK constraint")
+	}
+
+	check := col.GetConstraint(schema.ConstraintCheck)
+	if check == nil {
+		t.Fatal("CHECK constraint not found")
+	}
+
+	if check.CheckExpression == "" {
+		t.Error("CheckExpression should not be empty")
+	}
+}
+
+func TestExecutor_CreateTable_StoresForeignKeyConstraint(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create referenced table first
+	_, err := exec.Execute("CREATE TABLE users (id INT PRIMARY KEY)")
+	if err != nil {
+		t.Fatalf("Create users: %v", err)
+	}
+
+	_, err = exec.Execute("CREATE TABLE orders (id INT, user_id INT REFERENCES users(id))")
+	if err != nil {
+		t.Fatalf("Create orders: %v", err)
+	}
+
+	table := exec.catalog.GetTable("orders")
+	if table == nil {
+		t.Fatal("Table not found")
+	}
+
+	col, _ := table.GetColumn("user_id")
+	if col == nil {
+		t.Fatal("Column 'user_id' not found")
+	}
+
+	if !col.HasConstraint(schema.ConstraintForeignKey) {
+		t.Error("Column should have FOREIGN KEY constraint")
+	}
+
+	fk := col.GetConstraint(schema.ConstraintForeignKey)
+	if fk == nil {
+		t.Fatal("FOREIGN KEY constraint not found")
+	}
+
+	if fk.RefTable != "users" {
+		t.Errorf("RefTable = %q, want 'users'", fk.RefTable)
+	}
+
+	if fk.RefColumn != "id" {
+		t.Errorf("RefColumn = %q, want 'id'", fk.RefColumn)
+	}
+}
+
+func TestExecutor_CreateTable_StoresForeignKeyActions(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT PRIMARY KEY)")
+	_, err := exec.Execute("CREATE TABLE orders (user_id INT REFERENCES users(id) ON DELETE CASCADE ON UPDATE SET NULL)")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	table := exec.catalog.GetTable("orders")
+	col, _ := table.GetColumn("user_id")
+	fk := col.GetConstraint(schema.ConstraintForeignKey)
+
+	if fk.OnDelete != schema.FKActionCascade {
+		t.Errorf("OnDelete = %v, want FKActionCascade", fk.OnDelete)
+	}
+
+	if fk.OnUpdate != schema.FKActionSetNull {
+		t.Errorf("OnUpdate = %v, want FKActionSetNull", fk.OnUpdate)
+	}
+}
+
+func TestExecutor_CreateTable_StoresTableLevelPrimaryKey(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE order_items (order_id INT, product_id INT, PRIMARY KEY (order_id, product_id))")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	table := exec.catalog.GetTable("order_items")
+	if table == nil {
+		t.Fatal("Table not found")
+	}
+
+	pk := table.GetTableConstraint(schema.ConstraintPrimaryKey)
+	if pk == nil {
+		t.Fatal("PRIMARY KEY table constraint not found")
+	}
+
+	if len(pk.Columns) != 2 {
+		t.Errorf("Columns = %v, want 2 columns", pk.Columns)
+	}
+
+	if pk.Columns[0] != "order_id" || pk.Columns[1] != "product_id" {
+		t.Errorf("Columns = %v, want ['order_id', 'product_id']", pk.Columns)
+	}
+}
+
+func TestExecutor_CreateTable_StoresTableLevelUnique(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE t (a INT, b INT, UNIQUE (a, b))")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	table := exec.catalog.GetTable("t")
+	unique := table.GetTableConstraint(schema.ConstraintUnique)
+	if unique == nil {
+		t.Fatal("UNIQUE table constraint not found")
+	}
+
+	if len(unique.Columns) != 2 {
+		t.Errorf("Columns = %v, want 2 columns", unique.Columns)
+	}
+}
+
+func TestExecutor_CreateTable_StoresTableLevelForeignKey(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT PRIMARY KEY)")
+	_, err := exec.Execute("CREATE TABLE orders (id INT, user_id INT, FOREIGN KEY (user_id) REFERENCES users(id))")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	table := exec.catalog.GetTable("orders")
+	fk := table.GetTableConstraint(schema.ConstraintForeignKey)
+	if fk == nil {
+		t.Fatal("FOREIGN KEY table constraint not found")
+	}
+
+	if fk.RefTable != "users" {
+		t.Errorf("RefTable = %q, want 'users'", fk.RefTable)
+	}
+
+	if len(fk.Columns) != 1 || fk.Columns[0] != "user_id" {
+		t.Errorf("Columns = %v, want ['user_id']", fk.Columns)
+	}
+}
+
+func TestExecutor_CreateTable_StoresTableLevelCheck(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE t (start_date INT, end_date INT, CHECK (start_date < end_date))")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	table := exec.catalog.GetTable("t")
+	check := table.GetTableConstraint(schema.ConstraintCheck)
+	if check == nil {
+		t.Fatal("CHECK table constraint not found")
+	}
+
+	if check.CheckExpression == "" {
+		t.Error("CheckExpression should not be empty")
+	}
+}
+
+func TestExecutor_CreateTable_StoresNamedConstraint(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE t (id INT, CONSTRAINT pk_t PRIMARY KEY (id))")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	table := exec.catalog.GetTable("t")
+	pk := table.GetTableConstraint(schema.ConstraintPrimaryKey)
+	if pk == nil {
+		t.Fatal("PRIMARY KEY table constraint not found")
+	}
+
+	if pk.Name != "pk_t" {
+		t.Errorf("Name = %q, want 'pk_t'", pk.Name)
+	}
+}
+
+func TestExecutor_CreateTable_StoresMultipleConstraints(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE users (id INT PRIMARY KEY NOT NULL, email TEXT UNIQUE NOT NULL, age INT CHECK (age >= 0))")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	table := exec.catalog.GetTable("users")
+
+	// Check id column
+	id, _ := table.GetColumn("id")
+	if !id.HasConstraint(schema.ConstraintPrimaryKey) {
+		t.Error("id should have PRIMARY KEY constraint")
+	}
+	if !id.HasConstraint(schema.ConstraintNotNull) {
+		t.Error("id should have NOT NULL constraint")
+	}
+
+	// Check email column
+	email, _ := table.GetColumn("email")
+	if !email.HasConstraint(schema.ConstraintUnique) {
+		t.Error("email should have UNIQUE constraint")
+	}
+	if !email.HasConstraint(schema.ConstraintNotNull) {
+		t.Error("email should have NOT NULL constraint")
+	}
+
+	// Check age column
+	age, _ := table.GetColumn("age")
+	if !age.HasConstraint(schema.ConstraintCheck) {
+		t.Error("age should have CHECK constraint")
+	}
 }

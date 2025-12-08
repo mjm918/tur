@@ -390,7 +390,7 @@
         },
         {
           "task": "Store constraints in schema catalog",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement constraint validation hooks in executor",
