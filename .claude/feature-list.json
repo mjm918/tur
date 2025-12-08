@@ -623,7 +623,7 @@
         },
         {
           "task": "Implement table sampling for large tables",
-          "done": false
+          "done": true
         },
         {
           "task": "Compute histograms for column value distributions",
