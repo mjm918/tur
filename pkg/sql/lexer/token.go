@@ -69,6 +69,18 @@ const (
 	BY
 	LIMIT
 	OFFSET
+
+	// Constraint keywords
+	UNIQUE
+	CHECK
+	DEFAULT
+	FOREIGN
+	REFERENCES
+	ON
+	CASCADE
+	RESTRICT
+	ACTION
+	CONSTRAINT
 )
 
 // Token represents a lexical token
@@ -189,6 +201,26 @@ func (t TokenType) String() string {
 		return "LIMIT"
 	case OFFSET:
 		return "OFFSET"
+	case UNIQUE:
+		return "UNIQUE"
+	case CHECK:
+		return "CHECK"
+	case DEFAULT:
+		return "DEFAULT"
+	case FOREIGN:
+		return "FOREIGN"
+	case REFERENCES:
+		return "REFERENCES"
+	case ON:
+		return "ON"
+	case CASCADE:
+		return "CASCADE"
+	case RESTRICT:
+		return "RESTRICT"
+	case ACTION:
+		return "ACTION"
+	case CONSTRAINT:
+		return "CONSTRAINT"
 	default:
 		return "UNKNOWN"
 	}
@@ -227,8 +259,18 @@ var keywords = map[string]TokenType{
 	"DESC":    DESC,
 	"ORDER":   ORDER,
 	"BY":      BY,
-	"LIMIT":   LIMIT,
-	"OFFSET":  OFFSET,
+	"LIMIT":      LIMIT,
+	"OFFSET":     OFFSET,
+	"UNIQUE":     UNIQUE,
+	"CHECK":      CHECK,
+	"DEFAULT":    DEFAULT,
+	"FOREIGN":    FOREIGN,
+	"REFERENCES": REFERENCES,
+	"ON":         ON,
+	"CASCADE":    CASCADE,
+	"RESTRICT":   RESTRICT,
+	"ACTION":     ACTION,
+	"CONSTRAINT": CONSTRAINT,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT

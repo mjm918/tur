@@ -47,7 +47,7 @@ func (p *Parser) Parse() (Statement, error) {
 	}
 }
 
-// parseCreateTable parses: CREATE TABLE name (column_def, ...)
+// parseCreateTable parses: CREATE TABLE name (column_def, ..., [table_constraints])
 func (p *Parser) parseCreateTable() (*CreateTableStmt, error) {
 	stmt := &CreateTableStmt{}
 
@@ -67,14 +67,24 @@ func (p *Parser) parseCreateTable() (*CreateTableStmt, error) {
 		return nil, fmt.Errorf("expected '(', got %s", p.peek.Literal)
 	}
 
-	// column definitions
+	// column definitions and table constraints
 	for {
 		p.nextToken()
-		col, err := p.parseColumnDef()
-		if err != nil {
-			return nil, err
+
+		// Check if this is a table-level constraint
+		if p.isTableConstraintStart() {
+			constraint, err := p.parseTableConstraint()
+			if err != nil {
+				return nil, err
+			}
+			stmt.TableConstraints = append(stmt.TableConstraints, constraint)
+		} else {
+			col, err := p.parseColumnDef()
+			if err != nil {
+				return nil, err
+			}
+			stmt.Columns = append(stmt.Columns, col)
 		}
-		stmt.Columns = append(stmt.Columns, col)
 
 		if p.peekIs(lexer.COMMA) {
 			p.nextToken() // consume ,
@@ -95,7 +105,180 @@ func (p *Parser) parseCreateTable() (*CreateTableStmt, error) {
 	return stmt, nil
 }
 
-// parseColumnDef parses: name TYPE [PRIMARY KEY] [NOT NULL]
+// isTableConstraintStart checks if the current token starts a table constraint
+func (p *Parser) isTableConstraintStart() bool {
+	switch p.cur.Type {
+	case lexer.PRIMARY, lexer.UNIQUE, lexer.FOREIGN, lexer.CHECK, lexer.CONSTRAINT:
+		return true
+	default:
+		return false
+	}
+}
+
+// parseTableConstraint parses a table-level constraint
+func (p *Parser) parseTableConstraint() (TableConstraint, error) {
+	constraint := TableConstraint{}
+
+	// Check for optional CONSTRAINT name
+	if p.cur.Type == lexer.CONSTRAINT {
+		if !p.expectPeek(lexer.IDENT) {
+			return constraint, fmt.Errorf("expected constraint name after CONSTRAINT")
+		}
+		constraint.Name = p.cur.Literal
+		p.nextToken() // move to the constraint type
+	}
+
+	switch p.cur.Type {
+	case lexer.PRIMARY:
+		return p.parseTablePrimaryKey(constraint)
+	case lexer.UNIQUE:
+		return p.parseTableUnique(constraint)
+	case lexer.FOREIGN:
+		return p.parseTableForeignKey(constraint)
+	case lexer.CHECK:
+		return p.parseTableCheck(constraint)
+	default:
+		return constraint, fmt.Errorf("unexpected table constraint type: %s", p.cur.Literal)
+	}
+}
+
+// parseTablePrimaryKey parses: PRIMARY KEY (col1, col2, ...)
+func (p *Parser) parseTablePrimaryKey(constraint TableConstraint) (TableConstraint, error) {
+	constraint.Type = TableConstraintPrimaryKey
+
+	// PRIMARY
+	if !p.expectPeek(lexer.KEY) {
+		return constraint, fmt.Errorf("expected KEY after PRIMARY")
+	}
+
+	// (
+	if !p.expectPeek(lexer.LPAREN) {
+		return constraint, fmt.Errorf("expected '(' after PRIMARY KEY")
+	}
+
+	cols, err := p.parseIdentList()
+	if err != nil {
+		return constraint, err
+	}
+	constraint.Columns = cols
+
+	// )
+	if !p.expectPeek(lexer.RPAREN) {
+		return constraint, fmt.Errorf("expected ')' after column list")
+	}
+
+	return constraint, nil
+}
+
+// parseTableUnique parses: UNIQUE (col1, col2, ...)
+func (p *Parser) parseTableUnique(constraint TableConstraint) (TableConstraint, error) {
+	constraint.Type = TableConstraintUnique
+
+	// (
+	if !p.expectPeek(lexer.LPAREN) {
+		return constraint, fmt.Errorf("expected '(' after UNIQUE")
+	}
+
+	cols, err := p.parseIdentList()
+	if err != nil {
+		return constraint, err
+	}
+	constraint.Columns = cols
+
+	// )
+	if !p.expectPeek(lexer.RPAREN) {
+		return constraint, fmt.Errorf("expected ')' after column list")
+	}
+
+	return constraint, nil
+}
+
+// parseTableForeignKey parses: FOREIGN KEY (cols) REFERENCES table(cols) [ON DELETE action] [ON UPDATE action]
+func (p *Parser) parseTableForeignKey(constraint TableConstraint) (TableConstraint, error) {
+	constraint.Type = TableConstraintForeignKey
+
+	// KEY
+	if !p.expectPeek(lexer.KEY) {
+		return constraint, fmt.Errorf("expected KEY after FOREIGN")
+	}
+
+	// (
+	if !p.expectPeek(lexer.LPAREN) {
+		return constraint, fmt.Errorf("expected '(' after FOREIGN KEY")
+	}
+
+	cols, err := p.parseIdentList()
+	if err != nil {
+		return constraint, err
+	}
+	constraint.Columns = cols
+
+	// )
+	if !p.expectPeek(lexer.RPAREN) {
+		return constraint, fmt.Errorf("expected ')' after column list")
+	}
+
+	// REFERENCES
+	if !p.expectPeek(lexer.REFERENCES) {
+		return constraint, fmt.Errorf("expected REFERENCES after FOREIGN KEY columns")
+	}
+
+	// table name
+	if !p.expectPeek(lexer.IDENT) {
+		return constraint, fmt.Errorf("expected table name after REFERENCES")
+	}
+	constraint.RefTable = p.cur.Literal
+
+	// (ref columns)
+	if !p.expectPeek(lexer.LPAREN) {
+		return constraint, fmt.Errorf("expected '(' after referenced table name")
+	}
+
+	refCols, err := p.parseIdentList()
+	if err != nil {
+		return constraint, err
+	}
+	constraint.RefColumns = refCols
+
+	// )
+	if !p.expectPeek(lexer.RPAREN) {
+		return constraint, fmt.Errorf("expected ')' after referenced columns")
+	}
+
+	// Optional ON DELETE/UPDATE actions
+	constraint.OnDelete, constraint.OnUpdate, err = p.parseFKActions()
+	if err != nil {
+		return constraint, err
+	}
+
+	return constraint, nil
+}
+
+// parseTableCheck parses: CHECK (expression)
+func (p *Parser) parseTableCheck(constraint TableConstraint) (TableConstraint, error) {
+	constraint.Type = TableConstraintCheck
+
+	// (
+	if !p.expectPeek(lexer.LPAREN) {
+		return constraint, fmt.Errorf("expected '(' after CHECK")
+	}
+
+	p.nextToken() // move to expression start
+	expr, err := p.parseExpression(LOWEST)
+	if err != nil {
+		return constraint, err
+	}
+	constraint.CheckExpr = expr
+
+	// )
+	if !p.expectPeek(lexer.RPAREN) {
+		return constraint, fmt.Errorf("expected ')' after CHECK expression")
+	}
+
+	return constraint, nil
+}
+
+// parseColumnDef parses: name TYPE [constraints...]
 func (p *Parser) parseColumnDef() (ColumnDef, error) {
 	col := ColumnDef{}
 
@@ -128,12 +311,138 @@ func (p *Parser) parseColumnDef() (ColumnDef, error) {
 				return col, fmt.Errorf("expected NULL after NOT, got %s", p.peek.Literal)
 			}
 			col.NotNull = true
+		} else if p.peekIs(lexer.UNIQUE) {
+			p.nextToken() // UNIQUE
+			col.Unique = true
+		} else if p.peekIs(lexer.DEFAULT) {
+			p.nextToken() // DEFAULT
+			p.nextToken() // move to value
+			expr, err := p.parsePrefixExpression()
+			if err != nil {
+				return col, fmt.Errorf("expected expression after DEFAULT: %v", err)
+			}
+			col.DefaultExpr = expr
+		} else if p.peekIs(lexer.CHECK) {
+			p.nextToken() // CHECK
+			if !p.expectPeek(lexer.LPAREN) {
+				return col, fmt.Errorf("expected '(' after CHECK")
+			}
+			p.nextToken() // move to expression start
+			expr, err := p.parseExpression(LOWEST)
+			if err != nil {
+				return col, err
+			}
+			col.CheckExpr = expr
+			if !p.expectPeek(lexer.RPAREN) {
+				return col, fmt.Errorf("expected ')' after CHECK expression")
+			}
+		} else if p.peekIs(lexer.REFERENCES) {
+			p.nextToken() // REFERENCES
+			fk, err := p.parseColumnForeignKey()
+			if err != nil {
+				return col, err
+			}
+			col.ForeignKey = fk
 		} else {
 			break
 		}
 	}
 
 	return col, nil
+}
+
+// parseColumnForeignKey parses: REFERENCES table(column) [ON DELETE action] [ON UPDATE action]
+func (p *Parser) parseColumnForeignKey() (*ForeignKeyRef, error) {
+	fk := &ForeignKeyRef{}
+
+	// table name
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected table name after REFERENCES")
+	}
+	fk.RefTable = p.cur.Literal
+
+	// (column)
+	if !p.expectPeek(lexer.LPAREN) {
+		return nil, fmt.Errorf("expected '(' after table name")
+	}
+
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected column name in REFERENCES")
+	}
+	fk.RefColumn = p.cur.Literal
+
+	if !p.expectPeek(lexer.RPAREN) {
+		return nil, fmt.Errorf("expected ')' after column name")
+	}
+
+	// Optional ON DELETE/UPDATE actions
+	var err error
+	fk.OnDelete, fk.OnUpdate, err = p.parseFKActions()
+	if err != nil {
+		return nil, err
+	}
+
+	return fk, nil
+}
+
+// parseFKActions parses: [ON DELETE action] [ON UPDATE action]
+func (p *Parser) parseFKActions() (FKAction, FKAction, error) {
+	onDelete := FKActionNoAction
+	onUpdate := FKActionNoAction
+
+	for p.peekIs(lexer.ON) {
+		p.nextToken() // ON
+
+		if p.peekIs(lexer.DELETE) {
+			p.nextToken() // DELETE
+			action, err := p.parseFKAction()
+			if err != nil {
+				return onDelete, onUpdate, err
+			}
+			onDelete = action
+		} else if p.peekIs(lexer.UPDATE) {
+			p.nextToken() // UPDATE
+			action, err := p.parseFKAction()
+			if err != nil {
+				return onDelete, onUpdate, err
+			}
+			onUpdate = action
+		} else {
+			return onDelete, onUpdate, fmt.Errorf("expected DELETE or UPDATE after ON")
+		}
+	}
+
+	return onDelete, onUpdate, nil
+}
+
+// parseFKAction parses: CASCADE | RESTRICT | SET NULL | SET DEFAULT | NO ACTION
+func (p *Parser) parseFKAction() (FKAction, error) {
+	p.nextToken()
+
+	switch p.cur.Type {
+	case lexer.CASCADE:
+		return FKActionCascade, nil
+	case lexer.RESTRICT:
+		return FKActionRestrict, nil
+	case lexer.SET:
+		if p.peekIs(lexer.NULL_KW) {
+			p.nextToken()
+			return FKActionSetNull, nil
+		}
+		if p.peekIs(lexer.DEFAULT) {
+			p.nextToken()
+			return FKActionSetDefault, nil
+		}
+		return FKActionNoAction, fmt.Errorf("expected NULL or DEFAULT after SET")
+	case lexer.IDENT:
+		if p.cur.Literal == "NO" && p.peekIs(lexer.ACTION) {
+			p.nextToken()
+			return FKActionNoAction, nil
+		}
+		return FKActionNoAction, fmt.Errorf("unexpected foreign key action: %s", p.cur.Literal)
+	default:
+		return FKActionNoAction, fmt.Errorf("unexpected foreign key action: %s", p.cur.Literal)
+	}
 }
 
 // parseColumnType parses a column type and optional dimension

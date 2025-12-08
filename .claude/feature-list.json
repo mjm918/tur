@@ -386,7 +386,7 @@
         },
         {
           "task": "Parse constraint syntax in CREATE TABLE",
-          "done": false
+          "done": true
         },
         {
           "task": "Store constraints in schema catalog",
