@@ -904,8 +904,8 @@
         },
         {
           "task": "Compile INSERT to VDBE bytecode",
-          "done": false,
-          "note": "Deferred: requires VDBE implementation to be complete"
+          "done": true,
+          "note": "Implemented: compileInsert handles both INSERT...VALUES and INSERT...SELECT"
         },
         {
           "task": "Generate rowid for INTEGER PRIMARY KEY if not provided",
@@ -930,7 +930,7 @@
     {
       "title": "SQL Statements - UPDATE",
       "description": "UPDATE with WHERE clause and multi-column assignments",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse UPDATE table SET col1=val1, col2=val2 WHERE ...",
@@ -938,8 +938,8 @@
         },
         {
           "task": "Compile UPDATE to VDBE bytecode",
-          "done": false,
-          "note": "Deferred: current implementation uses direct executor without VDBE compilation"
+          "done": true,
+          "note": "Implemented: compileUpdate with WHERE clause support"
         },
         {
           "task": "Open cursor on table for WHERE clause evaluation",
@@ -971,8 +971,8 @@
         },
         {
           "task": "Compile DELETE to VDBE bytecode",
-          "done": false,
-          "note": "Deferred: current implementation uses direct executor without VDBE compilation"
+          "done": true,
+          "note": "Implemented: compileDelete with WHERE clause support"
         },
         {
           "task": "Open cursor on table for WHERE clause evaluation",
