@@ -971,3 +971,204 @@ func TestExecutor_DropIndex_NotFound(t *testing.T) {
 		t.Error("Expected error for nonexistent index")
 	}
 }
+
+// UPDATE tests
+
+func TestExecutor_Update_Simple(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	exec.Execute("INSERT INTO users VALUES (1, 'Alice')")
+	exec.Execute("INSERT INTO users VALUES (2, 'Bob')")
+
+	result, err := exec.Execute("UPDATE users SET name = 'Updated'")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if result.RowsAffected != 2 {
+		t.Errorf("RowsAffected = %d, want 2", result.RowsAffected)
+	}
+
+	// Verify all rows were updated
+	selectResult, err := exec.Execute("SELECT * FROM users")
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+
+	for _, row := range selectResult.Rows {
+		if row[1].Text() != "Updated" {
+			t.Errorf("Expected name 'Updated', got %q", row[1].Text())
+		}
+	}
+}
+
+func TestExecutor_Update_WithWhere(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	exec.Execute("INSERT INTO users VALUES (1, 'Alice')")
+	exec.Execute("INSERT INTO users VALUES (2, 'Bob')")
+	exec.Execute("INSERT INTO users VALUES (3, 'Charlie')")
+
+	result, err := exec.Execute("UPDATE users SET name = 'Updated' WHERE id = 2")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if result.RowsAffected != 1 {
+		t.Errorf("RowsAffected = %d, want 1", result.RowsAffected)
+	}
+
+	// Verify only id=2 was updated
+	selectResult, err := exec.Execute("SELECT * FROM users WHERE id = 2")
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+
+	if len(selectResult.Rows) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(selectResult.Rows))
+	}
+
+	if selectResult.Rows[0][1].Text() != "Updated" {
+		t.Errorf("Expected name 'Updated', got %q", selectResult.Rows[0][1].Text())
+	}
+
+	// Verify others were not updated
+	selectResult, err = exec.Execute("SELECT * FROM users WHERE id = 1")
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+
+	if selectResult.Rows[0][1].Text() != "Alice" {
+		t.Errorf("Expected name 'Alice' (unchanged), got %q", selectResult.Rows[0][1].Text())
+	}
+}
+
+func TestExecutor_Update_MultipleColumns(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, name TEXT, age INT)")
+	exec.Execute("INSERT INTO users VALUES (1, 'Alice', 25)")
+
+	result, err := exec.Execute("UPDATE users SET name = 'Bob', age = 30 WHERE id = 1")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if result.RowsAffected != 1 {
+		t.Errorf("RowsAffected = %d, want 1", result.RowsAffected)
+	}
+
+	// Verify update
+	selectResult, err := exec.Execute("SELECT * FROM users WHERE id = 1")
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+
+	if selectResult.Rows[0][1].Text() != "Bob" {
+		t.Errorf("Expected name 'Bob', got %q", selectResult.Rows[0][1].Text())
+	}
+	if selectResult.Rows[0][2].Int() != 30 {
+		t.Errorf("Expected age 30, got %d", selectResult.Rows[0][2].Int())
+	}
+}
+
+func TestExecutor_Update_Expression(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE counters (id INT, value INT)")
+	exec.Execute("INSERT INTO counters VALUES (1, 10)")
+
+	result, err := exec.Execute("UPDATE counters SET value = value + 5 WHERE id = 1")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if result.RowsAffected != 1 {
+		t.Errorf("RowsAffected = %d, want 1", result.RowsAffected)
+	}
+
+	// Verify update
+	selectResult, err := exec.Execute("SELECT * FROM counters WHERE id = 1")
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+
+	if selectResult.Rows[0][1].Int() != 15 {
+		t.Errorf("Expected value 15, got %d", selectResult.Rows[0][1].Int())
+	}
+}
+
+func TestExecutor_Update_TableNotFound(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("UPDATE nonexistent SET name = 'test'")
+	if err == nil {
+		t.Error("Expected error for nonexistent table")
+	}
+}
+
+func TestExecutor_Update_NoRowsMatch(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	exec.Execute("INSERT INTO users VALUES (1, 'Alice')")
+
+	result, err := exec.Execute("UPDATE users SET name = 'Updated' WHERE id = 999")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if result.RowsAffected != 0 {
+		t.Errorf("RowsAffected = %d, want 0", result.RowsAffected)
+	}
+}
+
+func TestExecutor_Update_NotNullViolation(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, name TEXT NOT NULL)")
+	exec.Execute("INSERT INTO users VALUES (1, 'Alice')")
+
+	// Try to set NOT NULL column to NULL
+	_, err := exec.Execute("UPDATE users SET name = NULL WHERE id = 1")
+	if err == nil {
+		t.Error("Expected NOT NULL violation error")
+	}
+}
+
+func TestExecutor_Update_CheckViolation(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE ages (id INT, age INT CHECK(age >= 0))")
+	exec.Execute("INSERT INTO ages VALUES (1, 25)")
+
+	// Try to set CHECK-constrained column to invalid value
+	_, err := exec.Execute("UPDATE ages SET age = -5 WHERE id = 1")
+	if err == nil {
+		t.Error("Expected CHECK violation error")
+	}
+}
+
+func TestExecutor_Update_InvalidColumn(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	exec.Execute("INSERT INTO users VALUES (1, 'Alice')")
+
+	// Try to update non-existent column
+	_, err := exec.Execute("UPDATE users SET nonexistent = 'test' WHERE id = 1")
+	if err == nil {
+		t.Error("Expected error for non-existent column")
+	}
+}

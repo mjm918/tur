@@ -337,3 +337,18 @@ type PragmaStmt struct {
 }
 
 func (s *PragmaStmt) statementNode() {}
+
+// Assignment represents a column = expression assignment in UPDATE
+type Assignment struct {
+	Column string     // Column name to update
+	Value  Expression // New value expression
+}
+
+// UpdateStmt represents an UPDATE statement
+type UpdateStmt struct {
+	TableName   string       // Table to update
+	Assignments []Assignment // SET col1 = val1, col2 = val2
+	Where       Expression   // Optional WHERE clause (nil if none)
+}
+
+func (s *UpdateStmt) statementNode() {}

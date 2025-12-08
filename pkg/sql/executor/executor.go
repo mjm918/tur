@@ -66,6 +66,8 @@ func (e *Executor) Execute(sql string) (*Result, error) {
 		return e.executeInsert(s)
 	case *parser.SelectStmt:
 		return e.executeSelect(s)
+	case *parser.UpdateStmt:
+		return e.executeUpdate(s)
 	default:
 		return nil, fmt.Errorf("unsupported statement type: %T", stmt)
 	}
@@ -447,6 +449,141 @@ func (e *Executor) executeInsert(stmt *parser.InsertStmt) (*Result, error) {
 
 		// Update indexes
 		if err := e.updateIndexes(table, rowid, values); err != nil {
+			return nil, err
+		}
+
+		rowsAffected++
+	}
+
+	return &Result{RowsAffected: rowsAffected}, nil
+}
+
+// executeUpdate handles UPDATE statements
+func (e *Executor) executeUpdate(stmt *parser.UpdateStmt) (*Result, error) {
+	// Get table
+	table := e.catalog.GetTable(stmt.TableName)
+	if table == nil {
+		return nil, fmt.Errorf("table %s not found", stmt.TableName)
+	}
+
+	// Get or create B-tree
+	tree := e.trees[stmt.TableName]
+	if tree == nil {
+		tree = btree.Open(e.pager, table.RootPage)
+		e.trees[stmt.TableName] = tree
+	}
+
+	// Build column map for expression evaluation
+	colMap := make(map[string]int)
+	for i, col := range table.Columns {
+		colMap[col.Name] = i
+	}
+
+	// Validate assignment columns exist
+	for _, assign := range stmt.Assignments {
+		if _, ok := colMap[assign.Column]; !ok {
+			return nil, fmt.Errorf("column %s not found in table %s", assign.Column, stmt.TableName)
+		}
+	}
+
+	// Collect rows to update: iterate through all rows, evaluate WHERE clause
+	type updateEntry struct {
+		key       []byte
+		oldValues []types.Value
+	}
+	var toUpdate []updateEntry
+
+	cursor := tree.Cursor()
+	defer cursor.Close()
+
+	for cursor.First(); cursor.Valid(); cursor.Next() {
+		key := cursor.Key()
+		value := cursor.Value()
+
+		// Decode row
+		values := record.Decode(value)
+
+		// Evaluate WHERE clause if present
+		if stmt.Where != nil {
+			match, err := e.evaluateCondition(stmt.Where, values, colMap)
+			if err != nil {
+				return nil, err
+			}
+			if !match {
+				continue
+			}
+		}
+
+		// Copy key and values for update
+		keyCopy := make([]byte, len(key))
+		copy(keyCopy, key)
+
+		toUpdate = append(toUpdate, updateEntry{
+			key:       keyCopy,
+			oldValues: values,
+		})
+	}
+
+	// Apply updates
+	var rowsAffected int64
+	for _, entry := range toUpdate {
+		// Create new row values based on old values and assignments
+		newValues := make([]types.Value, len(entry.oldValues))
+		copy(newValues, entry.oldValues)
+
+		// Apply assignments
+		for _, assign := range stmt.Assignments {
+			colIdx := colMap[assign.Column]
+
+			// Evaluate expression with current row values (for expressions like value = value + 1)
+			newVal, err := e.evaluateExpr(assign.Value, entry.oldValues, colMap)
+			if err != nil {
+				return nil, err
+			}
+			newValues[colIdx] = newVal
+		}
+
+		// Validate constraints on new row
+		if err := e.validateConstraints(table, newValues); err != nil {
+			return nil, err
+		}
+
+		// Handle vector normalization
+		for idx, val := range newValues {
+			colDef := table.Columns[idx]
+			if colDef.Type == types.TypeVector && !val.IsNull() {
+				if val.Type() != types.TypeBlob {
+					return nil, fmt.Errorf("column %s expects VECTOR (blob), got %v", colDef.Name, val.Type())
+				}
+
+				blob := val.Blob()
+				vec, err := types.VectorFromBytes(blob)
+				if err != nil {
+					return nil, fmt.Errorf("invalid vector data for column %s: %w", colDef.Name, err)
+				}
+
+				if vec.Dimension() != colDef.VectorDim {
+					return nil, fmt.Errorf("column %s expects VECTOR(%d), got dimension %d", colDef.Name, colDef.VectorDim, vec.Dimension())
+				}
+
+				vec.Normalize()
+				newValues[idx] = types.NewBlob(vec.ToBytes())
+			}
+		}
+
+		// Encode new row
+		data := record.Encode(newValues)
+
+		// Update in B-tree (Insert handles both insert and update)
+		if err := tree.Insert(entry.key, data); err != nil {
+			return nil, fmt.Errorf("failed to update row: %w", err)
+		}
+
+		// Get rowid for index updates
+		rowid := binary.BigEndian.Uint64(entry.key)
+
+		// Update indexes
+		if err := e.updateIndexes(table, rowid, newValues); err != nil {
 			return nil, err
 		}
 
