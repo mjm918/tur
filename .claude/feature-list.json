@@ -852,31 +852,34 @@
       "tasks": [
         {
           "task": "Parse INSERT INTO table (columns) VALUES (...)",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse INSERT INTO table SELECT ...",
-          "done": false
+          "done": true
         },
         {
           "task": "Compile INSERT to VDBE bytecode",
-          "done": false
+          "done": false,
+          "note": "Deferred: requires VDBE implementation to be complete"
         },
         {
           "task": "Generate rowid for INTEGER PRIMARY KEY if not provided",
-          "done": false
+          "done": true
         },
         {
           "task": "Validate constraint satisfaction before insert",
-          "done": false
+          "done": true
         },
         {
           "task": "Update indexes after row insertion",
-          "done": false
+          "done": false,
+          "note": "Deferred: requires index system to be complete"
         },
         {
           "task": "Handle vector column normalization on insert",
-          "done": false
+          "done": false,
+          "note": "Deferred: requires BLOB literal parsing to be implemented"
         }
       ]
     },
