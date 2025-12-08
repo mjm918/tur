@@ -47,7 +47,9 @@
       "Bash(git -C /Users/julfikar/Documents/PassionFruit.nosync/tur log --oneline -10)",
       "Bash(git branch:*)",
       "Bash(git -C /Users/julfikar/Documents/PassionFruit.nosync/tur-feature-storage-database-file-format log --oneline -10)",
-      "Bash(git -C /Users/julfikar/Documents/PassionFruit.nosync/tur-feature-storage-database-file-format diff master --stat)"
+      "Bash(git -C /Users/julfikar/Documents/PassionFruit.nosync/tur-feature-storage-database-file-format diff master --stat)",
+      "Bash(git -C /Users/julfikar/Documents/PassionFruit.nosync/tur worktree add /Users/julfikar/Documents/PassionFruit.nosync/tur-feature-free-page-management -b feature/free-page-management)",
+      "Bash(git -C /Users/julfikar/Documents/PassionFruit.nosync/tur worktree add /Users/julfikar/Documents/PassionFruit.nosync/tur-feature-mvcc-savepoint-support -b feature/mvcc-savepoint-support)"
     ],
     "deny": [],
     "ask": []

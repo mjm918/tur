@@ -454,27 +454,27 @@
     {
       "title": "VDBE - Aggregate Functions",
       "description": "Built-in aggregate functions (COUNT, SUM, AVG, MIN, MAX)",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
-        {"task": "Define aggregate function interface with init/step/finalize", "done": false},
-        {"task": "Implement COUNT aggregate", "done": false},
-        {"task": "Implement SUM aggregate", "done": false},
-        {"task": "Implement AVG aggregate", "done": false},
-        {"task": "Implement MIN/MAX aggregates", "done": false},
-        {"task": "Add opcodes for aggregate initialization and stepping", "done": false}
+        {"task": "Define aggregate function interface with init/step/finalize", "done": true},
+        {"task": "Implement COUNT aggregate", "done": true},
+        {"task": "Implement SUM aggregate", "done": true},
+        {"task": "Implement AVG aggregate", "done": true},
+        {"task": "Implement MIN/MAX aggregates", "done": true},
+        {"task": "Add opcodes for aggregate initialization and stepping", "done": true}
       ]
     },
     {
       "title": "VDBE - Scalar Functions",
       "description": "Built-in scalar functions (SUBSTR, LENGTH, UPPER, LOWER, etc.)",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
-        {"task": "Define scalar function registry and lookup", "done": false},
-        {"task": "Implement SUBSTR function", "done": false},
-        {"task": "Implement LENGTH function", "done": false},
-        {"task": "Implement UPPER/LOWER functions", "done": false},
-        {"task": "Implement COALESCE function", "done": false},
-        {"task": "Implement ABS, ROUND math functions", "done": false}
+        {"task": "Define scalar function registry and lookup", "done": true},
+        {"task": "Implement SUBSTR function", "done": true},
+        {"task": "Implement LENGTH function", "done": true},
+        {"task": "Implement UPPER/LOWER functions", "done": true},
+        {"task": "Implement COALESCE function", "done": true},
+        {"task": "Implement ABS, ROUND math functions", "done": true}
       ]
     },
     {
