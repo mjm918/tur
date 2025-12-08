@@ -1323,3 +1323,103 @@ func TestExecutor_Delete_EmptyTable(t *testing.T) {
 		t.Errorf("RowsAffected = %d, want 0", result.RowsAffected)
 	}
 }
+
+// ========== ALTER TABLE Tests ==========
+
+func TestExecutor_AlterTable_AddColumn(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create table
+	_, err := exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Add column
+	_, err = exec.Execute("ALTER TABLE users ADD COLUMN email TEXT")
+	if err != nil {
+		t.Fatalf("ALTER TABLE ADD COLUMN: %v", err)
+	}
+
+	// Verify column exists
+	table := exec.catalog.GetTable("users")
+	if len(table.Columns) != 3 {
+		t.Fatalf("Columns count = %d, want 3", len(table.Columns))
+	}
+
+	col, _ := table.GetColumn("email")
+	if col == nil {
+		t.Fatal("Column 'email' not found")
+	}
+	if col.Type != types.TypeText {
+		t.Errorf("Column type = %v, want TypeText", col.Type)
+	}
+}
+
+func TestExecutor_AlterTable_AddColumn_TableNotFound(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("ALTER TABLE nonexistent ADD COLUMN email TEXT")
+	if err == nil {
+		t.Fatal("Expected error for non-existent table")
+	}
+}
+
+func TestExecutor_AlterTable_AddColumn_DuplicateColumn(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+
+	_, err := exec.Execute("ALTER TABLE users ADD COLUMN name TEXT")
+	if err == nil {
+		t.Fatal("Expected error for duplicate column")
+	}
+}
+
+func TestExecutor_AlterTable_DropColumn(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, name TEXT, email TEXT)")
+
+	_, err := exec.Execute("ALTER TABLE users DROP COLUMN email")
+	if err != nil {
+		t.Fatalf("ALTER TABLE DROP COLUMN: %v", err)
+	}
+
+	table := exec.catalog.GetTable("users")
+	if len(table.Columns) != 2 {
+		t.Fatalf("Columns count = %d, want 2", len(table.Columns))
+	}
+
+	col, _ := table.GetColumn("email")
+	if col != nil {
+		t.Error("Column 'email' should not exist after drop")
+	}
+}
+
+func TestExecutor_AlterTable_RenameTo(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+
+	_, err := exec.Execute("ALTER TABLE users RENAME TO customers")
+	if err != nil {
+		t.Fatalf("ALTER TABLE RENAME TO: %v", err)
+	}
+
+	// Verify old name is gone
+	if exec.catalog.GetTable("users") != nil {
+		t.Error("Old table name 'users' should not exist")
+	}
+
+	// Verify new name exists
+	table := exec.catalog.GetTable("customers")
+	if table == nil {
+		t.Fatal("New table name 'customers' not found")
+	}
+}

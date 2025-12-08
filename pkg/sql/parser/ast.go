@@ -367,3 +367,23 @@ type AnalyzeStmt struct {
 }
 
 func (s *AnalyzeStmt) statementNode() {}
+
+// AlterAction represents the type of ALTER TABLE action
+type AlterAction int
+
+const (
+	AlterActionAddColumn AlterAction = iota
+	AlterActionDropColumn
+	AlterActionRenameTable
+)
+
+// AlterTableStmt represents an ALTER TABLE statement
+type AlterTableStmt struct {
+	TableName   string      // Table to alter
+	Action      AlterAction // Type of alteration
+	NewColumn   *ColumnDef  // For ADD COLUMN: the new column definition
+	ColumnName  string      // For DROP COLUMN: column to drop
+	NewName     string      // For RENAME TO: new table name
+}
+
+func (s *AlterTableStmt) statementNode() {}

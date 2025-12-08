@@ -78,6 +78,8 @@ func (e *Executor) Execute(sql string) (*Result, error) {
 		return e.executeDelete(s)
 	case *parser.AnalyzeStmt:
 		return e.executeAnalyze(s)
+	case *parser.AlterTableStmt:
+		return e.executeAlterTable(s)
 	default:
 		return nil, fmt.Errorf("unsupported statement type: %T", stmt)
 	}
@@ -1340,4 +1342,98 @@ func (e *Executor) scanAllRows(tableName string, table *schema.TableDef) ([][]ty
 
 	cursor.Close()
 	return rows, nil
+}
+
+// executeAlterTable handles ALTER TABLE statements
+func (e *Executor) executeAlterTable(stmt *parser.AlterTableStmt) (*Result, error) {
+	switch stmt.Action {
+	case parser.AlterActionAddColumn:
+		return e.executeAlterTableAddColumn(stmt)
+	case parser.AlterActionDropColumn:
+		return e.executeAlterTableDropColumn(stmt)
+	case parser.AlterActionRenameTable:
+		return e.executeAlterTableRename(stmt)
+	default:
+		return nil, fmt.Errorf("unsupported ALTER TABLE action")
+	}
+}
+
+// executeAlterTableAddColumn handles ALTER TABLE ADD COLUMN
+func (e *Executor) executeAlterTableAddColumn(stmt *parser.AlterTableStmt) (*Result, error) {
+	// Convert parser column def to schema column def
+	col := schema.ColumnDef{
+		Name:       stmt.NewColumn.Name,
+		Type:       stmt.NewColumn.Type,
+		PrimaryKey: stmt.NewColumn.PrimaryKey,
+		NotNull:    stmt.NewColumn.NotNull,
+		VectorDim:  stmt.NewColumn.VectorDim,
+	}
+
+	// Build constraints if any
+	var constraints []schema.Constraint
+
+	if stmt.NewColumn.PrimaryKey {
+		constraints = append(constraints, schema.Constraint{Type: schema.ConstraintPrimaryKey})
+	}
+	if stmt.NewColumn.NotNull {
+		constraints = append(constraints, schema.Constraint{Type: schema.ConstraintNotNull})
+	}
+	if stmt.NewColumn.Unique {
+		constraints = append(constraints, schema.Constraint{Type: schema.ConstraintUnique})
+	}
+	if stmt.NewColumn.CheckExpr != nil {
+		constraints = append(constraints, schema.Constraint{
+			Type:            schema.ConstraintCheck,
+			CheckExpression: exprToString(stmt.NewColumn.CheckExpr),
+		})
+	}
+	if stmt.NewColumn.ForeignKey != nil {
+		constraints = append(constraints, schema.Constraint{
+			Type:      schema.ConstraintForeignKey,
+			RefTable:  stmt.NewColumn.ForeignKey.RefTable,
+			RefColumn: stmt.NewColumn.ForeignKey.RefColumn,
+			OnDelete:  convertFKAction(stmt.NewColumn.ForeignKey.OnDelete),
+			OnUpdate:  convertFKAction(stmt.NewColumn.ForeignKey.OnUpdate),
+		})
+	}
+
+	col.Constraints = constraints
+
+	// Add column to catalog
+	if err := e.catalog.AddColumn(stmt.TableName, col); err != nil {
+		return nil, fmt.Errorf("failed to add column: %w", err)
+	}
+
+	return &Result{}, nil
+}
+
+// executeAlterTableDropColumn handles ALTER TABLE DROP COLUMN
+func (e *Executor) executeAlterTableDropColumn(stmt *parser.AlterTableStmt) (*Result, error) {
+	if err := e.catalog.DropColumn(stmt.TableName, stmt.ColumnName); err != nil {
+		return nil, fmt.Errorf("failed to drop column: %w", err)
+	}
+
+	return &Result{}, nil
+}
+
+// executeAlterTableRename handles ALTER TABLE RENAME TO
+func (e *Executor) executeAlterTableRename(stmt *parser.AlterTableStmt) (*Result, error) {
+	// Update B-tree reference
+	if tree, exists := e.trees[stmt.TableName]; exists {
+		delete(e.trees, stmt.TableName)
+		e.trees[stmt.NewName] = tree
+	}
+
+	// Update rowid reference
+	if rowid, exists := e.rowid[stmt.TableName]; exists {
+		delete(e.rowid, stmt.TableName)
+		e.rowid[stmt.NewName] = rowid
+	}
+
+	// Rename in catalog
+	if err := e.catalog.RenameTable(stmt.TableName, stmt.NewName); err != nil {
+		return nil, fmt.Errorf("failed to rename table: %w", err)
+	}
+
+	return &Result{}, nil
 }

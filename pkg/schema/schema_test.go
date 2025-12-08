@@ -782,3 +782,191 @@ func TestCatalog_GetIndexByColumn_MultiColumn(t *testing.T) {
 		t.Fatal("GetIndexByColumn('orders', 'order_date'): expected non-nil for second column of composite index")
 	}
 }
+
+// ========== ALTER TABLE Tests ==========
+
+func TestCatalog_AddColumn(t *testing.T) {
+	catalog := NewCatalog()
+	catalog.CreateTable(&TableDef{
+		Name: "users",
+		Columns: []ColumnDef{
+			{Name: "id", Type: types.TypeInt, PrimaryKey: true},
+			{Name: "name", Type: types.TypeText},
+		},
+	})
+
+	newCol := ColumnDef{Name: "email", Type: types.TypeText}
+	err := catalog.AddColumn("users", newCol)
+	if err != nil {
+		t.Fatalf("AddColumn: %v", err)
+	}
+
+	// Verify column was added
+	table := catalog.GetTable("users")
+	if len(table.Columns) != 3 {
+		t.Fatalf("Columns count = %d, want 3", len(table.Columns))
+	}
+
+	col, idx := table.GetColumn("email")
+	if col == nil {
+		t.Fatal("Column 'email' not found")
+	}
+	if idx != 2 {
+		t.Errorf("Column index = %d, want 2", idx)
+	}
+	if col.Type != types.TypeText {
+		t.Errorf("Column type = %v, want TypeText", col.Type)
+	}
+}
+
+func TestCatalog_AddColumn_TableNotFound(t *testing.T) {
+	catalog := NewCatalog()
+
+	newCol := ColumnDef{Name: "email", Type: types.TypeText}
+	err := catalog.AddColumn("nonexistent", newCol)
+	if err == nil {
+		t.Fatal("Expected error for non-existent table")
+	}
+	if err != ErrTableNotFound {
+		t.Errorf("Error = %v, want ErrTableNotFound", err)
+	}
+}
+
+func TestCatalog_AddColumn_DuplicateColumn(t *testing.T) {
+	catalog := NewCatalog()
+	catalog.CreateTable(&TableDef{
+		Name: "users",
+		Columns: []ColumnDef{
+			{Name: "id", Type: types.TypeInt},
+			{Name: "name", Type: types.TypeText},
+		},
+	})
+
+	newCol := ColumnDef{Name: "name", Type: types.TypeText}
+	err := catalog.AddColumn("users", newCol)
+	if err == nil {
+		t.Fatal("Expected error for duplicate column")
+	}
+	if err != ErrColumnExists {
+		t.Errorf("Error = %v, want ErrColumnExists", err)
+	}
+}
+
+func TestCatalog_DropColumn(t *testing.T) {
+	catalog := NewCatalog()
+	catalog.CreateTable(&TableDef{
+		Name: "users",
+		Columns: []ColumnDef{
+			{Name: "id", Type: types.TypeInt},
+			{Name: "name", Type: types.TypeText},
+			{Name: "email", Type: types.TypeText},
+		},
+	})
+
+	err := catalog.DropColumn("users", "email")
+	if err != nil {
+		t.Fatalf("DropColumn: %v", err)
+	}
+
+	// Verify column was removed
+	table := catalog.GetTable("users")
+	if len(table.Columns) != 2 {
+		t.Fatalf("Columns count = %d, want 2", len(table.Columns))
+	}
+
+	col, _ := table.GetColumn("email")
+	if col != nil {
+		t.Error("Column 'email' should not exist after drop")
+	}
+}
+
+func TestCatalog_DropColumn_TableNotFound(t *testing.T) {
+	catalog := NewCatalog()
+
+	err := catalog.DropColumn("nonexistent", "col")
+	if err == nil {
+		t.Fatal("Expected error for non-existent table")
+	}
+	if err != ErrTableNotFound {
+		t.Errorf("Error = %v, want ErrTableNotFound", err)
+	}
+}
+
+func TestCatalog_DropColumn_ColumnNotFound(t *testing.T) {
+	catalog := NewCatalog()
+	catalog.CreateTable(&TableDef{
+		Name: "users",
+		Columns: []ColumnDef{
+			{Name: "id", Type: types.TypeInt},
+		},
+	})
+
+	err := catalog.DropColumn("users", "nonexistent")
+	if err == nil {
+		t.Fatal("Expected error for non-existent column")
+	}
+	if err != ErrColumnNotFound {
+		t.Errorf("Error = %v, want ErrColumnNotFound", err)
+	}
+}
+
+func TestCatalog_RenameTable(t *testing.T) {
+	catalog := NewCatalog()
+	catalog.CreateTable(&TableDef{
+		Name: "users",
+		Columns: []ColumnDef{
+			{Name: "id", Type: types.TypeInt},
+		},
+	})
+
+	err := catalog.RenameTable("users", "customers")
+	if err != nil {
+		t.Fatalf("RenameTable: %v", err)
+	}
+
+	// Verify old name is gone
+	if catalog.GetTable("users") != nil {
+		t.Error("Old table name 'users' should not exist")
+	}
+
+	// Verify new name exists
+	table := catalog.GetTable("customers")
+	if table == nil {
+		t.Fatal("New table name 'customers' not found")
+	}
+	if table.Name != "customers" {
+		t.Errorf("Table.Name = %q, want 'customers'", table.Name)
+	}
+}
+
+func TestCatalog_RenameTable_TableNotFound(t *testing.T) {
+	catalog := NewCatalog()
+
+	err := catalog.RenameTable("nonexistent", "newname")
+	if err == nil {
+		t.Fatal("Expected error for non-existent table")
+	}
+	if err != ErrTableNotFound {
+		t.Errorf("Error = %v, want ErrTableNotFound", err)
+	}
+}
+
+func TestCatalog_RenameTable_TargetExists(t *testing.T) {
+	catalog := NewCatalog()
+	catalog.CreateTable(&TableDef{
+		Name: "users",
+		Columns: []ColumnDef{{Name: "id", Type: types.TypeInt}},
+	})
+	catalog.CreateTable(&TableDef{
+		Name: "customers",
+		Columns: []ColumnDef{{Name: "id", Type: types.TypeInt}},
+	})
+
+	err := catalog.RenameTable("users", "customers")
+	if err == nil {
+		t.Fatal("Expected error when renaming to existing table")
+	}
+	if err != ErrTableExists {
+		t.Errorf("Error = %v, want ErrTableExists", err)
+	}
+}

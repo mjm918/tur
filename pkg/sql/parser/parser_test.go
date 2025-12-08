@@ -1263,3 +1263,156 @@ func TestParser_Analyze_SpecificIndex(t *testing.T) {
 		t.Errorf("TableName = %q, want 'idx_users_email'", analyze.TableName)
 	}
 }
+
+// ========== ALTER TABLE Tests ==========
+
+func TestParser_AlterTable_AddColumn_Simple(t *testing.T) {
+	input := "ALTER TABLE users ADD COLUMN email TEXT"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	alter, ok := stmt.(*AlterTableStmt)
+	if !ok {
+		t.Fatalf("Expected *AlterTableStmt, got %T", stmt)
+	}
+
+	if alter.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", alter.TableName)
+	}
+
+	if alter.Action != AlterActionAddColumn {
+		t.Errorf("Action = %v, want AlterActionAddColumn", alter.Action)
+	}
+
+	if alter.NewColumn == nil {
+		t.Fatal("NewColumn = nil, want non-nil")
+	}
+
+	if alter.NewColumn.Name != "email" {
+		t.Errorf("NewColumn.Name = %q, want 'email'", alter.NewColumn.Name)
+	}
+
+	if alter.NewColumn.Type != types.TypeText {
+		t.Errorf("NewColumn.Type = %v, want TypeText", alter.NewColumn.Type)
+	}
+}
+
+func TestParser_AlterTable_AddColumn_WithConstraints(t *testing.T) {
+	input := "ALTER TABLE users ADD COLUMN age INT NOT NULL DEFAULT 0"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	alter := stmt.(*AlterTableStmt)
+
+	if alter.NewColumn.Name != "age" {
+		t.Errorf("NewColumn.Name = %q, want 'age'", alter.NewColumn.Name)
+	}
+
+	if alter.NewColumn.Type != types.TypeInt {
+		t.Errorf("NewColumn.Type = %v, want TypeInt", alter.NewColumn.Type)
+	}
+
+	if !alter.NewColumn.NotNull {
+		t.Error("NewColumn.NotNull = false, want true")
+	}
+
+	if alter.NewColumn.DefaultExpr == nil {
+		t.Fatal("NewColumn.DefaultExpr = nil, want non-nil")
+	}
+
+	lit, ok := alter.NewColumn.DefaultExpr.(*Literal)
+	if !ok {
+		t.Fatalf("DefaultExpr type = %T, want *Literal", alter.NewColumn.DefaultExpr)
+	}
+	if lit.Value.Int() != 0 {
+		t.Errorf("DefaultExpr value = %d, want 0", lit.Value.Int())
+	}
+}
+
+func TestParser_AlterTable_AddColumn_NoColumnKeyword(t *testing.T) {
+	// SQLite allows omitting COLUMN keyword: ALTER TABLE t ADD col TYPE
+	input := "ALTER TABLE users ADD email TEXT"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	alter := stmt.(*AlterTableStmt)
+	if alter.NewColumn.Name != "email" {
+		t.Errorf("NewColumn.Name = %q, want 'email'", alter.NewColumn.Name)
+	}
+}
+
+func TestParser_AlterTable_DropColumn(t *testing.T) {
+	input := "ALTER TABLE users DROP COLUMN email"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	alter, ok := stmt.(*AlterTableStmt)
+	if !ok {
+		t.Fatalf("Expected *AlterTableStmt, got %T", stmt)
+	}
+
+	if alter.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", alter.TableName)
+	}
+
+	if alter.Action != AlterActionDropColumn {
+		t.Errorf("Action = %v, want AlterActionDropColumn", alter.Action)
+	}
+
+	if alter.ColumnName != "email" {
+		t.Errorf("ColumnName = %q, want 'email'", alter.ColumnName)
+	}
+}
+
+func TestParser_AlterTable_DropColumn_NoColumnKeyword(t *testing.T) {
+	// SQLite allows omitting COLUMN keyword: ALTER TABLE t DROP col
+	input := "ALTER TABLE users DROP email"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	alter := stmt.(*AlterTableStmt)
+	if alter.ColumnName != "email" {
+		t.Errorf("ColumnName = %q, want 'email'", alter.ColumnName)
+	}
+}
+
+func TestParser_AlterTable_RenameTo(t *testing.T) {
+	input := "ALTER TABLE users RENAME TO customers"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	alter, ok := stmt.(*AlterTableStmt)
+	if !ok {
+		t.Fatalf("Expected *AlterTableStmt, got %T", stmt)
+	}
+
+	if alter.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", alter.TableName)
+	}
+
+	if alter.Action != AlterActionRenameTable {
+		t.Errorf("Action = %v, want AlterActionRenameTable", alter.Action)
+	}
+
+	if alter.NewName != "customers" {
+		t.Errorf("NewName = %q, want 'customers'", alter.NewName)
+	}
+}

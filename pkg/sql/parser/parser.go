@@ -48,6 +48,8 @@ func (p *Parser) Parse() (Statement, error) {
 		return p.parseDelete()
 	case lexer.ANALYZE:
 		return p.parseAnalyze()
+	case lexer.ALTER:
+		return p.parseAlter()
 	default:
 		return nil, fmt.Errorf("unexpected token: %s", p.cur.Literal)
 	}
@@ -1206,4 +1208,97 @@ func (p *Parser) curPrecedence() int {
 		return prec
 	}
 	return LOWEST
+}
+
+// parseAlter parses ALTER TABLE statements
+func (p *Parser) parseAlter() (Statement, error) {
+	p.nextToken() // consume ALTER
+
+	if p.cur.Type != lexer.TABLE {
+		return nil, fmt.Errorf("expected TABLE after ALTER, got %s", p.cur.Literal)
+	}
+
+	// Table name
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected table name after ALTER TABLE, got %s", p.peek.Literal)
+	}
+	tableName := p.cur.Literal
+
+	p.nextToken() // move to action keyword
+
+	switch p.cur.Type {
+	case lexer.ADD:
+		return p.parseAlterTableAddColumn(tableName)
+	case lexer.DROP:
+		return p.parseAlterTableDropColumn(tableName)
+	case lexer.RENAME:
+		return p.parseAlterTableRename(tableName)
+	default:
+		return nil, fmt.Errorf("expected ADD, DROP, or RENAME after table name, got %s", p.cur.Literal)
+	}
+}
+
+// parseAlterTableAddColumn parses: ADD [COLUMN] column_name type [constraints]
+func (p *Parser) parseAlterTableAddColumn(tableName string) (*AlterTableStmt, error) {
+	stmt := &AlterTableStmt{
+		TableName: tableName,
+		Action:    AlterActionAddColumn,
+	}
+
+	// Optional COLUMN keyword
+	if p.peekIs(lexer.COLUMN) {
+		p.nextToken() // consume COLUMN
+	}
+
+	// Column definition (name type constraints)
+	p.nextToken() // move to column name
+	col, err := p.parseColumnDef()
+	if err != nil {
+		return nil, fmt.Errorf("parsing column definition: %v", err)
+	}
+	stmt.NewColumn = &col
+
+	return stmt, nil
+}
+
+// parseAlterTableDropColumn parses: DROP [COLUMN] column_name
+func (p *Parser) parseAlterTableDropColumn(tableName string) (*AlterTableStmt, error) {
+	stmt := &AlterTableStmt{
+		TableName: tableName,
+		Action:    AlterActionDropColumn,
+	}
+
+	// Optional COLUMN keyword
+	if p.peekIs(lexer.COLUMN) {
+		p.nextToken() // consume COLUMN
+	}
+
+	// Column name
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected column name after DROP, got %s", p.peek.Literal)
+	}
+	stmt.ColumnName = p.cur.Literal
+
+	return stmt, nil
+}
+
+// parseAlterTableRename parses: RENAME TO new_table_name
+func (p *Parser) parseAlterTableRename(tableName string) (*AlterTableStmt, error) {
+	stmt := &AlterTableStmt{
+		TableName: tableName,
+		Action:    AlterActionRenameTable,
+	}
+
+	// TO keyword
+	if !p.expectPeek(lexer.TO) {
+		return nil, fmt.Errorf("expected TO after RENAME, got %s", p.peek.Literal)
+	}
+
+	// New table name
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected new table name after RENAME TO, got %s", p.peek.Literal)
+	}
+	stmt.NewName = p.cur.Literal
+
+	return stmt, nil
 }

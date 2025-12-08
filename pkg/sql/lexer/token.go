@@ -100,6 +100,13 @@ const (
 
 	// Statistics keywords
 	ANALYZE
+
+	// ALTER keywords
+	ALTER
+	ADD
+	COLUMN
+	RENAME
+	TO
 )
 
 // Token represents a lexical token
@@ -262,6 +269,16 @@ func (t TokenType) String() string {
 		return "OUTER"
 	case ANALYZE:
 		return "ANALYZE"
+	case ALTER:
+		return "ALTER"
+	case ADD:
+		return "ADD"
+	case COLUMN:
+		return "COLUMN"
+	case RENAME:
+		return "RENAME"
+	case TO:
+		return "TO"
 	default:
 		return "UNKNOWN"
 	}
@@ -322,6 +339,11 @@ var keywords = map[string]TokenType{
 	"FULL":       FULL,
 	"OUTER":      OUTER,
 	"ANALYZE":    ANALYZE,
+	"ALTER":      ALTER,
+	"ADD":        ADD,
+	"COLUMN":     COLUMN,
+	"RENAME":     RENAME,
+	"TO":         TO,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT

@@ -13,6 +13,7 @@ var (
 	ErrTableExists    = errors.New("table already exists")
 	ErrTableNotFound  = errors.New("table not found")
 	ErrColumnNotFound = errors.New("column not found")
+	ErrColumnExists   = errors.New("column already exists")
 	ErrIndexExists    = errors.New("index already exists")
 	ErrIndexNotFound  = errors.New("index not found")
 )
@@ -273,6 +274,86 @@ func (c *Catalog) DropTable(name string) error {
 
 	delete(c.tables, name)
 	delete(c.statistics, name) // Also clear any statistics
+	return nil
+}
+
+// AddColumn adds a column to an existing table
+func (c *Catalog) AddColumn(tableName string, column ColumnDef) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	table, exists := c.tables[tableName]
+	if !exists {
+		return ErrTableNotFound
+	}
+
+	// Check if column already exists
+	for _, col := range table.Columns {
+		if col.Name == column.Name {
+			return ErrColumnExists
+		}
+	}
+
+	table.Columns = append(table.Columns, column)
+	return nil
+}
+
+// DropColumn removes a column from an existing table
+func (c *Catalog) DropColumn(tableName, columnName string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	table, exists := c.tables[tableName]
+	if !exists {
+		return ErrTableNotFound
+	}
+
+	// Find and remove the column
+	found := false
+	newColumns := make([]ColumnDef, 0, len(table.Columns)-1)
+	for _, col := range table.Columns {
+		if col.Name == columnName {
+			found = true
+			continue
+		}
+		newColumns = append(newColumns, col)
+	}
+
+	if !found {
+		return ErrColumnNotFound
+	}
+
+	table.Columns = newColumns
+	return nil
+}
+
+// RenameTable renames a table
+func (c *Catalog) RenameTable(oldName, newName string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	table, exists := c.tables[oldName]
+	if !exists {
+		return ErrTableNotFound
+	}
+
+	if _, exists := c.tables[newName]; exists {
+		return ErrTableExists
+	}
+
+	// Update table name
+	table.Name = newName
+
+	// Update map
+	delete(c.tables, oldName)
+	c.tables[newName] = table
+
+	// Update statistics key if present
+	if stats, hasStats := c.statistics[oldName]; hasStats {
+		delete(c.statistics, oldName)
+		c.statistics[newName] = stats
+	}
+
 	return nil
 }
 
