@@ -204,3 +204,104 @@ func TestSubstr_NullHandling(t *testing.T) {
 		}
 	}
 }
+
+func TestLength_String(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	length := registry.Lookup("LENGTH")
+	if length == nil {
+		t.Fatal("LENGTH function not found in default registry")
+	}
+
+	tests := []struct {
+		input  string
+		expect int64
+	}{
+		{"", 0},
+		{"Hello", 5},
+		{"Hello, World!", 13},
+		{"日本語", 3},                // Unicode characters
+		{"Hello 世界", 8},          // Mixed ASCII and Unicode
+		{"👋🌍", 2},                // Emoji (counted as characters)
+	}
+
+	for _, tc := range tests {
+		args := []types.Value{types.NewText(tc.input)}
+		result := length.Call(args)
+
+		if result.Type() != types.TypeInt {
+			t.Errorf("LENGTH(%q): expected int, got %v", tc.input, result.Type())
+			continue
+		}
+		if result.Int() != tc.expect {
+			t.Errorf("LENGTH(%q): expected %d, got %d", tc.input, tc.expect, result.Int())
+		}
+	}
+}
+
+func TestLength_Blob(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	length := registry.Lookup("LENGTH")
+
+	// For blobs, length returns byte count
+	tests := []struct {
+		input  []byte
+		expect int64
+	}{
+		{[]byte{}, 0},
+		{[]byte{1, 2, 3}, 3},
+		{[]byte{0, 0, 0, 0, 0}, 5},
+	}
+
+	for _, tc := range tests {
+		args := []types.Value{types.NewBlob(tc.input)}
+		result := length.Call(args)
+
+		if result.Type() != types.TypeInt {
+			t.Errorf("LENGTH(blob): expected int, got %v", result.Type())
+			continue
+		}
+		if result.Int() != tc.expect {
+			t.Errorf("LENGTH(blob len %d): expected %d, got %d", len(tc.input), tc.expect, result.Int())
+		}
+	}
+}
+
+func TestLength_Null(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	length := registry.Lookup("LENGTH")
+
+	args := []types.Value{types.NewNull()}
+	result := length.Call(args)
+
+	if !result.IsNull() {
+		t.Error("LENGTH(NULL) should return NULL")
+	}
+}
+
+func TestLength_Numeric(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	length := registry.Lookup("LENGTH")
+
+	// For numbers, SQLite converts to string first
+	tests := []struct {
+		input  types.Value
+		expect int64
+	}{
+		{types.NewInt(12345), 5},
+		{types.NewInt(-123), 4},
+		{types.NewFloat(3.14), 4},
+	}
+
+	for _, tc := range tests {
+		args := []types.Value{tc.input}
+		result := length.Call(args)
+
+		if result.Type() != types.TypeInt {
+			t.Errorf("LENGTH(number): expected int, got %v", result.Type())
+			continue
+		}
+		if result.Int() != tc.expect {
+			t.Errorf("LENGTH(%v): expected %d, got %d", tc.input, tc.expect, result.Int())
+		}
+	}
+}

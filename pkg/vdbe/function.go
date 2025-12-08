@@ -3,6 +3,7 @@
 package vdbe
 
 import (
+	"fmt"
 	"strings"
 
 	"tur/pkg/types"
@@ -63,6 +64,13 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Name:     "SUBSTRING",
 		NumArgs:  -1,
 		Function: builtinSubstr,
+	})
+
+	// Register LENGTH function
+	r.Register(&ScalarFunction{
+		Name:     "LENGTH",
+		NumArgs:  1,
+		Function: builtinLength,
 	})
 
 	return r
@@ -156,4 +164,42 @@ func builtinSubstr(args []types.Value) types.Value {
 	}
 
 	return types.NewText(string(runes[startIdx:endIdx]))
+}
+
+// builtinLength implements LENGTH(value)
+// Returns the length of a string in characters, or blob in bytes.
+// For numbers, converts to string first.
+func builtinLength(args []types.Value) types.Value {
+	if len(args) != 1 {
+		return types.NewNull()
+	}
+
+	val := args[0]
+	if val.IsNull() {
+		return types.NewNull()
+	}
+
+	switch val.Type() {
+	case types.TypeText:
+		// For text, count Unicode characters (runes)
+		runes := []rune(val.Text())
+		return types.NewInt(int64(len(runes)))
+
+	case types.TypeBlob:
+		// For blobs, count bytes
+		return types.NewInt(int64(len(val.Blob())))
+
+	case types.TypeInt:
+		// Convert to string and count characters
+		s := fmt.Sprintf("%d", val.Int())
+		return types.NewInt(int64(len(s)))
+
+	case types.TypeFloat:
+		// Convert to string and count characters
+		s := fmt.Sprintf("%g", val.Float())
+		return types.NewInt(int64(len(s)))
+
+	default:
+		return types.NewNull()
+	}
 }
