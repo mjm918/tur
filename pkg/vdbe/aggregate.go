@@ -3,8 +3,32 @@
 package vdbe
 
 import (
+	"strings"
+
 	"tur/pkg/types"
 )
+
+// GetAggregate returns a new instance of an aggregate function by name.
+// Returns nil if the aggregate name is not recognized.
+// Names are case-insensitive.
+func GetAggregate(name string) AggregateFunc {
+	switch strings.ToUpper(name) {
+	case "COUNT":
+		return NewCountAggregate()
+	case "COUNT*":
+		return NewCountStarAggregate()
+	case "SUM":
+		return NewSumAggregate()
+	case "AVG":
+		return NewAvgAggregate()
+	case "MIN":
+		return NewMinAggregate()
+	case "MAX":
+		return NewMaxAggregate()
+	default:
+		return nil
+	}
+}
 
 // AggregateFunc defines the interface for SQL aggregate functions.
 // Aggregates process multiple input values and produce a single result.

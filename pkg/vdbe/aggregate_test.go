@@ -382,3 +382,145 @@ func TestMaxAggregate_EmptyReturnsNull(t *testing.T) {
 		t.Errorf("expected NULL for empty MAX, got %v", result.Type())
 	}
 }
+
+// ============ Aggregate Registry Tests ============
+
+// Test 24: Aggregate registry returns aggregates by name
+func TestAggregateRegistry_GetByName(t *testing.T) {
+	tests := []struct {
+		name     string
+		expected string
+	}{
+		{"COUNT", "*CountAggregate"},
+		{"SUM", "*SumAggregate"},
+		{"AVG", "*AvgAggregate"},
+		{"MIN", "*MinAggregate"},
+		{"MAX", "*MaxAggregate"},
+		{"count", "*CountAggregate"}, // case insensitive
+		{"Sum", "*SumAggregate"},     // case insensitive
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			agg := GetAggregate(tc.name)
+			if agg == nil {
+				t.Errorf("expected aggregate for %s, got nil", tc.name)
+			}
+		})
+	}
+}
+
+// Test 25: Unknown aggregate name returns nil
+func TestAggregateRegistry_UnknownReturnsNil(t *testing.T) {
+	agg := GetAggregate("UNKNOWN")
+	if agg != nil {
+		t.Errorf("expected nil for unknown aggregate, got %v", agg)
+	}
+}
+
+// ============ VDBE Aggregate Opcode Tests ============
+
+// Test 26: OpAggInit initializes an aggregate in a register
+func TestVM_OpAggInit(t *testing.T) {
+	prog := NewProgram()
+	// AggInit P1=aggIdx, P2=destReg, P4=aggName
+	prog.AddOp4(OpAggInit, 0, 1, 0, "COUNT")
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	err := vm.Run()
+	if err != nil {
+		t.Fatalf("execution failed: %v", err)
+	}
+
+	// After AggInit, register 1 should contain an aggregate context
+	aggCtx := vm.GetAggregateContext(0)
+	if aggCtx == nil {
+		t.Error("expected aggregate context at index 0")
+	}
+}
+
+// Test 27: OpAggStep steps an aggregate with a value
+func TestVM_OpAggStep(t *testing.T) {
+	prog := NewProgram()
+	// Initialize COUNT aggregate at context 0
+	prog.AddOp4(OpAggInit, 0, 0, 0, "COUNT")
+	// Put a value in register 1
+	prog.AddOp(OpInteger, 42, 1, 0)
+	// Step the aggregate with value from register 1
+	prog.AddOp(OpAggStep, 0, 1, 0) // P1=aggIdx, P2=valueReg
+	// Put another value
+	prog.AddOp(OpInteger, 99, 1, 0)
+	// Step again
+	prog.AddOp(OpAggStep, 0, 1, 0)
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	err := vm.Run()
+	if err != nil {
+		t.Fatalf("execution failed: %v", err)
+	}
+
+	// The aggregate should have received 2 values
+	aggCtx := vm.GetAggregateContext(0)
+	if aggCtx == nil {
+		t.Fatal("expected aggregate context")
+	}
+}
+
+// Test 28: OpAggFinal finalizes an aggregate and stores result
+func TestVM_OpAggFinal(t *testing.T) {
+	prog := NewProgram()
+	// Initialize COUNT aggregate at context 0
+	prog.AddOp4(OpAggInit, 0, 0, 0, "COUNT")
+	// Step with 3 values
+	prog.AddOp(OpInteger, 10, 1, 0)
+	prog.AddOp(OpAggStep, 0, 1, 0)
+	prog.AddOp(OpInteger, 20, 1, 0)
+	prog.AddOp(OpAggStep, 0, 1, 0)
+	prog.AddOp(OpInteger, 30, 1, 0)
+	prog.AddOp(OpAggStep, 0, 1, 0)
+	// Finalize and store in register 2
+	prog.AddOp(OpAggFinal, 0, 2, 0) // P1=aggIdx, P2=destReg
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	err := vm.Run()
+	if err != nil {
+		t.Fatalf("execution failed: %v", err)
+	}
+
+	// Register 2 should have count of 3
+	result := vm.Register(2)
+	if result.Type() != types.TypeInt {
+		t.Errorf("expected integer result, got %v", result.Type())
+	}
+	if result.Int() != 3 {
+		t.Errorf("expected count of 3, got %d", result.Int())
+	}
+}
+
+// Test 29: Full SUM aggregate through VM
+func TestVM_SumAggregate_ViaOpcodes(t *testing.T) {
+	prog := NewProgram()
+	prog.AddOp4(OpAggInit, 0, 0, 0, "SUM")
+	prog.AddOp(OpInteger, 10, 1, 0)
+	prog.AddOp(OpAggStep, 0, 1, 0)
+	prog.AddOp(OpInteger, 20, 1, 0)
+	prog.AddOp(OpAggStep, 0, 1, 0)
+	prog.AddOp(OpInteger, 30, 1, 0)
+	prog.AddOp(OpAggStep, 0, 1, 0)
+	prog.AddOp(OpAggFinal, 0, 2, 0)
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	err := vm.Run()
+	if err != nil {
+		t.Fatalf("execution failed: %v", err)
+	}
+
+	result := vm.Register(2)
+	if result.Int() != 60 {
+		t.Errorf("expected sum of 60, got %d", result.Int())
+	}
+}
