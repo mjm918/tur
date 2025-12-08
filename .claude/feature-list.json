@@ -557,15 +557,15 @@
       "tasks": [
         {
           "task": "Design query plan tree structure",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement cost estimation for table scans",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement cost estimation for index scans",
-          "done": false
+          "done": true
         },
         {
           "task": "Add JOIN order optimization using dynamic programming",
