@@ -176,14 +176,14 @@
     {
       "title": "Storage Engine - Free Page Management",
       "description": "Free page list management and page allocation/deallocation strategy",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
-        {"task": "Design free page list data structure (linked pages)", "done": false},
-        {"task": "Implement allocate page from free list", "done": false},
-        {"task": "Implement return page to free list", "done": false},
-        {"task": "Track free list head in database header", "done": false},
-        {"task": "Handle free list exhaustion by growing file", "done": false},
-        {"task": "Add free page coalescing for defragmentation", "done": false}
+        {"task": "Design free page list data structure (linked pages)", "done": true},
+        {"task": "Implement allocate page from free list", "done": true},
+        {"task": "Implement return page to free list", "done": true},
+        {"task": "Track free list head in database header", "done": true},
+        {"task": "Handle free list exhaustion by growing file", "done": true},
+        {"task": "Add free page coalescing for defragmentation", "done": true}
       ]
     },
     {

@@ -52,6 +52,9 @@ type Pager struct {
 	wal           *wal.WAL
 	inTransaction bool
 	dirtyPages    map[uint32][]byte // Page number -> original data (for rollback)
+
+	// Freelist support
+	freelist *Freelist
 }
 
 // Transaction represents an active write transaction
@@ -85,6 +88,7 @@ func Open(path string, opts Options) (*Pager, error) {
 		lru:        list.New(),
 		cacheSize:  cacheSize,
 		dirtyPages: make(map[uint32][]byte),
+		freelist:   NewFreelist(pageSize),
 	}
 
 	// Check if this is a new file or existing database
@@ -93,6 +97,11 @@ func Open(path string, opts Options) (*Pager, error) {
 		// Existing database - read header
 		p.pageSize = int(binary.LittleEndian.Uint32(header[16:20]))
 		p.pageCount = binary.LittleEndian.Uint32(header[20:24])
+
+		// Load freelist from header
+		freelistHead := GetFreelistHead(header)
+		freePageCount := GetFreePageCount(header)
+		p.loadFreelist(freelistHead, freePageCount)
 	} else {
 		// New database - initialize header
 		p.pageCount = 1 // Header page is page 0
@@ -128,6 +137,12 @@ func (p *Pager) writeHeader() {
 	copy(header[0:16], magicString)
 	binary.LittleEndian.PutUint32(header[16:20], uint32(p.pageSize))
 	binary.LittleEndian.PutUint32(header[20:24], p.pageCount)
+
+	// Write freelist info to header
+	if p.freelist != nil {
+		PutFreelistHead(header, p.freelist.HeadPage())
+		PutFreePageCount(header, p.freelist.FreeCount())
+	}
 }
 
 // PageSize returns the page size
@@ -147,7 +162,19 @@ func (p *Pager) Allocate() (*Page, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	pageNo := p.pageCount
+	var pageNo uint32
+
+	// Try to allocate from freelist first
+	if p.freelist != nil && p.freelist.FreeCount() > 0 {
+		if freedPage, ok := p.allocateFromFreelistPersistent(); ok {
+			pageNo = freedPage
+			// Page already exists in file, just need to get it
+			return p.getPageLocked(pageNo)
+		}
+	}
+
+	// Freelist empty - grow the file
+	pageNo = p.pageCount
 	p.pageCount++
 
 	// Ensure file is large enough
@@ -175,6 +202,11 @@ func (p *Pager) Allocate() (*Page, error) {
 	page := NewPageWithData(pageNo, data)
 	page.Pin()
 
+	// Clear the page data (newly allocated pages should be zeroed)
+	for i := range data {
+		data[i] = 0
+	}
+
 	// Add to cache with LRU tracking
 	elem := p.lru.PushFront(pageNo)
 	p.cache[pageNo] = &cacheEntry{page: page, element: elem}
@@ -183,6 +215,59 @@ func (p *Pager) Allocate() (*Page, error) {
 	p.evictIfNeeded()
 
 	return page, nil
+}
+
+// allocateFromFreelistPersistent allocates a page from the freelist and updates disk.
+// Returns leaf pages first (LIFO), then trunk pages when empty.
+func (p *Pager) allocateFromFreelistPersistent() (uint32, bool) {
+	if len(p.freelist.trunks) == 0 {
+		return 0, false
+	}
+
+	trunk := p.freelist.trunks[0]
+	currentHead := p.freelist.headPage
+
+	// Try to pop a leaf page first
+	if leafPage, ok := trunk.PopLeaf(); ok {
+		p.freelist.freeCount--
+
+		// Update trunk on disk
+		offset := int(currentHead) * p.pageSize
+		data := p.mmap.Slice(offset, p.pageSize)
+		trunk.Encode(data)
+
+		// Update header
+		p.writeHeader()
+
+		return leafPage, true
+	}
+
+	// No more leaves - return the trunk page itself
+	// Move to next trunk
+	nextTrunk := trunk.NextTrunk
+	p.freelist.freeCount--
+
+	if nextTrunk != 0 && len(p.freelist.trunks) > 1 {
+		// Move to next trunk
+		p.freelist.trunks = p.freelist.trunks[1:]
+		p.freelist.headPage = nextTrunk
+	} else if nextTrunk != 0 {
+		// Load next trunk from disk
+		offset := int(nextTrunk) * p.pageSize
+		data := p.mmap.Slice(offset, p.pageSize)
+		loadedTrunk := DecodeFreelistTrunkPage(data)
+		p.freelist.trunks = []*FreelistTrunkPage{loadedTrunk}
+		p.freelist.headPage = nextTrunk
+	} else {
+		// No more trunks - freelist is empty
+		p.freelist.trunks = nil
+		p.freelist.headPage = 0
+	}
+
+	// Update header
+	p.writeHeader()
+
+	return currentHead, true
 }
 
 // Get retrieves a page by number
@@ -401,5 +486,181 @@ func (p *Pager) MarkDirty(page *Page) {
 		original := make([]byte, p.pageSize)
 		copy(original, page.Data())
 		p.dirtyPages[pageNo] = original
+	}
+}
+
+// Free returns a page to the freelist for reuse
+func (p *Pager) Free(pageNo uint32) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Cannot free page 0 (header page)
+	if pageNo == 0 {
+		return errors.New("cannot free page 0 (header page)")
+	}
+
+	// Cannot free page beyond current page count
+	if pageNo >= p.pageCount {
+		return ErrPageNotFound
+	}
+
+	// Remove from cache if present
+	if entry, ok := p.cache[pageNo]; ok {
+		p.lru.Remove(entry.element)
+		delete(p.cache, pageNo)
+	}
+
+	// Add to freelist and persist
+	p.addToFreelistPersistent(pageNo)
+
+	// Update header with new freelist info
+	p.writeHeader()
+
+	return nil
+}
+
+// addToFreelistPersistent adds a page to the freelist and persists to disk.
+// We use a simpler approach: the first freed page becomes a trunk, and
+// subsequent freed pages are added as leaf entries in that trunk.
+// When the trunk is full, we allocate a new trunk from the freelist itself.
+func (p *Pager) addToFreelistPersistent(pageNo uint32) {
+	// Get current head trunk
+	currentHead := p.freelist.HeadPage()
+
+	if currentHead == 0 {
+		// No existing trunk - this page becomes the first trunk
+		// A trunk with no leaves still counts as 1 free page (the trunk itself)
+		trunk := &FreelistTrunkPage{
+			NextTrunk: 0,
+			LeafPages: []uint32{},
+		}
+		// Write trunk to the freed page
+		offset := int(pageNo) * p.pageSize
+		data := p.mmap.Slice(offset, p.pageSize)
+		trunk.Encode(data)
+
+		// Update in-memory freelist - the trunk page itself is a free page
+		p.freelist.trunks = []*FreelistTrunkPage{trunk}
+		p.freelist.headPage = pageNo
+		p.freelist.freeCount = 1
+		return
+	}
+
+	// We have an existing trunk - add this page as a leaf
+	if len(p.freelist.trunks) > 0 {
+		trunk := p.freelist.trunks[0]
+		if !trunk.IsFull(p.pageSize) {
+			// Add as leaf page to current trunk
+			trunk.AddLeaf(pageNo)
+			p.freelist.freeCount++
+
+			// Write updated trunk to disk
+			offset := int(currentHead) * p.pageSize
+			data := p.mmap.Slice(offset, p.pageSize)
+			trunk.Encode(data)
+			return
+		}
+
+		// Current trunk is full of leaves
+		// The new page becomes a new trunk, and the old trunk becomes a leaf of the new trunk
+		// But this is complex - for simplicity, just make the new page a new trunk pointing to old
+		newTrunk := &FreelistTrunkPage{
+			NextTrunk: currentHead,
+			LeafPages: []uint32{},
+		}
+
+		// Write new trunk to the freed page
+		offset := int(pageNo) * p.pageSize
+		data := p.mmap.Slice(offset, p.pageSize)
+		newTrunk.Encode(data)
+
+		// Update in-memory freelist
+		p.freelist.trunks = append([]*FreelistTrunkPage{newTrunk}, p.freelist.trunks...)
+		p.freelist.headPage = pageNo
+		p.freelist.freeCount++
+	}
+}
+
+// FreePageCount returns the number of free pages in the freelist
+func (p *Pager) FreePageCount() uint32 {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if p.freelist == nil {
+		return 0
+	}
+	return p.freelist.FreeCount()
+}
+
+// getPageLocked retrieves a page while already holding the lock.
+// Used internally by Allocate when reusing a freed page.
+func (p *Pager) getPageLocked(pageNo uint32) (*Page, error) {
+	// Check cache first
+	if entry, ok := p.cache[pageNo]; ok {
+		entry.page.Pin()
+		// Move to front of LRU
+		p.lru.MoveToFront(entry.element)
+		return entry.page, nil
+	}
+
+	// Check bounds
+	if pageNo >= p.pageCount {
+		return nil, ErrPageNotFound
+	}
+
+	// Load from mmap
+	offset := int(pageNo) * p.pageSize
+	data := p.mmap.Slice(offset, p.pageSize)
+	if data == nil {
+		return nil, ErrPageNotFound
+	}
+
+	page := NewPageWithData(pageNo, data)
+	page.Pin()
+
+	// Clear the page data (reused pages should be zeroed)
+	for i := range data {
+		data[i] = 0
+	}
+
+	// Add to cache with LRU tracking
+	elem := p.lru.PushFront(pageNo)
+	p.cache[pageNo] = &cacheEntry{page: page, element: elem}
+
+	// Evict if needed
+	p.evictIfNeeded()
+
+	return page, nil
+}
+
+// loadFreelist loads the freelist from disk on database open
+func (p *Pager) loadFreelist(headPage uint32, freeCount uint32) {
+	if headPage == 0 || freeCount == 0 {
+		// No freelist to load
+		return
+	}
+
+	// Load trunk pages directly into freelist structure
+	p.freelist.trunks = nil
+	p.freelist.headPage = headPage
+	p.freelist.freeCount = freeCount
+
+	// Walk the trunk page chain and load all trunks
+	currentTrunkPage := headPage
+
+	for currentTrunkPage != 0 {
+		// Read trunk page data from mmap
+		offset := int(currentTrunkPage) * p.pageSize
+		data := p.mmap.Slice(offset, p.pageSize)
+		if data == nil {
+			break
+		}
+
+		// Decode the trunk page
+		trunk := DecodeFreelistTrunkPage(data)
+		p.freelist.trunks = append(p.freelist.trunks, trunk)
+
+		// Move to next trunk
+		currentTrunkPage = trunk.NextTrunk
 	}
 }
