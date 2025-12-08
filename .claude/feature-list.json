@@ -521,7 +521,7 @@
     {
       "title": "SQL - AST Node Types",
       "description": "Complete AST node definitions for all SQL statement types",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Add AST nodes for window functions (OVER clause)",
