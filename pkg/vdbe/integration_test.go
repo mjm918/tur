@@ -642,3 +642,168 @@ func TestVDBEUpdateMultipleColumns(t *testing.T) {
 		t.Errorf("expected b=200, got %d", results[0][2].Int())
 	}
 }
+
+// TestVDBEInsertSelect tests INSERT...SELECT VDBE compilation
+func TestVDBEInsertSelect(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	p, err := pager.Open(path, pager.Options{PageSize: 4096})
+	if err != nil {
+		t.Fatalf("failed to open pager: %v", err)
+	}
+	defer p.Close()
+
+	// Create source table
+	btSrc, _ := btree.Create(p)
+
+	// Create destination table
+	btDest, _ := btree.Create(p)
+
+	catalog := schema.NewCatalog()
+	catalog.CreateTable(&schema.TableDef{
+		Name: "source",
+		Columns: []schema.ColumnDef{
+			{Name: "id", Type: types.TypeInt, PrimaryKey: true},
+			{Name: "name", Type: types.TypeText},
+		},
+		RootPage: btSrc.RootPage(),
+	})
+
+	catalog.CreateTable(&schema.TableDef{
+		Name: "dest",
+		Columns: []schema.ColumnDef{
+			{Name: "id", Type: types.TypeInt, PrimaryKey: true},
+			{Name: "name", Type: types.TypeText},
+		},
+		RootPage: btDest.RootPage(),
+	})
+
+	// Insert data into source table
+	insertSQL := []string{
+		"INSERT INTO source (id, name) VALUES (1, 'Alice')",
+		"INSERT INTO source (id, name) VALUES (2, 'Bob')",
+		"INSERT INTO source (id, name) VALUES (3, 'Charlie')",
+	}
+
+	for _, sql := range insertSQL {
+		stmt, _ := parser.New(sql).Parse()
+		compiler := NewCompiler(catalog, p)
+		prog, _ := compiler.Compile(stmt)
+		vm := NewVM(prog, p)
+		vm.SetNumRegisters(compiler.NumRegisters())
+		vm.Run()
+	}
+
+	// INSERT...SELECT from source to dest
+	insertSelectSQL := "INSERT INTO dest (id, name) SELECT id, name FROM source"
+	insertSelectStmt, err := parser.New(insertSelectSQL).Parse()
+	if err != nil {
+		t.Fatalf("parse INSERT...SELECT failed: %v", err)
+	}
+
+	insertSelectCompiler := NewCompiler(catalog, p)
+	insertSelectProg, err := insertSelectCompiler.Compile(insertSelectStmt)
+	if err != nil {
+		t.Fatalf("compile INSERT...SELECT failed: %v", err)
+	}
+
+	insertSelectVM := NewVM(insertSelectProg, p)
+	insertSelectVM.SetNumRegisters(insertSelectCompiler.NumRegisters())
+	if err := insertSelectVM.Run(); err != nil {
+		t.Fatalf("INSERT...SELECT execution failed: %v", err)
+	}
+
+	// Verify dest table has the data
+	selectStmt, _ := parser.New("SELECT id, name FROM dest").Parse()
+	selectCompiler := NewCompiler(catalog, p)
+	selectProg, _ := selectCompiler.Compile(selectStmt)
+	selectVM := NewVM(selectProg, p)
+	selectVM.SetNumRegisters(selectCompiler.NumRegisters())
+	selectVM.Run()
+
+	results := selectVM.Results()
+	if len(results) != 3 {
+		t.Fatalf("expected 3 rows in dest, got %d", len(results))
+	}
+
+	// Verify the data matches
+	expectedNames := map[int64]string{1: "Alice", 2: "Bob", 3: "Charlie"}
+	for _, row := range results {
+		id := row[0].Int()
+		name := row[1].Text()
+		if expectedNames[id] != name {
+			t.Errorf("id=%d: expected name '%s', got '%s'", id, expectedNames[id], name)
+		}
+	}
+}
+
+// TestVDBEInsertSelectWithWhere tests INSERT...SELECT with WHERE clause
+func TestVDBEInsertSelectWithWhere(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	p, _ := pager.Open(path, pager.Options{PageSize: 4096})
+	defer p.Close()
+
+	btSrc, _ := btree.Create(p)
+	btDest, _ := btree.Create(p)
+
+	catalog := schema.NewCatalog()
+	catalog.CreateTable(&schema.TableDef{
+		Name: "numbers",
+		Columns: []schema.ColumnDef{
+			{Name: "n", Type: types.TypeInt, PrimaryKey: true},
+		},
+		RootPage: btSrc.RootPage(),
+	})
+
+	catalog.CreateTable(&schema.TableDef{
+		Name: "even",
+		Columns: []schema.ColumnDef{
+			{Name: "n", Type: types.TypeInt, PrimaryKey: true},
+		},
+		RootPage: btDest.RootPage(),
+	})
+
+	// Insert numbers 1-6
+	for i := 1; i <= 6; i++ {
+		insertSQL := "INSERT INTO numbers (n) VALUES (" + intToStr(i) + ")"
+		stmt, _ := parser.New(insertSQL).Parse()
+		compiler := NewCompiler(catalog, p)
+		prog, _ := compiler.Compile(stmt)
+		vm := NewVM(prog, p)
+		vm.SetNumRegisters(compiler.NumRegisters())
+		vm.Run()
+	}
+
+	// INSERT...SELECT with WHERE (only even numbers: 2, 4, 6)
+	// Note: We test with simple comparison since modulo isn't implemented
+	insertSelectSQL := "INSERT INTO even (n) SELECT n FROM numbers WHERE n > 1"
+	insertSelectStmt, _ := parser.New(insertSelectSQL).Parse()
+
+	insertSelectCompiler := NewCompiler(catalog, p)
+	insertSelectProg, err := insertSelectCompiler.Compile(insertSelectStmt)
+	if err != nil {
+		t.Fatalf("compile INSERT...SELECT failed: %v", err)
+	}
+
+	insertSelectVM := NewVM(insertSelectProg, p)
+	insertSelectVM.SetNumRegisters(insertSelectCompiler.NumRegisters())
+	if err := insertSelectVM.Run(); err != nil {
+		t.Fatalf("INSERT...SELECT execution failed: %v", err)
+	}
+
+	// Verify even table has 5 rows (2,3,4,5,6)
+	selectStmt, _ := parser.New("SELECT n FROM even").Parse()
+	selectCompiler := NewCompiler(catalog, p)
+	selectProg, _ := selectCompiler.Compile(selectStmt)
+	selectVM := NewVM(selectProg, p)
+	selectVM.SetNumRegisters(selectCompiler.NumRegisters())
+	selectVM.Run()
+
+	results := selectVM.Results()
+	if len(results) != 5 {
+		t.Errorf("expected 5 rows (n>1), got %d", len(results))
+	}
+}
