@@ -66,10 +66,18 @@ func (c *Compiler) Compile(stmt parser.Statement) (*Program, error) {
 
 // compileSelect compiles a SELECT statement
 func (c *Compiler) compileSelect(stmt *parser.SelectStmt) (*Program, error) {
+	var tableName string
+	switch t := stmt.From.(type) {
+	case *parser.Table:
+		tableName = t.Name
+	default:
+		return nil, fmt.Errorf("complex table references not supported in compiler")
+	}
+
 	// Get table
-	table := c.catalog.GetTable(stmt.From)
+	table := c.catalog.GetTable(tableName)
 	if table == nil {
-		return nil, fmt.Errorf("table %s not found", stmt.From)
+		return nil, fmt.Errorf("table %s not found", tableName)
 	}
 
 	// Build column map

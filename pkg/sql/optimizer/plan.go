@@ -1,6 +1,11 @@
 // pkg/sql/optimizer/plan.go
 package optimizer
 
+import (
+	"tur/pkg/schema"
+	"tur/pkg/sql/parser"
+)
+
 // PlanNode is the interface for all query plan nodes
 type PlanNode interface {
 	EstimatedCost() float64 // Estimated cost to execute this node
@@ -9,9 +14,10 @@ type PlanNode interface {
 
 // TableScanNode represents a full table scan
 type TableScanNode struct {
-	TableName string
-	Cost      float64
-	Rows      int64
+	Table *schema.TableDef
+	Alias string
+	Cost  float64
+	Rows  int64
 }
 
 func (n *TableScanNode) EstimatedCost() float64 {
@@ -24,7 +30,8 @@ func (n *TableScanNode) EstimatedRows() int64 {
 
 // IndexScanNode represents an index scan
 type IndexScanNode struct {
-	TableName string
+	Table     *schema.TableDef
+	Alias     string
 	IndexName string
 	Cost      float64
 	Rows      int64
@@ -40,47 +47,48 @@ func (n *IndexScanNode) EstimatedRows() int64 {
 
 // FilterNode represents a filter operation (WHERE clause)
 type FilterNode struct {
-	Child       PlanNode
-	Predicate   string
+	Input       PlanNode
+	Condition   parser.Expression
 	Selectivity float64 // Fraction of rows that pass the filter (0.0 to 1.0)
 }
 
 func (n *FilterNode) EstimatedCost() float64 {
 	// Filter cost = child cost + (input rows * cost per row check)
 	const costPerRowCheck = 0.01
-	inputRows := float64(n.Child.EstimatedRows())
-	return n.Child.EstimatedCost() + (inputRows * costPerRowCheck)
+	inputRows := float64(n.Input.EstimatedRows())
+	return n.Input.EstimatedCost() + (inputRows * costPerRowCheck)
 }
 
 func (n *FilterNode) EstimatedRows() int64 {
 	// Output rows = input rows * selectivity
-	inputRows := float64(n.Child.EstimatedRows())
+	inputRows := float64(n.Input.EstimatedRows())
 	return int64(inputRows * n.Selectivity)
 }
 
 // ProjectionNode represents a projection operation (SELECT columns)
 type ProjectionNode struct {
-	Child   PlanNode
-	Columns []string
+	Input       PlanNode
+	Expressions []parser.Expression
 }
 
 func (n *ProjectionNode) EstimatedCost() float64 {
 	// Projection cost = child cost + (rows * cost per projection)
 	const costPerProjection = 0.001
-	rows := float64(n.Child.EstimatedRows())
-	return n.Child.EstimatedCost() + (rows * costPerProjection)
+	rows := float64(n.Input.EstimatedRows())
+	return n.Input.EstimatedCost() + (rows * costPerProjection)
 }
 
 func (n *ProjectionNode) EstimatedRows() int64 {
 	// Projection doesn't change row count
-	return n.Child.EstimatedRows()
+	return n.Input.EstimatedRows()
 }
 
 // NestedLoopJoinNode represents a nested loop join
 type NestedLoopJoinNode struct {
 	Left      PlanNode
 	Right     PlanNode
-	Condition string
+	Condition parser.Expression
+	JoinType  parser.JoinType
 }
 
 func (n *NestedLoopJoinNode) EstimatedCost() float64 {

@@ -605,16 +605,16 @@ func (p *Parser) parseSelectBody() (*SelectStmt, error) {
 	}
 	stmt.Columns = cols
 
-	// FROM
+	// From
 	if !p.expectPeek(lexer.FROM) {
 		return nil, fmt.Errorf("expected FROM, got %s", p.peek.Literal)
 	}
 
-	// Table
-	if !p.expectPeek(lexer.IDENT) {
-		return nil, fmt.Errorf("expected table name, got %s", p.peek.Literal)
+	tableRef, err := p.parseTableReference()
+	if err != nil {
+		return nil, err
 	}
-	stmt.From = p.cur.Literal
+	stmt.From = tableRef
 
 	// Optional WHERE
 	if p.peekIs(lexer.WHERE) {
@@ -631,6 +631,112 @@ func (p *Parser) parseSelectBody() (*SelectStmt, error) {
 	return stmt, nil
 }
 
+// parseTableReference parses: table [AS alias] [JOIN table ON ...]
+func (p *Parser) parseTableReference() (TableReference, error) {
+	// Parse left side (Table or subquery/nested join inside parens - for now just Table)
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected table name, got %s", p.peek.Literal)
+	}
+
+	var left TableReference = &Table{Name: p.cur.Literal}
+
+	// Check for Alias (optional AS identifier or just identifier)
+	// TODO: Implement alias support properly if needed. For now sticking to simple table names.
+
+	// Loop to handle multiple joins: t1 JOIN t2 JOIN t3 ... -> ((t1 JOIN t2) JOIN t3)
+	for {
+		if !p.isJoinStart() {
+			break
+		}
+
+		// Parse join type
+		joinType := p.parseJoinType()
+
+		// Parse right table - expecting a table name for now
+		if !p.expectPeek(lexer.IDENT) {
+			return nil, fmt.Errorf("expected table name after JOIN, got %s", p.peek.Literal)
+		}
+		right := &Table{Name: p.cur.Literal}
+
+		// Parse ON condition
+		if !p.expectPeek(lexer.ON) {
+			return nil, fmt.Errorf("expected ON after joined table")
+		}
+
+		p.nextToken() // move to start of expression
+		condition, err := p.parseExpression(LOWEST)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse ON condition: %w", err)
+		}
+
+		// Combine into a Join node
+		left = &Join{
+			Left:      left,
+			Right:     right,
+			Type:      joinType,
+			Condition: condition,
+		}
+	}
+
+	return left, nil
+}
+
+// isJoinStart checks if the peek token starts a JOIN clause
+func (p *Parser) isJoinStart() bool {
+	t := p.peek.Type
+	return t == lexer.JOIN || t == lexer.INNER || t == lexer.LEFT || t == lexer.RIGHT || t == lexer.FULL || t == lexer.OUTER
+}
+
+// parseJoinType consumes tokens and returns the JoinType
+func (p *Parser) parseJoinType() JoinType {
+	p.nextToken() // Move to the first token of the join (e.g. JOIN, LEFT, INNER)
+
+	switch p.cur.Type {
+	case lexer.JOIN:
+		return JoinInner
+	case lexer.INNER:
+		if p.peekIs(lexer.JOIN) {
+			p.nextToken()
+		}
+		return JoinInner
+	case lexer.LEFT:
+		if p.peekIs(lexer.OUTER) {
+			p.nextToken()
+		}
+		if p.peekIs(lexer.JOIN) {
+			p.nextToken()
+		}
+		return JoinLeft
+	case lexer.RIGHT:
+		if p.peekIs(lexer.OUTER) {
+			p.nextToken()
+		}
+		if p.peekIs(lexer.JOIN) {
+			p.nextToken()
+		}
+		return JoinRight
+	case lexer.FULL:
+		if p.peekIs(lexer.OUTER) {
+			p.nextToken()
+		}
+		if p.peekIs(lexer.JOIN) {
+			p.nextToken()
+		}
+		return JoinFull
+	case lexer.OUTER:
+		// Implicit LEFT OUTER? No, usually FULL or error, but let's assume syntax error if not preceded by LEFT/RIGHT/FULL.
+		// But if we just see OUTER JOIN? SQLite treats as ...?
+		// Minimal standard SQL usually needs LEFT/RIGHT/FULL.
+		// Let's assume syntax error if just OUTER, but to be safe consume JOIN if present.
+		if p.peekIs(lexer.JOIN) {
+			p.nextToken()
+		}
+		return JoinLeft // Fallback
+	default:
+		return JoinInner
+	}
+}
+
 // parseSelectColumns parses: * | column, column, ...
 func (p *Parser) parseSelectColumns() ([]SelectColumn, error) {
 	var cols []SelectColumn
@@ -644,7 +750,19 @@ func (p *Parser) parseSelectColumns() ([]SelectColumn, error) {
 		if p.cur.Type != lexer.IDENT {
 			return nil, fmt.Errorf("expected column name, got %s", p.cur.Literal)
 		}
-		cols = append(cols, SelectColumn{Name: p.cur.Literal})
+		name := p.cur.Literal
+
+		// Handle qualified name (table.column)
+		if p.peekIs(lexer.DOT) {
+			p.nextToken() // move to DOT
+			p.nextToken() // move to column name
+			if p.cur.Type != lexer.IDENT {
+				return nil, fmt.Errorf("expected column name after dot, got %s", p.cur.Literal)
+			}
+			name = name + "." + p.cur.Literal
+		}
+
+		cols = append(cols, SelectColumn{Name: name})
 
 		if p.peekIs(lexer.COMMA) {
 			p.nextToken() // ,
@@ -798,6 +916,7 @@ const (
 	SUM      // +, -
 	PRODUCT  // *, /
 	PREFIX   // -X, NOT
+	CALL     // . (method call or property access)
 )
 
 // precedences maps token types to precedence
@@ -814,6 +933,7 @@ var precedences = map[lexer.TokenType]int{
 	lexer.MINUS: SUM,
 	lexer.STAR:  PRODUCT,
 	lexer.SLASH: PRODUCT,
+	lexer.DOT:   CALL,
 }
 
 // parseExpression parses an expression using Pratt parsing
@@ -890,6 +1010,25 @@ func (p *Parser) parsePrefixExpression() (Expression, error) {
 
 // parseInfixExpression parses a binary expression
 func (p *Parser) parseInfixExpression(left Expression) (Expression, error) {
+	// Handle DOT (table.column) specially
+	if p.cur.Type == lexer.DOT {
+		p.nextToken() // consume DOT
+
+		// Expect identifier after DOT
+		if p.cur.Type != lexer.IDENT {
+			return nil, fmt.Errorf("expected identifier after '.', got %s", p.cur.Literal)
+		}
+
+		rightName := p.cur.Literal
+
+		// If left is ColumnRef, merge
+		if colRef, ok := left.(*ColumnRef); ok {
+			return &ColumnRef{Name: colRef.Name + "." + rightName}, nil
+		}
+
+		return nil, fmt.Errorf("expected identifier before '.', got %T", left)
+	}
+
 	expr := &BinaryExpr{
 		Left: left,
 		Op:   p.cur.Type,

@@ -569,7 +569,7 @@
         },
         {
           "task": "Add JOIN order optimization using dynamic programming",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement predicate pushdown to reduce intermediate results",

@@ -3,18 +3,20 @@ package optimizer
 
 import (
 	"testing"
+	"tur/pkg/schema"
+	"tur/pkg/sql/parser"
 )
 
 // TestPlanNode_TableScan tests creating a table scan plan node
 func TestPlanNode_TableScan(t *testing.T) {
 	plan := &TableScanNode{
-		TableName: "users",
-		Cost:      100.0,
-		Rows:      1000,
+		Table: &schema.TableDef{Name: "users"},
+		Cost:  100.0,
+		Rows:  1000,
 	}
 
-	if plan.TableName != "users" {
-		t.Errorf("expected table name 'users', got '%s'", plan.TableName)
+	if plan.Table.Name != "users" {
+		t.Errorf("expected table name 'users', got '%s'", plan.Table.Name)
 	}
 	if plan.EstimatedCost() != 100.0 {
 		t.Errorf("expected cost 100.0, got %f", plan.EstimatedCost())
@@ -27,14 +29,14 @@ func TestPlanNode_TableScan(t *testing.T) {
 // TestPlanNode_IndexScan tests creating an index scan plan node
 func TestPlanNode_IndexScan(t *testing.T) {
 	plan := &IndexScanNode{
-		TableName: "users",
+		Table:     &schema.TableDef{Name: "users"},
 		IndexName: "idx_email",
 		Cost:      10.0,
 		Rows:      50,
 	}
 
-	if plan.TableName != "users" {
-		t.Errorf("expected table name 'users', got '%s'", plan.TableName)
+	if plan.Table.Name != "users" {
+		t.Errorf("expected table name 'users', got '%s'", plan.Table.Name)
 	}
 	if plan.IndexName != "idx_email" {
 		t.Errorf("expected index name 'idx_email', got '%s'", plan.IndexName)
@@ -50,15 +52,15 @@ func TestPlanNode_IndexScan(t *testing.T) {
 // TestPlanNode_Filter tests creating a filter (WHERE) plan node
 func TestPlanNode_Filter(t *testing.T) {
 	child := &TableScanNode{
-		TableName: "users",
-		Cost:      100.0,
-		Rows:      1000,
+		Table: &schema.TableDef{Name: "users"},
+		Cost:  100.0,
+		Rows:  1000,
 	}
 
 	plan := &FilterNode{
-		Child:      child,
-		Predicate:  "age > 18",
-		Selectivity: 0.3, // 30% of rows pass the filter
+		Input:       child,
+		Condition:   &parser.BinaryExpr{}, // Mock expression
+		Selectivity: 0.3,                  // 30% of rows pass the filter
 	}
 
 	// Filter cost = child cost + (rows * cost_per_row_check)
@@ -76,14 +78,14 @@ func TestPlanNode_Filter(t *testing.T) {
 // TestPlanNode_Projection tests creating a projection (SELECT columns) plan node
 func TestPlanNode_Projection(t *testing.T) {
 	child := &TableScanNode{
-		TableName: "users",
-		Cost:      100.0,
-		Rows:      1000,
+		Table: &schema.TableDef{Name: "users"},
+		Cost:  100.0,
+		Rows:  1000,
 	}
 
 	plan := &ProjectionNode{
-		Child:   child,
-		Columns: []string{"id", "name", "email"},
+		Input:       child,
+		Expressions: []parser.Expression{&parser.ColumnRef{Name: "id"}},
 	}
 
 	// Projection cost = child cost + (rows * cost_per_projection)
@@ -100,21 +102,21 @@ func TestPlanNode_Projection(t *testing.T) {
 // TestPlanNode_NestedLoopJoin tests creating a nested loop join plan node
 func TestPlanNode_NestedLoopJoin(t *testing.T) {
 	left := &TableScanNode{
-		TableName: "users",
-		Cost:      100.0,
-		Rows:      1000,
+		Table: &schema.TableDef{Name: "users"},
+		Cost:  100.0,
+		Rows:  1000,
 	}
 
 	right := &TableScanNode{
-		TableName: "orders",
-		Cost:      200.0,
-		Rows:      5000,
+		Table: &schema.TableDef{Name: "orders"},
+		Cost:  200.0,
+		Rows:  5000,
 	}
 
 	plan := &NestedLoopJoinNode{
 		Left:      left,
 		Right:     right,
-		Condition: "users.id = orders.user_id",
+		Condition: &parser.BinaryExpr{}, // Mock condition
 	}
 
 	// Nested loop join cost = left cost + (left rows * right cost)
@@ -133,22 +135,22 @@ func TestPlanNode_NestedLoopJoin(t *testing.T) {
 // TestPlanNode_HashJoin tests creating a hash join plan node
 func TestPlanNode_HashJoin(t *testing.T) {
 	left := &TableScanNode{
-		TableName: "users",
-		Cost:      100.0,
-		Rows:      1000,
+		Table: &schema.TableDef{Name: "users"},
+		Cost:  100.0,
+		Rows:  1000,
 	}
 
 	right := &TableScanNode{
-		TableName: "orders",
-		Cost:      200.0,
-		Rows:      5000,
+		Table: &schema.TableDef{Name: "orders"},
+		Cost:  200.0,
+		Rows:  5000,
 	}
 
 	plan := &HashJoinNode{
-		Left:      left,
-		Right:     right,
-		LeftKey:   "id",
-		RightKey:  "user_id",
+		Left:     left,
+		Right:    right,
+		LeftKey:  "id",
+		RightKey: "user_id",
 	}
 
 	// Hash join cost = left cost + right cost + (left rows * hash_build_cost) + (right rows * hash_probe_cost)

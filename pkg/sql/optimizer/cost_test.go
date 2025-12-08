@@ -96,12 +96,12 @@ func TestCostEstimator_SelectivityEstimate(t *testing.T) {
 	estimator := NewCostEstimator()
 
 	tests := []struct {
-		name         string
-		operator     string
-		wantMin      float64
-		wantMax      float64
+		name     string
+		operator string
+		wantMin  float64
+		wantMax  float64
 	}{
-		{"equality", "=", 0.0, 0.1},   // Equality is very selective
+		{"equality", "=", 0.0, 0.1},    // Equality is very selective
 		{"inequality", "!=", 0.8, 1.0}, // Inequality is not very selective
 		{"less than", "<", 0.2, 0.5},   // Range operators are moderately selective
 		{"greater than", ">", 0.2, 0.5},
@@ -260,11 +260,11 @@ func TestCostEstimator_CompareIndexVsTableScan(t *testing.T) {
 	tableRows := int64(100000)
 
 	tests := []struct {
-		name         string
-		selectivity  float64
-		preferIndex  bool
+		name        string
+		selectivity float64
+		preferIndex bool
 	}{
-		{"highly selective", 0.001, true},  // Index should win
+		{"highly selective", 0.001, true},   // Index should win
 		{"moderately selective", 0.1, true}, // Index should win
 		{"low selectivity", 0.5, false},     // Table scan might win
 	}

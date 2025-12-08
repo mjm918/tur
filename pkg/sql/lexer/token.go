@@ -89,6 +89,14 @@ const (
 	// Conditional keywords
 	IF
 	EXISTS
+
+	// Join keywords
+	JOIN
+	INNER
+	LEFT
+	RIGHT
+	FULL
+	OUTER
 )
 
 // Token represents a lexical token
@@ -237,6 +245,18 @@ func (t TokenType) String() string {
 		return "IF"
 	case EXISTS:
 		return "EXISTS"
+	case JOIN:
+		return "JOIN"
+	case INNER:
+		return "INNER"
+	case LEFT:
+		return "LEFT"
+	case RIGHT:
+		return "RIGHT"
+	case FULL:
+		return "FULL"
+	case OUTER:
+		return "OUTER"
 	default:
 		return "UNKNOWN"
 	}
@@ -290,6 +310,12 @@ var keywords = map[string]TokenType{
 	"INDEX":      INDEX,
 	"IF":         IF,
 	"EXISTS":     EXISTS,
+	"JOIN":       JOIN,
+	"INNER":      INNER,
+	"LEFT":       LEFT,
+	"RIGHT":      RIGHT,
+	"FULL":       FULL,
+	"OUTER":      OUTER,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT

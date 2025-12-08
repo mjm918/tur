@@ -179,8 +179,12 @@ func TestParser_Insert_Select(t *testing.T) {
 		t.Fatal("SelectStmt = nil, want non-nil")
 	}
 
-	if insert.SelectStmt.From != "old_users" {
-		t.Errorf("SelectStmt.From = %q, want 'old_users'", insert.SelectStmt.From)
+	fromTable, ok := insert.SelectStmt.From.(*Table)
+	if !ok {
+		t.Fatalf("SelectStmt.From type = %T, want *Table", insert.SelectStmt.From)
+	}
+	if fromTable.Name != "old_users" {
+		t.Errorf("SelectStmt.From = %q, want 'old_users'", fromTable.Name)
 	}
 
 	if insert.Values != nil {
@@ -228,8 +232,12 @@ func TestParser_Select_Star(t *testing.T) {
 		t.Fatalf("Expected *SelectStmt, got %T", stmt)
 	}
 
-	if sel.From != "users" {
-		t.Errorf("From = %q, want 'users'", sel.From)
+	fromTable, ok := sel.From.(*Table)
+	if !ok {
+		t.Fatalf("From type = %T, want *Table", sel.From)
+	}
+	if fromTable.Name != "users" {
+		t.Errorf("From = %q, want 'users'", fromTable.Name)
 	}
 
 	if len(sel.Columns) != 1 || !sel.Columns[0].Star {

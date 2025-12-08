@@ -10,6 +10,7 @@ import (
 	"tur/pkg/record"
 	"tur/pkg/schema"
 	"tur/pkg/sql/lexer"
+	"tur/pkg/sql/optimizer"
 	"tur/pkg/sql/parser"
 	"tur/pkg/types"
 )
@@ -537,92 +538,213 @@ func (e *Executor) validateCheckConstraint(checkExpr string, values []types.Valu
 	return nil
 }
 
-// executeSelect handles SELECT
+// executeSelect handles SELECT using the new optimizer and plan-based execution
 func (e *Executor) executeSelect(stmt *parser.SelectStmt) (*Result, error) {
-	// Get table
-	table := e.catalog.GetTable(stmt.From)
-	if table == nil {
-		return nil, fmt.Errorf("table %s not found", stmt.From)
+	// 1. Build Logical Plan
+	plan, err := optimizer.BuildPlan(stmt, e.catalog)
+	if err != nil {
+		return nil, fmt.Errorf("build plan error: %w", err)
 	}
 
-	// Get or create B-tree
-	tree := e.trees[stmt.From]
-	if tree == nil {
-		tree = btree.Open(e.pager, table.RootPage)
-		e.trees[stmt.From] = tree
+	// 2. Optimize Plan
+	opt := optimizer.NewOptimizer()
+	plan = opt.Optimize(plan)
+
+	// 3. Execute Plan
+	iterator, columns, err := e.executePlan(plan)
+	if err != nil {
+		return nil, fmt.Errorf("execution error: %w", err)
 	}
+	defer iterator.Close()
 
-	// Determine which columns to return
-	var resultColumns []string
-	var columnIndices []int
-
-	if len(stmt.Columns) == 1 && stmt.Columns[0].Star {
-		// SELECT *
-		for _, col := range table.Columns {
-			resultColumns = append(resultColumns, col.Name)
-		}
-		for i := range table.Columns {
-			columnIndices = append(columnIndices, i)
-		}
-	} else {
-		// Specific columns
-		for _, col := range stmt.Columns {
-			_, idx := table.GetColumn(col.Name)
-			if idx == -1 {
-				return nil, fmt.Errorf("column %s not found", col.Name)
-			}
-			resultColumns = append(resultColumns, col.Name)
-			columnIndices = append(columnIndices, idx)
-		}
-	}
-
-	// Build column name to index map for WHERE evaluation
-	colMap := make(map[string]int)
-	for i, col := range table.Columns {
-		colMap[col.Name] = i
-	}
-
-	// Scan table
+	// 4. Collect results
 	var rows [][]types.Value
-	cursor := tree.Cursor()
-	defer cursor.Close()
-
-	for cursor.First(); cursor.Valid(); cursor.Next() {
-		value := cursor.Value()
-		if value == nil {
-			continue
-		}
-
-		// Decode record
-		rowValues := record.Decode(value)
-
-		// Evaluate WHERE clause if present
-		if stmt.Where != nil {
-			match, err := e.evaluateCondition(stmt.Where, rowValues, colMap)
-			if err != nil {
-				return nil, err
-			}
-			if !match {
-				continue
-			}
-		}
-
-		// Extract requested columns
-		row := make([]types.Value, len(columnIndices))
-		for i, idx := range columnIndices {
-			if idx < len(rowValues) {
-				row[i] = rowValues[idx]
-			} else {
-				row[i] = types.NewNull()
-			}
-		}
-		rows = append(rows, row)
+	for iterator.Next() {
+		val := iterator.Value()
+		// Copy value to avoid reference issues if underlying buffer reuse occurs
+		rowCopy := make([]types.Value, len(val))
+		copy(rowCopy, val)
+		rows = append(rows, rowCopy)
 	}
 
 	return &Result{
-		Columns: resultColumns,
+		Columns: columns,
 		Rows:    rows,
 	}, nil
+}
+
+// executePlan executes a plan node and returns an iterator and column names
+func (e *Executor) executePlan(plan optimizer.PlanNode) (RowIterator, []string, error) {
+	switch node := plan.(type) {
+	case *optimizer.TableScanNode:
+		// Get B-tree
+		tree := e.trees[node.Table.Name]
+		if tree == nil {
+			// Try to open if not cached (though executeCreateTable caches it, restart might clear it)
+			if node.Table.RootPage == 0 {
+				return nil, nil, fmt.Errorf("table %s has invalid root page", node.Table.Name)
+			}
+			tree = btree.Open(e.pager, node.Table.RootPage)
+			e.trees[node.Table.Name] = tree
+		}
+
+		iterator := NewTableScanIterator(tree)
+
+		// Build column names (with alias prefix if alias exists)
+		var cols []string
+		prefix := node.Table.Name
+		if node.Alias != "" {
+			prefix = node.Alias
+		}
+		for _, col := range node.Table.Columns {
+			cols = append(cols, prefix+"."+col.Name)
+			// Also add short name?
+			// For schema propogation in iterator.go colMap logic, strictly fully qualified is safer?
+			// But evaluateExpr uses simple names like "id".
+			// So we should probably handle both in colMap construction or here?
+			// Let's return fully qualified names here, and helper to build map handles fallback.
+		}
+
+		return iterator, cols, nil
+
+	case *optimizer.FilterNode:
+		inputIter, inputCols, err := e.executePlan(node.Input)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		colMap := make(map[string]int)
+		for i, name := range inputCols {
+			colMap[name] = i
+			// Also map short names if unique?
+			// Simple heuristic: if name has dot, add suffix too
+			// parser.ColumnRef usually is simple "name" unless "table.name".
+			// But my parser modification merged them.
+			// So "users.id" is exact match.
+			// But "id" should also work.
+			// Split by dot?
+			// For now, strict mapping to inputCols (which are "table.col").
+			// But queries like "SELECT * FROM users WHERE id=1" use "id".
+			// So "id" must be in map.
+			// Let's add suffix logic here.
+			// (See below helper buildColMap)
+		}
+		// Refine colMap construction logic reuse
+		colMap = e.buildColMap(inputCols)
+
+		return &FilterIterator{
+			child:     inputIter,
+			condition: node.Condition,
+			colMap:    colMap,
+			executor:  e,
+		}, inputCols, nil
+
+	case *optimizer.ProjectionNode:
+		inputIter, inputCols, err := e.executePlan(node.Input)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		colMap := e.buildColMap(inputCols)
+
+		// Projection changes schema
+		var outputCols []string
+		for _, expr := range node.Expressions {
+			// Name?
+			// parser.Expression doesn't strictly have a name method.
+			// Use alias if we had it, or string representation.
+			if colRef, ok := expr.(*parser.ColumnRef); ok {
+				outputCols = append(outputCols, colRef.Name)
+			} else {
+				outputCols = append(outputCols, "?") // Placeholder for complex exprs
+			}
+		}
+
+		return &ProjectionIterator{
+			child:       inputIter,
+			expressions: node.Expressions,
+			colMap:      colMap,
+			executor:    e,
+		}, outputCols, nil
+
+	case *optimizer.NestedLoopJoinNode:
+		leftIter, leftCols, err := e.executePlan(node.Left)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		// Right side needs to be iterate-able repeatedly.
+		// My NestedLoopJoinIterator handles materialization of Right.
+		// So we just get the iterator once.
+		rightIter, rightCols, err := e.executePlan(node.Right)
+		if err != nil {
+			leftIter.Close()
+			return nil, nil, err
+		}
+
+		combinedCols := append(append([]string{}, leftCols...), rightCols...)
+		colMap := e.buildColMap(combinedCols)
+
+		return &NestedLoopJoinIterator{
+			left:          leftIter,
+			right:         rightIter,
+			condition:     node.Condition,
+			executor:      e,
+			combinedMap:   colMap,
+			leftSchemaLen: len(leftCols),
+		}, combinedCols, nil
+
+	default:
+		return nil, nil, fmt.Errorf("unsupported plan node: %T", plan)
+	}
+}
+
+// buildColMap creates a mapping from column names to indices, handling short names
+func (e *Executor) buildColMap(cols []string) map[string]int {
+	m := make(map[string]int)
+
+	// First pass: add exact names
+	for i, name := range cols {
+		m[name] = i
+	}
+
+	// Second pass: add short names if unambiguous
+	// "table.col" -> "col"
+	// Count occurrences of short names
+	counts := make(map[string]int)
+	for _, name := range cols {
+		// derived from simple string split logic
+		// if name contains dot
+		// But wait, name in cols[i] is whatever executePlan returned.
+		// For TableScan I returned "Alias.Col".
+		// parse logic?
+		// naive split
+		// But if column name itself contains dot (unlikely in simple SQL)?
+
+		// Find last dot?
+		// For now simple assumption: Table.Col
+		for i := len(name) - 1; i >= 0; i-- {
+			if name[i] == '.' {
+				short := name[i+1:]
+				counts[short]++
+				break
+			}
+		}
+	}
+
+	for i, name := range cols {
+		for j := len(name) - 1; j >= 0; j-- {
+			if name[j] == '.' {
+				short := name[j+1:]
+				if counts[short] == 1 {
+					m[short] = i
+				}
+				break
+			}
+		}
+	}
+
+	return m
 }
 
 // evaluateExpr evaluates an expression to a value

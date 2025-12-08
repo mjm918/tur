@@ -89,10 +89,43 @@ type InsertStmt struct {
 
 func (s *InsertStmt) statementNode() {}
 
+// TableReference represents a table source in FROM clause
+type TableReference interface {
+	tableRefNode()
+}
+
+// Table represents a single table
+type Table struct {
+	Name  string
+	Alias string
+}
+
+func (t *Table) tableRefNode() {}
+
+// JoinType represents the type of join
+type JoinType int
+
+const (
+	JoinInner JoinType = iota
+	JoinLeft
+	JoinRight
+	JoinFull
+)
+
+// Join represents a join between two table references
+type Join struct {
+	Left      TableReference
+	Right     TableReference
+	Type      JoinType
+	Condition Expression
+}
+
+func (j *Join) tableRefNode() {}
+
 // SelectStmt represents a SELECT statement
 type SelectStmt struct {
 	Columns []SelectColumn // * or column list
-	From    string
+	From    TableReference
 	Where   Expression // optional WHERE clause (nil if none)
 }
 

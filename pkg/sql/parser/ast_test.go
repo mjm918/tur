@@ -57,9 +57,9 @@ func TestWindowSpec(t *testing.T) {
 			},
 		},
 		Frame: &WindowFrame{
-			Mode:        FrameModeRows,
-			StartBound:  &FrameBound{Type: FrameBoundCurrentRow},
-			EndBound:    &FrameBound{Type: FrameBoundUnboundedFollowing},
+			Mode:       FrameModeRows,
+			StartBound: &FrameBound{Type: FrameBoundCurrentRow},
+			EndBound:   &FrameBound{Type: FrameBoundUnboundedFollowing},
 		},
 	}
 
@@ -104,10 +104,10 @@ func TestOrderByExpr(t *testing.T) {
 // TestWindowFrame tests window frame specification
 func TestWindowFrame(t *testing.T) {
 	tests := []struct {
-		name       string
-		mode       FrameMode
-		startType  FrameBoundType
-		endType    FrameBoundType
+		name      string
+		mode      FrameMode
+		startType FrameBoundType
+		endType   FrameBoundType
 	}{
 		{
 			name:      "ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING",
@@ -167,13 +167,13 @@ func TestFunctionCall(t *testing.T) {
 // TestCTE tests Common Table Expression AST node
 func TestCTE(t *testing.T) {
 	cte := &CTE{
-		Name: "temp_results",
+		Name:    "temp_results",
 		Columns: []string{"id", "name"},
 		Query: &SelectStmt{
 			Columns: []SelectColumn{
 				{Star: true},
 			},
-			From: "users",
+			From: &Table{Name: "users"},
 		},
 	}
 
@@ -197,14 +197,14 @@ func TestWithClause(t *testing.T) {
 				Name: "cte1",
 				Query: &SelectStmt{
 					Columns: []SelectColumn{{Star: true}},
-					From:    "table1",
+					From:    &Table{Name: "table1"},
 				},
 			},
 			{
 				Name: "cte2",
 				Query: &SelectStmt{
 					Columns: []SelectColumn{{Star: true}},
-					From:    "table2",
+					From:    &Table{Name: "table2"},
 				},
 			},
 		},
@@ -227,7 +227,7 @@ func TestWithClause_Recursive(t *testing.T) {
 				Name: "recursive_cte",
 				Query: &SelectStmt{
 					Columns: []SelectColumn{{Star: true}},
-					From:    "base_table",
+					From:    &Table{Name: "base_table"},
 				},
 			},
 		},
@@ -260,13 +260,13 @@ func TestSetOperation(t *testing.T) {
 			setOp := &SetOperation{
 				Left: &SelectStmt{
 					Columns: []SelectColumn{{Star: true}},
-					From:    "table1",
+					From:    &Table{Name: "table1"},
 				},
 				Operator: tt.op,
 				All:      tt.all,
 				Right: &SelectStmt{
 					Columns: []SelectColumn{{Star: true}},
-					From:    "table2",
+					From:    &Table{Name: "table2"},
 				},
 			}
 
@@ -430,7 +430,7 @@ func TestPragmaStmt(t *testing.T) {
 		{
 			name: "PRAGMA with integer value",
 			pragma: &PragmaStmt{
-				Name: "cache_size",
+				Name:  "cache_size",
 				Value: &Literal{},
 			},
 			checkKey: "cache_size",
@@ -439,7 +439,7 @@ func TestPragmaStmt(t *testing.T) {
 		{
 			name: "PRAGMA with string value",
 			pragma: &PragmaStmt{
-				Name: "journal_mode",
+				Name:  "journal_mode",
 				Value: &Literal{},
 			},
 			checkKey: "journal_mode",

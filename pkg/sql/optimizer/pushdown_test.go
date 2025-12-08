@@ -3,6 +3,8 @@ package optimizer
 
 import (
 	"testing"
+	"tur/pkg/schema"
+	"tur/pkg/sql/parser"
 )
 
 // TestPredicatePushdown tests pushing predicates down to table scan
@@ -11,20 +13,20 @@ func TestPredicatePushdown(t *testing.T) {
 	// Optimized plan: Project(TableScan with filter)
 
 	scan := &TableScanNode{
-		TableName: "users",
-		Cost:      100.0,
-		Rows:      1000,
+		Table: &schema.TableDef{Name: "users"},
+		Cost:  100.0,
+		Rows:  1000,
 	}
 
 	filter := &FilterNode{
-		Child:       scan,
-		Predicate:   "age > 18",
+		Input:       scan,
+		Condition:   &parser.BinaryExpr{}, // Mock
 		Selectivity: 0.3,
 	}
 
 	project := &ProjectionNode{
-		Child:   filter,
-		Columns: []string{"name", "email"},
+		Input:       filter,
+		Expressions: []parser.Expression{&parser.ColumnRef{Name: "name"}, &parser.ColumnRef{Name: "email"}},
 	}
 
 	optimizer := NewOptimizer()
@@ -46,20 +48,20 @@ func TestPredicatePushdown(t *testing.T) {
 // TestPredicatePushdown_MultipleFilters tests pushing multiple predicates
 func TestPredicatePushdown_MultipleFilters(t *testing.T) {
 	scan := &TableScanNode{
-		TableName: "orders",
-		Cost:      200.0,
-		Rows:      5000,
+		Table: &schema.TableDef{Name: "orders"},
+		Cost:  200.0,
+		Rows:  5000,
 	}
 
 	filter1 := &FilterNode{
-		Child:       scan,
-		Predicate:   "status = 'active'",
+		Input:       scan,
+		Condition:   &parser.BinaryExpr{},
 		Selectivity: 0.2,
 	}
 
 	filter2 := &FilterNode{
-		Child:       filter1,
-		Predicate:   "amount > 100",
+		Input:       filter1,
+		Condition:   &parser.BinaryExpr{},
 		Selectivity: 0.5,
 	}
 
@@ -83,20 +85,20 @@ func TestProjectionPushdown(t *testing.T) {
 	// Optimized plan: Project(name, email)(Filter(TableScan(id, name, email, age)))
 
 	scan := &TableScanNode{
-		TableName: "users",
-		Cost:      100.0,
-		Rows:      1000,
+		Table: &schema.TableDef{Name: "users"},
+		Cost:  100.0,
+		Rows:  1000,
 	}
 
 	filter := &FilterNode{
-		Child:       scan,
-		Predicate:   "age > 18",
+		Input:       scan,
+		Condition:   &parser.BinaryExpr{},
 		Selectivity: 0.3,
 	}
 
 	project := &ProjectionNode{
-		Child:   filter,
-		Columns: []string{"name", "email"},
+		Input:       filter,
+		Expressions: []parser.Expression{&parser.ColumnRef{Name: "name"}, &parser.ColumnRef{Name: "email"}},
 	}
 
 	optimizer := NewOptimizer()
@@ -116,15 +118,15 @@ func TestProjectionPushdown(t *testing.T) {
 // TestProjectionPushdown_ThroughJoin tests projection through joins
 func TestProjectionPushdown_ThroughJoin(t *testing.T) {
 	leftScan := &TableScanNode{
-		TableName: "users",
-		Cost:      100.0,
-		Rows:      1000,
+		Table: &schema.TableDef{Name: "users"},
+		Cost:  100.0,
+		Rows:  1000,
 	}
 
 	rightScan := &TableScanNode{
-		TableName: "orders",
-		Cost:      200.0,
-		Rows:      5000,
+		Table: &schema.TableDef{Name: "orders"},
+		Cost:  200.0,
+		Rows:  5000,
 	}
 
 	join := &HashJoinNode{
@@ -136,8 +138,8 @@ func TestProjectionPushdown_ThroughJoin(t *testing.T) {
 
 	// Only select a few columns from the join
 	project := &ProjectionNode{
-		Child:   join,
-		Columns: []string{"users.name", "orders.total"},
+		Input:       join,
+		Expressions: []parser.Expression{&parser.ColumnRef{Name: "users.name"}, &parser.ColumnRef{Name: "orders.total"}},
 	}
 
 	optimizer := NewOptimizer()
@@ -152,20 +154,20 @@ func TestProjectionPushdown_ThroughJoin(t *testing.T) {
 // TestOptimize_CombinedPushdown tests applying multiple optimizations
 func TestOptimize_CombinedPushdown(t *testing.T) {
 	scan := &TableScanNode{
-		TableName: "products",
-		Cost:      500.0,
-		Rows:      10000,
+		Table: &schema.TableDef{Name: "products"},
+		Cost:  500.0,
+		Rows:  10000,
 	}
 
 	filter := &FilterNode{
-		Child:       scan,
-		Predicate:   "price > 50 AND category = 'electronics'",
+		Input:       scan,
+		Condition:   &parser.BinaryExpr{},
 		Selectivity: 0.1,
 	}
 
 	project := &ProjectionNode{
-		Child:   filter,
-		Columns: []string{"name", "price"},
+		Input:       filter,
+		Expressions: []parser.Expression{&parser.ColumnRef{Name: "name"}, &parser.ColumnRef{Name: "price"}},
 	}
 
 	optimizer := NewOptimizer()
@@ -186,9 +188,9 @@ func TestOptimize_CombinedPushdown(t *testing.T) {
 func TestOptimize_NoChanges(t *testing.T) {
 	// Simple table scan with no filters or projections
 	scan := &TableScanNode{
-		TableName: "users",
-		Cost:      100.0,
-		Rows:      1000,
+		Table: &schema.TableDef{Name: "users"},
+		Cost:  100.0,
+		Rows:  1000,
 	}
 
 	optimizer := NewOptimizer()
