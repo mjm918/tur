@@ -1,7 +1,10 @@
 // pkg/pager/freelist.go
 package pager
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"sort"
+)
 
 // Database header offsets for freelist fields
 // Following the pattern from pager.go where:
@@ -226,4 +229,78 @@ func (f *Freelist) Free(pageNo uint32) {
 	f.trunks = append([]*FreelistTrunkPage{newTrunk}, f.trunks...)
 	f.headPage = f.headPage + 1 // Placeholder
 	f.freeCount++
+}
+
+// PageRun represents a contiguous run of free pages.
+type PageRun struct {
+	Start  uint32 // First page in the run
+	Length int    // Number of contiguous pages
+}
+
+// getAllFreePages returns a sorted list of all free page numbers.
+func (f *Freelist) getAllFreePages() []uint32 {
+	pages := make([]uint32, 0, f.freeCount)
+
+	for _, trunk := range f.trunks {
+		pages = append(pages, trunk.LeafPages...)
+	}
+
+	// Sort the pages
+	sort.Slice(pages, func(i, j int) bool {
+		return pages[i] < pages[j]
+	})
+
+	return pages
+}
+
+// ContiguousRuns analyzes the freelist and returns contiguous runs of free pages.
+// This is useful for defragmentation analysis and vacuum operations.
+func (f *Freelist) ContiguousRuns() []PageRun {
+	if f.freeCount == 0 {
+		return nil
+	}
+
+	pages := f.getAllFreePages()
+	if len(pages) == 0 {
+		return nil
+	}
+
+	runs := make([]PageRun, 0)
+	currentRun := PageRun{Start: pages[0], Length: 1}
+
+	for i := 1; i < len(pages); i++ {
+		if pages[i] == pages[i-1]+1 {
+			// Contiguous - extend current run
+			currentRun.Length++
+		} else {
+			// Gap found - save current run and start new one
+			runs = append(runs, currentRun)
+			currentRun = PageRun{Start: pages[i], Length: 1}
+		}
+	}
+
+	// Don't forget the last run
+	runs = append(runs, currentRun)
+
+	return runs
+}
+
+// Defragment reorganizes the freelist to group contiguous pages.
+// This operation sorts the leaf pages within each trunk to enable
+// better locality when allocating pages.
+func (f *Freelist) Defragment() {
+	if f.freeCount == 0 || len(f.trunks) == 0 {
+		return
+	}
+
+	// Get all pages sorted
+	pages := f.getAllFreePages()
+
+	// Rebuild the trunk structure with sorted pages
+	f.trunks = nil
+	f.freeCount = 0
+
+	for _, pageNo := range pages {
+		f.Free(pageNo)
+	}
 }

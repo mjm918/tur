@@ -326,3 +326,108 @@ func TestFreelist_ExhaustionGrowsFile(t *testing.T) {
 	// This is the expected behavior - the Pager layer handles growing
 	// the file when the freelist is exhausted
 }
+
+// Coalescing tests
+
+func TestFreelist_ContiguousRun(t *testing.T) {
+	// Test that we can identify contiguous runs of free pages
+	fl := NewFreelist(4096)
+
+	// Free pages 5, 6, 7 (contiguous)
+	fl.Free(5)
+	fl.Free(6)
+	fl.Free(7)
+
+	runs := fl.ContiguousRuns()
+
+	// Should have one run: [5, 6, 7]
+	if len(runs) != 1 {
+		t.Fatalf("Expected 1 run, got %d", len(runs))
+	}
+
+	if runs[0].Start != 5 || runs[0].Length != 3 {
+		t.Errorf("Expected run {Start:5, Length:3}, got %+v", runs[0])
+	}
+}
+
+func TestFreelist_MultipleRuns(t *testing.T) {
+	fl := NewFreelist(4096)
+
+	// Free pages 5, 6, 10, 11, 12 (two runs)
+	fl.Free(5)
+	fl.Free(6)
+	fl.Free(10)
+	fl.Free(11)
+	fl.Free(12)
+
+	runs := fl.ContiguousRuns()
+
+	// Should have two runs
+	if len(runs) != 2 {
+		t.Fatalf("Expected 2 runs, got %d", len(runs))
+	}
+
+	// Find the runs (order may vary)
+	foundSmall := false
+	foundLarge := false
+	for _, run := range runs {
+		if run.Start == 5 && run.Length == 2 {
+			foundSmall = true
+		}
+		if run.Start == 10 && run.Length == 3 {
+			foundLarge = true
+		}
+	}
+
+	if !foundSmall {
+		t.Error("Missing run {Start:5, Length:2}")
+	}
+	if !foundLarge {
+		t.Error("Missing run {Start:10, Length:3}")
+	}
+}
+
+func TestFreelist_NoCoalesce_SinglePages(t *testing.T) {
+	fl := NewFreelist(4096)
+
+	// Free non-contiguous pages
+	fl.Free(5)
+	fl.Free(10)
+	fl.Free(20)
+
+	runs := fl.ContiguousRuns()
+
+	// Each page should be its own run of length 1
+	if len(runs) != 3 {
+		t.Fatalf("Expected 3 runs, got %d", len(runs))
+	}
+
+	for _, run := range runs {
+		if run.Length != 1 {
+			t.Errorf("Expected single-page runs, got run with length %d", run.Length)
+		}
+	}
+}
+
+func TestFreelist_Defragment(t *testing.T) {
+	fl := NewFreelist(4096)
+
+	// Free pages in random order
+	fl.Free(7)
+	fl.Free(5)
+	fl.Free(6)
+
+	// Defragment should sort and identify runs
+	fl.Defragment()
+
+	runs := fl.ContiguousRuns()
+
+	// Should have one run: [5, 6, 7]
+	if len(runs) != 1 {
+		t.Fatalf("Expected 1 run after defragment, got %d", len(runs))
+	}
+
+	if runs[0].Start != 5 || runs[0].Length != 3 {
+		t.Errorf("Expected run {Start:5, Length:3}, got %+v", runs[0])
+	}
+}
