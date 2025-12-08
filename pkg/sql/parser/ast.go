@@ -157,3 +157,72 @@ type UnaryExpr struct {
 }
 
 func (u *UnaryExpr) expressionNode() {}
+
+// FunctionCall represents a function call expression
+type FunctionCall struct {
+	Name string
+	Args []Expression
+}
+
+func (f *FunctionCall) expressionNode() {}
+
+// OrderDirection represents the order direction
+type OrderDirection int
+
+const (
+	OrderAsc OrderDirection = iota
+	OrderDesc
+)
+
+// OrderByExpr represents an ORDER BY expression
+type OrderByExpr struct {
+	Expr      Expression
+	Direction OrderDirection
+}
+
+// FrameMode represents the window frame mode
+type FrameMode int
+
+const (
+	FrameModeRows FrameMode = iota
+	FrameModeRange
+)
+
+// FrameBoundType represents the type of frame boundary
+type FrameBoundType int
+
+const (
+	FrameBoundUnboundedPreceding FrameBoundType = iota
+	FrameBoundPreceding
+	FrameBoundCurrentRow
+	FrameBoundFollowing
+	FrameBoundUnboundedFollowing
+)
+
+// FrameBound represents a window frame boundary
+type FrameBound struct {
+	Type   FrameBoundType
+	Offset Expression // For PRECEDING/FOLLOWING with offset
+}
+
+// WindowFrame represents a window frame specification
+type WindowFrame struct {
+	Mode       FrameMode
+	StartBound *FrameBound
+	EndBound   *FrameBound
+}
+
+// WindowSpec represents a window specification (OVER clause)
+type WindowSpec struct {
+	PartitionBy []Expression
+	OrderBy     []OrderByExpr
+	Frame       *WindowFrame
+}
+
+// WindowFunction represents a window function expression
+type WindowFunction struct {
+	Function Expression  // Usually a FunctionCall
+	Over     *WindowSpec // OVER clause
+}
+
+func (w *WindowFunction) expressionNode() {}

@@ -525,7 +525,7 @@
       "tasks": [
         {
           "task": "Add AST nodes for window functions (OVER clause)",
-          "done": false
+          "done": true
         },
         {
           "task": "Add AST nodes for CTEs (WITH clause)",
