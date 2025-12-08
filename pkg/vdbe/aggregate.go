@@ -168,3 +168,164 @@ func (a *AvgAggregate) Finalize() types.Value {
 	}
 	return types.NewFloat(a.sum / float64(a.count))
 }
+
+// MinAggregate implements MIN(column) - finds minimum value
+type MinAggregate struct {
+	min      types.Value
+	hasValue bool
+}
+
+// NewMinAggregate creates a new MIN aggregate
+func NewMinAggregate() *MinAggregate {
+	return &MinAggregate{}
+}
+
+// Init resets the min state
+func (m *MinAggregate) Init() {
+	m.min = types.NewNull()
+	m.hasValue = false
+}
+
+// Step updates min if value is smaller, ignoring nulls
+func (m *MinAggregate) Step(value types.Value) {
+	if value.IsNull() {
+		return
+	}
+
+	if !m.hasValue {
+		m.min = value
+		m.hasValue = true
+		return
+	}
+
+	if compareValues(value, m.min) < 0 {
+		m.min = value
+	}
+}
+
+// Finalize returns the minimum value, or NULL if no values
+func (m *MinAggregate) Finalize() types.Value {
+	if !m.hasValue {
+		return types.NewNull()
+	}
+	return m.min
+}
+
+// MaxAggregate implements MAX(column) - finds maximum value
+type MaxAggregate struct {
+	max      types.Value
+	hasValue bool
+}
+
+// NewMaxAggregate creates a new MAX aggregate
+func NewMaxAggregate() *MaxAggregate {
+	return &MaxAggregate{}
+}
+
+// Init resets the max state
+func (m *MaxAggregate) Init() {
+	m.max = types.NewNull()
+	m.hasValue = false
+}
+
+// Step updates max if value is larger, ignoring nulls
+func (m *MaxAggregate) Step(value types.Value) {
+	if value.IsNull() {
+		return
+	}
+
+	if !m.hasValue {
+		m.max = value
+		m.hasValue = true
+		return
+	}
+
+	if compareValues(value, m.max) > 0 {
+		m.max = value
+	}
+}
+
+// Finalize returns the maximum value, or NULL if no values
+func (m *MaxAggregate) Finalize() types.Value {
+	if !m.hasValue {
+		return types.NewNull()
+	}
+	return m.max
+}
+
+// compareValues compares two values, returns -1, 0, or 1
+// Follows SQL comparison rules: NULL < number < text < blob
+func compareValues(a, b types.Value) int {
+	// Handle NULL
+	if a.IsNull() && b.IsNull() {
+		return 0
+	}
+	if a.IsNull() {
+		return -1
+	}
+	if b.IsNull() {
+		return 1
+	}
+
+	// Same type comparisons
+	if a.Type() == b.Type() {
+		switch a.Type() {
+		case types.TypeInt:
+			ai, bi := a.Int(), b.Int()
+			if ai < bi {
+				return -1
+			}
+			if ai > bi {
+				return 1
+			}
+			return 0
+		case types.TypeFloat:
+			af, bf := a.Float(), b.Float()
+			if af < bf {
+				return -1
+			}
+			if af > bf {
+				return 1
+			}
+			return 0
+		case types.TypeText:
+			at, bt := a.Text(), b.Text()
+			if at < bt {
+				return -1
+			}
+			if at > bt {
+				return 1
+			}
+			return 0
+		}
+	}
+
+	// Mixed numeric types
+	if (a.Type() == types.TypeInt || a.Type() == types.TypeFloat) &&
+		(b.Type() == types.TypeInt || b.Type() == types.TypeFloat) {
+		var af, bf float64
+		if a.Type() == types.TypeInt {
+			af = float64(a.Int())
+		} else {
+			af = a.Float()
+		}
+		if b.Type() == types.TypeInt {
+			bf = float64(b.Int())
+		} else {
+			bf = b.Float()
+		}
+		if af < bf {
+			return -1
+		}
+		if af > bf {
+			return 1
+		}
+		return 0
+	}
+
+	// Default: compare by type order
+	if a.Type() < b.Type() {
+		return -1
+	}
+	return 1
+}

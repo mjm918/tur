@@ -222,3 +222,163 @@ func TestAvgAggregate_EmptyReturnsNull(t *testing.T) {
 		t.Errorf("expected NULL for empty AVG, got %v", result.Type())
 	}
 }
+
+// ============ MIN Aggregate Tests ============
+
+// Test 14: MIN aggregate finds minimum integer
+func TestMinAggregate_FindsMinInteger(t *testing.T) {
+	min := NewMinAggregate()
+	min.Init()
+
+	min.Step(types.NewInt(30))
+	min.Step(types.NewInt(10))
+	min.Step(types.NewInt(20))
+
+	result := min.Finalize()
+
+	if result.Type() != types.TypeInt {
+		t.Errorf("expected integer result, got %v", result.Type())
+	}
+	if result.Int() != 10 {
+		t.Errorf("expected min of 10, got %d", result.Int())
+	}
+}
+
+// Test 15: MIN aggregate finds minimum float
+func TestMinAggregate_FindsMinFloat(t *testing.T) {
+	min := NewMinAggregate()
+	min.Init()
+
+	min.Step(types.NewFloat(3.5))
+	min.Step(types.NewFloat(1.5))
+	min.Step(types.NewFloat(2.5))
+
+	result := min.Finalize()
+
+	if result.Float() != 1.5 {
+		t.Errorf("expected min of 1.5, got %f", result.Float())
+	}
+}
+
+// Test 16: MIN aggregate finds minimum text (lexicographically)
+func TestMinAggregate_FindsMinText(t *testing.T) {
+	min := NewMinAggregate()
+	min.Init()
+
+	min.Step(types.NewText("cherry"))
+	min.Step(types.NewText("apple"))
+	min.Step(types.NewText("banana"))
+
+	result := min.Finalize()
+
+	if result.Text() != "apple" {
+		t.Errorf("expected min of 'apple', got %s", result.Text())
+	}
+}
+
+// Test 17: MIN ignores null values
+func TestMinAggregate_IgnoresNulls(t *testing.T) {
+	min := NewMinAggregate()
+	min.Init()
+
+	min.Step(types.NewInt(30))
+	min.Step(types.NewNull())
+	min.Step(types.NewInt(10))
+
+	result := min.Finalize()
+
+	if result.Int() != 10 {
+		t.Errorf("expected min of 10, got %d", result.Int())
+	}
+}
+
+// Test 18: MIN with no values returns NULL
+func TestMinAggregate_EmptyReturnsNull(t *testing.T) {
+	min := NewMinAggregate()
+	min.Init()
+	result := min.Finalize()
+
+	if !result.IsNull() {
+		t.Errorf("expected NULL for empty MIN, got %v", result.Type())
+	}
+}
+
+// ============ MAX Aggregate Tests ============
+
+// Test 19: MAX aggregate finds maximum integer
+func TestMaxAggregate_FindsMaxInteger(t *testing.T) {
+	max := NewMaxAggregate()
+	max.Init()
+
+	max.Step(types.NewInt(10))
+	max.Step(types.NewInt(30))
+	max.Step(types.NewInt(20))
+
+	result := max.Finalize()
+
+	if result.Type() != types.TypeInt {
+		t.Errorf("expected integer result, got %v", result.Type())
+	}
+	if result.Int() != 30 {
+		t.Errorf("expected max of 30, got %d", result.Int())
+	}
+}
+
+// Test 20: MAX aggregate finds maximum float
+func TestMaxAggregate_FindsMaxFloat(t *testing.T) {
+	max := NewMaxAggregate()
+	max.Init()
+
+	max.Step(types.NewFloat(1.5))
+	max.Step(types.NewFloat(3.5))
+	max.Step(types.NewFloat(2.5))
+
+	result := max.Finalize()
+
+	if result.Float() != 3.5 {
+		t.Errorf("expected max of 3.5, got %f", result.Float())
+	}
+}
+
+// Test 21: MAX aggregate finds maximum text (lexicographically)
+func TestMaxAggregate_FindsMaxText(t *testing.T) {
+	max := NewMaxAggregate()
+	max.Init()
+
+	max.Step(types.NewText("apple"))
+	max.Step(types.NewText("cherry"))
+	max.Step(types.NewText("banana"))
+
+	result := max.Finalize()
+
+	if result.Text() != "cherry" {
+		t.Errorf("expected max of 'cherry', got %s", result.Text())
+	}
+}
+
+// Test 22: MAX ignores null values
+func TestMaxAggregate_IgnoresNulls(t *testing.T) {
+	max := NewMaxAggregate()
+	max.Init()
+
+	max.Step(types.NewInt(10))
+	max.Step(types.NewNull())
+	max.Step(types.NewInt(30))
+
+	result := max.Finalize()
+
+	if result.Int() != 30 {
+		t.Errorf("expected max of 30, got %d", result.Int())
+	}
+}
+
+// Test 23: MAX with no values returns NULL
+func TestMaxAggregate_EmptyReturnsNull(t *testing.T) {
+	max := NewMaxAggregate()
+	max.Init()
+	result := max.Finalize()
+
+	if !result.IsNull() {
+		t.Errorf("expected NULL for empty MAX, got %v", result.Type())
+	}
+}
