@@ -142,3 +142,144 @@ func TestCostEstimator_Constants(t *testing.T) {
 		t.Error("estimator should not be nil")
 	}
 }
+
+// TestCostEstimator_IndexScanCost tests index scan cost estimation
+func TestCostEstimator_IndexScanCost(t *testing.T) {
+	index := &schema.IndexDef{
+		Name:      "idx_email",
+		TableName: "users",
+		Columns:   []string{"email"},
+		Type:      schema.IndexTypeBTree,
+		RootPage:  2,
+	}
+
+	estimator := NewCostEstimator()
+
+	// Test with equality predicate (highly selective)
+	selectivity := 0.01 // 1% selectivity
+	cost, rows := estimator.EstimateIndexScan(index, 10000, selectivity)
+
+	// Index scan should be cheaper than full table scan for selective queries
+	tableScanCost, _ := estimator.EstimateTableScan(&schema.TableDef{
+		Name:     "users",
+		RootPage: 1,
+	}, 10000)
+
+	if cost >= tableScanCost {
+		t.Errorf("expected index scan cost (%f) < table scan cost (%f)", cost, tableScanCost)
+	}
+
+	// Should return only selective rows
+	expectedRows := int64(float64(10000) * selectivity)
+	if rows != expectedRows {
+		t.Errorf("expected %d rows, got %d", expectedRows, rows)
+	}
+}
+
+// TestCostEstimator_IndexScanCost_LowSelectivity tests index scan with low selectivity
+func TestCostEstimator_IndexScanCost_LowSelectivity(t *testing.T) {
+	index := &schema.IndexDef{
+		Name:      "idx_status",
+		TableName: "users",
+		Columns:   []string{"status"},
+		Type:      schema.IndexTypeBTree,
+		RootPage:  2,
+	}
+
+	estimator := NewCostEstimator()
+
+	// Test with low selectivity (range query returning 50% of rows)
+	selectivity := 0.5
+	cost, rows := estimator.EstimateIndexScan(index, 10000, selectivity)
+
+	// For low selectivity, index scan might be more expensive than table scan
+	// But we still calculate it correctly
+	if cost <= 0 {
+		t.Errorf("expected positive cost, got %f", cost)
+	}
+
+	expectedRows := int64(float64(10000) * selectivity)
+	if rows != expectedRows {
+		t.Errorf("expected %d rows, got %d", expectedRows, rows)
+	}
+}
+
+// TestCostEstimator_IndexScanCost_HNSW tests HNSW index scan cost
+func TestCostEstimator_IndexScanCost_HNSW(t *testing.T) {
+	index := &schema.IndexDef{
+		Name:      "idx_embedding",
+		TableName: "documents",
+		Columns:   []string{"embedding"},
+		Type:      schema.IndexTypeHNSW,
+		RootPage:  3,
+	}
+
+	estimator := NewCostEstimator()
+
+	// HNSW index for KNN search (typically returns small number of results)
+	selectivity := 0.001 // 0.1% - top-K results
+	cost, rows := estimator.EstimateIndexScan(index, 1000000, selectivity)
+
+	// HNSW should be very efficient even for large datasets
+	if cost <= 0 {
+		t.Errorf("expected positive cost, got %f", cost)
+	}
+
+	// Should return small number of nearest neighbors
+	expectedRows := int64(float64(1000000) * selectivity)
+	if rows != expectedRows {
+		t.Errorf("expected %d rows, got %d", expectedRows, rows)
+	}
+
+	// HNSW cost should scale logarithmically, not linearly
+	// Test with larger dataset
+	largeCost, _ := estimator.EstimateIndexScan(index, 10000000, selectivity)
+
+	// Cost shouldn't increase by 10x even though data increased by 10x
+	if largeCost >= cost*10 {
+		t.Errorf("HNSW cost should scale logarithmically, got %fx increase for 10x data", largeCost/cost)
+	}
+}
+
+// TestCostEstimator_CompareIndexVsTableScan tests choosing between index and table scan
+func TestCostEstimator_CompareIndexVsTableScan(t *testing.T) {
+	table := &schema.TableDef{
+		Name:     "users",
+		RootPage: 1,
+	}
+
+	index := &schema.IndexDef{
+		Name:      "idx_email",
+		TableName: "users",
+		Columns:   []string{"email"},
+		Type:      schema.IndexTypeBTree,
+		RootPage:  2,
+	}
+
+	estimator := NewCostEstimator()
+	tableRows := int64(100000)
+
+	tests := []struct {
+		name         string
+		selectivity  float64
+		preferIndex  bool
+	}{
+		{"highly selective", 0.001, true},  // Index should win
+		{"moderately selective", 0.1, true}, // Index should win
+		{"low selectivity", 0.5, false},     // Table scan might win
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tableCost, _ := estimator.EstimateTableScan(table, tableRows)
+			indexCost, _ := estimator.EstimateIndexScan(index, tableRows, tt.selectivity)
+
+			if tt.preferIndex {
+				if indexCost >= tableCost {
+					t.Errorf("expected index scan (%f) < table scan (%f) for %s",
+						indexCost, tableCost, tt.name)
+				}
+			}
+		})
+	}
+}
