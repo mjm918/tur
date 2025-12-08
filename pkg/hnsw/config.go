@@ -22,6 +22,14 @@ type Config struct {
 
 	// ML is the level generation factor (1/ln(M))
 	ML float64
+
+	// UseHeuristic enables the heuristic neighbor selection algorithm
+	// from the HNSW paper for better graph quality (slightly slower construction)
+	UseHeuristic bool
+
+	// ExtendCandidates enables extending candidates with their neighbors
+	// during heuristic selection (recommended when UseHeuristic is true)
+	ExtendCandidates bool
 }
 
 // DefaultConfig returns a Config with sensible defaults

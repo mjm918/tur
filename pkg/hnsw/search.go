@@ -46,13 +46,16 @@ func (idx *Index) SearchKNNWithEf(query *types.Vector, k int, ef int) ([]SearchR
 	}
 
 	// Convert to SearchResult
-	results := make([]SearchResult, len(candidates))
-	for i, nodeID := range candidates {
+	results := make([]SearchResult, 0, len(candidates))
+	for _, nodeID := range candidates {
 		node := idx.nodes[nodeID]
-		results[i] = SearchResult{
+		if node == nil {
+			continue
+		}
+		results = append(results, SearchResult{
 			RowID:    node.RowID(),
 			Distance: query.CosineDistance(node.Vector()),
-		}
+		})
 	}
 
 	// Sort by distance (should already be sorted, but ensure)

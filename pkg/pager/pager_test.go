@@ -107,3 +107,42 @@ func TestPagerHeader(t *testing.T) {
 		t.Errorf("page size not persisted, got %d", p2.PageSize())
 	}
 }
+
+func TestPagerLRUCache(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	// Small cache size to test eviction
+	p, err := Open(path, Options{PageSize: 4096, CacheSize: 5})
+	if err != nil {
+		t.Fatalf("failed to open pager: %v", err)
+	}
+	defer p.Close()
+
+	// Allocate more pages than cache can hold
+	pageNos := make([]uint32, 10)
+	for i := 0; i < 10; i++ {
+		page, err := p.Allocate()
+		if err != nil {
+			t.Fatalf("failed to allocate page %d: %v", i, err)
+		}
+		pageNos[i] = page.PageNo()
+		// Write unique data
+		copy(page.Data()[0:8], []byte{byte(i), byte(i), byte(i), byte(i), byte(i), byte(i), byte(i), byte(i)})
+		page.SetDirty(true)
+		p.Release(page)
+	}
+
+	// Access pages in different order - should trigger evictions and re-loads from mmap
+	for i := 9; i >= 0; i-- {
+		page, err := p.Get(pageNos[i])
+		if err != nil {
+			t.Fatalf("failed to get page %d: %v", i, err)
+		}
+		// Verify data is correct (persisted via mmap)
+		if page.Data()[0] != byte(i) {
+			t.Errorf("page %d has wrong data: expected %d, got %d", i, i, page.Data()[0])
+		}
+		p.Release(page)
+	}
+}

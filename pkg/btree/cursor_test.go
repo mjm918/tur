@@ -2,6 +2,7 @@
 package btree
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -96,4 +97,95 @@ func TestCursorEmpty(t *testing.T) {
 	if cursor.Valid() {
 		t.Error("cursor should be invalid on empty tree")
 	}
+}
+
+func TestCursorMultiLevel(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	// Use small page size to force splits
+	p, err := pager.Open(path, pager.Options{PageSize: 512})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+
+	bt, err := Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert 50 keys to create a multi-level tree
+	numKeys := 50
+	for i := 0; i < numKeys; i++ {
+		key := []byte(fmt.Sprintf("key%04d", i))
+		value := []byte(fmt.Sprintf("val%04d", i))
+		if err := bt.Insert(key, value); err != nil {
+			t.Fatalf("insert %d failed: %v", i, err)
+		}
+	}
+
+	// Verify tree is multi-level
+	if bt.Depth() < 2 {
+		t.Fatalf("expected depth >= 2, got %d", bt.Depth())
+	}
+
+	// Test First() and iteration
+	cursor := bt.Cursor()
+	var collected []string
+
+	for cursor.First(); cursor.Valid(); cursor.Next() {
+		collected = append(collected, string(cursor.Key()))
+	}
+	cursor.Close()
+
+	if len(collected) != numKeys {
+		t.Fatalf("expected %d keys, got %d", numKeys, len(collected))
+	}
+
+	// Verify sorted order
+	for i := 0; i < numKeys; i++ {
+		expected := fmt.Sprintf("key%04d", i)
+		if collected[i] != expected {
+			t.Errorf("position %d: expected '%s', got '%s'", i, expected, collected[i])
+		}
+	}
+
+	// Test Last() and reverse iteration
+	cursor = bt.Cursor()
+	var reverse []string
+
+	for cursor.Last(); cursor.Valid(); cursor.Prev() {
+		reverse = append(reverse, string(cursor.Key()))
+	}
+	cursor.Close()
+
+	if len(reverse) != numKeys {
+		t.Fatalf("reverse: expected %d keys, got %d", numKeys, len(reverse))
+	}
+
+	// Verify reverse sorted order
+	for i := 0; i < numKeys; i++ {
+		expected := fmt.Sprintf("key%04d", numKeys-1-i)
+		if reverse[i] != expected {
+			t.Errorf("reverse position %d: expected '%s', got '%s'", i, expected, reverse[i])
+		}
+	}
+
+	// Test Seek() across leaves
+	cursor = bt.Cursor()
+	cursor.Seek([]byte("key0025"))
+	if !cursor.Valid() {
+		t.Fatal("cursor should be valid after seek")
+	}
+	if string(cursor.Key()) != "key0025" {
+		t.Errorf("expected 'key0025', got '%s'", string(cursor.Key()))
+	}
+
+	// Continue from seek position
+	cursor.Next()
+	if string(cursor.Key()) != "key0026" {
+		t.Errorf("expected 'key0026' after next, got '%s'", string(cursor.Key()))
+	}
+	cursor.Close()
 }

@@ -201,3 +201,137 @@ func (n *Node) SetRightChild(pageNo uint32) {
 func (n *Node) RightChild() uint32 {
 	return binary.LittleEndian.Uint32(n.data[8:12])
 }
+
+// Split splits the node at midpoint, moving upper half to rightNode
+// Returns the median key that should be promoted to the parent
+func (n *Node) Split(rightData []byte) ([]byte, *Node) {
+	count := n.CellCount()
+	mid := count / 2
+
+	// Create right node with same type (leaf or interior)
+	right := NewNode(rightData, n.IsLeaf())
+
+	// Copy cells [mid, count) to right node for leaf nodes
+	// For interior nodes, we promote the median key and copy [mid+1, count)
+	startIdx := mid
+	if !n.IsLeaf() {
+		startIdx = mid + 1
+	}
+
+	for i := startIdx; i < count; i++ {
+		key, value := n.GetCell(i)
+		right.InsertCell(right.CellCount(), key, value)
+	}
+
+	// Get median key (will be promoted to parent)
+	medianKey, medianValue := n.GetCell(mid)
+	medianKeyCopy := make([]byte, len(medianKey))
+	copy(medianKeyCopy, medianKey)
+
+	// For interior nodes, the right child of the median becomes the leftmost child of right
+	if !n.IsLeaf() {
+		// The median's value is a child pointer - this becomes right's implicit left child
+		// We need to handle this in the parent promotion
+		right.SetRightChild(n.RightChild())
+	}
+
+	// Truncate left node
+	if n.IsLeaf() {
+		// Leaf: keep [0, mid), median goes to right
+		n.truncateTo(mid)
+	} else {
+		// Interior: keep [0, mid), median is promoted
+		n.truncateTo(mid)
+		// Set the right child to what was the median's child pointer
+		if len(medianValue) >= 4 {
+			childPage := binary.LittleEndian.Uint32(medianValue)
+			n.SetRightChild(childPage)
+		}
+	}
+
+	return medianKeyCopy, right
+}
+
+// truncateTo keeps only the first n cells, resetting free space
+func (n *Node) truncateTo(count int) {
+	if count >= n.CellCount() {
+		return
+	}
+
+	// We need to rebuild the node with only the first count cells
+	// This is inefficient but correct - a production implementation
+	// would track cell boundaries more carefully
+
+	// Save cells we want to keep
+	cells := make([]struct{ key, value []byte }, count)
+	for i := 0; i < count; i++ {
+		k, v := n.GetCell(i)
+		cells[i].key = make([]byte, len(k))
+		cells[i].value = make([]byte, len(v))
+		copy(cells[i].key, k)
+		copy(cells[i].value, v)
+	}
+
+	// Save node properties
+	isLeaf := n.IsLeaf()
+	rightChild := n.RightChild()
+	pageSize := len(n.data)
+
+	// Reinitialize node
+	if isLeaf {
+		n.data[0] = flagLeaf
+	} else {
+		n.data[0] = 0
+	}
+	binary.LittleEndian.PutUint16(n.data[1:3], 0)
+	binary.LittleEndian.PutUint16(n.data[3:5], nodeHeaderSize)
+	binary.LittleEndian.PutUint16(n.data[5:7], uint16(pageSize))
+	n.data[7] = 0
+	n.SetRightChild(rightChild)
+
+	// Re-insert cells
+	for i, cell := range cells {
+		n.InsertCell(i, cell.key, cell.value)
+	}
+}
+
+// DeleteCell removes the cell at position i
+func (n *Node) DeleteCell(i int) {
+	count := n.CellCount()
+	if i < 0 || i >= count {
+		return
+	}
+
+	// Shift cell pointers left
+	for j := i; j < count-1; j++ {
+		n.setCellOffset(j, n.getCellOffset(j+1))
+	}
+
+	n.setCellCount(count - 1)
+	n.setFreeStart(n.freeStart() - cellPointerSize)
+	// Note: cell content space is not reclaimed (fragmentation)
+}
+
+// UpdateCellValue updates the value of the cell at position i
+// This only works if the new value is the same size as the old value
+// (used for updating child pointers in interior nodes)
+func (n *Node) UpdateCellValue(i int, newValue []byte) {
+	if i < 0 || i >= n.CellCount() {
+		return
+	}
+
+	offset := n.getCellOffset(i)
+
+	// Skip key
+	keyLen, sz := encoding.GetVarint(n.data[offset:])
+	offset += sz + int(keyLen)
+
+	// Read old value length
+	oldValueLen, sz := encoding.GetVarint(n.data[offset:])
+	offset += sz
+
+	// Only update if same size (for child pointers, this is always 4 bytes)
+	if int(oldValueLen) == len(newValue) {
+		copy(n.data[offset:offset+len(newValue)], newValue)
+	}
+}
