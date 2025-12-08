@@ -15,6 +15,15 @@ var (
 	ErrColumnNotFound = errors.New("column not found")
 )
 
+// Constraint violation errors
+var (
+	ErrNotNullViolation    = errors.New("NOT NULL constraint violation")
+	ErrUniqueViolation     = errors.New("UNIQUE constraint violation")
+	ErrPrimaryKeyViolation = errors.New("PRIMARY KEY constraint violation")
+	ErrCheckViolation      = errors.New("CHECK constraint violation")
+	ErrForeignKeyViolation = errors.New("FOREIGN KEY constraint violation")
+)
+
 // ConstraintType represents the type of constraint
 type ConstraintType int
 

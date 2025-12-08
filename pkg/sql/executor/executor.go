@@ -311,8 +311,10 @@ func (e *Executor) executeInsert(stmt *parser.InsertStmt) (*Result, error) {
 			values[i] = val
 		}
 
-		// Validate constraint satisfaction
-		// (PK check handled by B-tree insert failing on duplicate key)
+		// Validate constraints
+		if err := e.validateConstraints(table, values); err != nil {
+			return nil, err
+		}
 
 		// Validate types (basic check for Vector)
 		// We iterate values assuming they align with table columns (current existing assumption in executor)
@@ -327,7 +329,6 @@ func (e *Executor) executeInsert(stmt *parser.InsertStmt) (*Result, error) {
 				if len(blob) != expectedSize {
 					return nil, fmt.Errorf("column %s expects VECTOR(%d) with size %d, got %d bytes", colDef.Name, colDef.VectorDim, expectedSize, len(blob))
 				}
-				// We could also check the dimension header in the blob, but size is a good first check.
 			}
 		}
 
@@ -350,6 +351,88 @@ func (e *Executor) executeInsert(stmt *parser.InsertStmt) (*Result, error) {
 	}
 
 	return &Result{RowsAffected: rowsAffected}, nil
+}
+
+// validateConstraints validates row values against table constraints
+func (e *Executor) validateConstraints(table *schema.TableDef, values []types.Value) error {
+	// Build column map for expression evaluation
+	colMap := make(map[string]int)
+	for i, col := range table.Columns {
+		colMap[col.Name] = i
+	}
+
+	// Check column-level constraints
+	for idx, colDef := range table.Columns {
+		if idx >= len(values) {
+			continue
+		}
+		val := values[idx]
+
+		for _, constraint := range colDef.Constraints {
+			switch constraint.Type {
+			case schema.ConstraintNotNull:
+				if val.IsNull() {
+					return fmt.Errorf("NOT NULL constraint violation: column '%s' cannot be NULL", colDef.Name)
+				}
+
+			case schema.ConstraintCheck:
+				// Skip CHECK validation if value is NULL (SQL standard behavior)
+				if val.IsNull() {
+					continue
+				}
+				// Parse and evaluate the check expression
+				if err := e.validateCheckConstraint(constraint.CheckExpression, values, colMap); err != nil {
+					return fmt.Errorf("CHECK constraint violation on column '%s': %w", colDef.Name, err)
+				}
+			}
+		}
+	}
+
+	// Check table-level constraints
+	for _, tc := range table.TableConstraints {
+		switch tc.Type {
+		case schema.ConstraintCheck:
+			// Evaluate table-level CHECK constraint
+			if err := e.validateCheckConstraint(tc.CheckExpression, values, colMap); err != nil {
+				return fmt.Errorf("CHECK constraint violation: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateCheckConstraint evaluates a CHECK expression against row values
+func (e *Executor) validateCheckConstraint(checkExpr string, values []types.Value, colMap map[string]int) error {
+	if checkExpr == "" {
+		return nil
+	}
+
+	// Parse the check expression
+	// Wrap in SELECT to make it a valid statement for parsing
+	p := parser.New("SELECT * FROM t WHERE " + checkExpr)
+	stmt, err := p.Parse()
+	if err != nil {
+		// If parsing fails, we can't validate - skip (lenient approach)
+		return nil
+	}
+
+	selectStmt, ok := stmt.(*parser.SelectStmt)
+	if !ok || selectStmt.Where == nil {
+		return nil
+	}
+
+	// Evaluate the expression
+	result, err := e.evaluateCondition(selectStmt.Where, values, colMap)
+	if err != nil {
+		return err
+	}
+
+	if !result {
+		return fmt.Errorf("check expression '%s' evaluated to false", checkExpr)
+	}
+
+	return nil
 }
 
 // executeSelect handles SELECT

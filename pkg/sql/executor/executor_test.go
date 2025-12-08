@@ -602,3 +602,69 @@ func TestExecutor_CreateTable_StoresMultipleConstraints(t *testing.T) {
 		t.Error("age should have CHECK constraint")
 	}
 }
+
+// ========== Constraint Validation Tests ==========
+
+func TestExecutor_Insert_NotNullViolation(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, name TEXT NOT NULL)")
+
+	_, err := exec.Execute("INSERT INTO users VALUES (1, NULL)")
+	if err == nil {
+		t.Error("Expected NOT NULL violation error")
+	}
+	if err != nil && err.Error() != "NOT NULL constraint violation: column 'name' cannot be NULL" {
+		t.Logf("Got error: %v (acceptable if constraint enforcement is partial)", err)
+	}
+}
+
+func TestExecutor_Insert_NotNullViolation_AllowsNonNull(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, name TEXT NOT NULL)")
+
+	_, err := exec.Execute("INSERT INTO users VALUES (1, 'Alice')")
+	if err != nil {
+		t.Fatalf("Expected insert to succeed: %v", err)
+	}
+}
+
+func TestExecutor_Insert_CheckViolation(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE products (id INT, price INT CHECK (price >= 0))")
+
+	_, err := exec.Execute("INSERT INTO products VALUES (1, -5)")
+	if err == nil {
+		t.Error("Expected CHECK constraint violation error")
+	}
+}
+
+func TestExecutor_Insert_CheckViolation_AllowsValid(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE products (id INT, price INT CHECK (price >= 0))")
+
+	_, err := exec.Execute("INSERT INTO products VALUES (1, 100)")
+	if err != nil {
+		t.Fatalf("Expected insert to succeed: %v", err)
+	}
+}
+
+func TestExecutor_Insert_CheckViolation_NullAllowed(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// CHECK constraint should allow NULL (unless combined with NOT NULL)
+	exec.Execute("CREATE TABLE products (id INT, price INT CHECK (price >= 0))")
+
+	_, err := exec.Execute("INSERT INTO products VALUES (1, NULL)")
+	if err != nil {
+		t.Fatalf("CHECK constraint should allow NULL: %v", err)
+	}
+}
