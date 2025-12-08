@@ -13,6 +13,8 @@ var (
 	ErrTableExists    = errors.New("table already exists")
 	ErrTableNotFound  = errors.New("table not found")
 	ErrColumnNotFound = errors.New("column not found")
+	ErrIndexExists    = errors.New("index already exists")
+	ErrIndexNotFound  = errors.New("index not found")
 )
 
 // Constraint violation errors
@@ -109,6 +111,51 @@ type TableConstraint struct {
 	OnUpdate        ForeignKeyAction // For FOREIGN KEY: action on update
 }
 
+// IndexType represents the type of index
+type IndexType int
+
+const (
+	IndexTypeBTree IndexType = iota
+	IndexTypeHNSW
+)
+
+// String returns the string representation of the index type
+func (it IndexType) String() string {
+	switch it {
+	case IndexTypeBTree:
+		return "BTREE"
+	case IndexTypeHNSW:
+		return "HNSW"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+// HNSWParams holds HNSW-specific index parameters
+type HNSWParams struct {
+	M              int // Maximum number of connections per node (default: 16)
+	EfConstruction int // Size of the dynamic candidate list during construction (default: 200)
+}
+
+// DefaultHNSWParams returns HNSW parameters with SQLite vec extension defaults
+func DefaultHNSWParams() *HNSWParams {
+	return &HNSWParams{
+		M:              16,
+		EfConstruction: 200,
+	}
+}
+
+// IndexDef defines an index schema
+type IndexDef struct {
+	Name       string      // Index name
+	TableName  string      // Table the index belongs to
+	Columns    []string    // Column names in the index (order matters for multi-column)
+	Type       IndexType   // Type of index (B-tree or HNSW)
+	Unique     bool        // Whether the index enforces uniqueness
+	RootPage   uint32      // B-tree root page number for this index
+	HNSWParams *HNSWParams // HNSW-specific parameters (nil for non-HNSW indexes)
+}
+
 // ColumnDef defines a table column
 type ColumnDef struct {
 	Name        string
@@ -187,14 +234,16 @@ func (t *TableDef) ColumnCount() int {
 
 // Catalog holds all schema definitions
 type Catalog struct {
-	mu     sync.RWMutex
-	tables map[string]*TableDef
+	mu      sync.RWMutex
+	tables  map[string]*TableDef
+	indexes map[string]*IndexDef
 }
 
 // NewCatalog creates a new empty catalog
 func NewCatalog() *Catalog {
 	return &Catalog{
-		tables: make(map[string]*TableDef),
+		tables:  make(map[string]*TableDef),
+		indexes: make(map[string]*IndexDef),
 	}
 }
 
@@ -251,4 +300,99 @@ func (c *Catalog) TableCount() int {
 	defer c.mu.RUnlock()
 
 	return len(c.tables)
+}
+
+// CreateIndex adds an index to the catalog
+func (c *Catalog) CreateIndex(index *IndexDef) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if _, exists := c.indexes[index.Name]; exists {
+		return ErrIndexExists
+	}
+
+	c.indexes[index.Name] = index
+	return nil
+}
+
+// DropIndex removes an index from the catalog
+func (c *Catalog) DropIndex(name string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if _, exists := c.indexes[name]; !exists {
+		return ErrIndexNotFound
+	}
+
+	delete(c.indexes, name)
+	return nil
+}
+
+// GetIndex returns an index definition by name
+func (c *Catalog) GetIndex(name string) *IndexDef {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.indexes[name]
+}
+
+// ListIndexes returns all index names in sorted order
+func (c *Catalog) ListIndexes() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	names := make([]string, 0, len(c.indexes))
+	for name := range c.indexes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// IndexCount returns the number of indexes
+func (c *Catalog) IndexCount() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return len(c.indexes)
+}
+
+// GetIndexesForTable returns all indexes for a given table, sorted by name
+func (c *Catalog) GetIndexesForTable(tableName string) []*IndexDef {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var indexes []*IndexDef
+	for _, idx := range c.indexes {
+		if idx.TableName == tableName {
+			indexes = append(indexes, idx)
+		}
+	}
+
+	// Sort by name for consistent ordering
+	sort.Slice(indexes, func(i, j int) bool {
+		return indexes[i].Name < indexes[j].Name
+	})
+
+	return indexes
+}
+
+// GetIndexByColumn returns the first index that includes the given column
+// for the specified table. Returns nil if no matching index is found.
+func (c *Catalog) GetIndexByColumn(tableName, columnName string) *IndexDef {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	for _, idx := range c.indexes {
+		if idx.TableName != tableName {
+			continue
+		}
+		for _, col := range idx.Columns {
+			if col == columnName {
+				return idx
+			}
+		}
+	}
+
+	return nil
 }

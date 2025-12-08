@@ -428,3 +428,357 @@ func TestTableDef_GetTableConstraint(t *testing.T) {
 		t.Errorf("GetTableConstraint(ConstraintForeignKey): expected nil, got %v", fk)
 	}
 }
+
+// ========== Index Definition Tests ==========
+
+func TestIndexType_String(t *testing.T) {
+	tests := []struct {
+		it   IndexType
+		want string
+	}{
+		{IndexTypeBTree, "BTREE"},
+		{IndexTypeHNSW, "HNSW"},
+	}
+
+	for _, tt := range tests {
+		got := tt.it.String()
+		if got != tt.want {
+			t.Errorf("IndexType(%d).String() = %q, want %q", tt.it, got, tt.want)
+		}
+	}
+}
+
+func TestIndexDef_Basic(t *testing.T) {
+	// Test basic B-tree index
+	idx := IndexDef{
+		Name:      "idx_users_email",
+		TableName: "users",
+		Columns:   []string{"email"},
+		Type:      IndexTypeBTree,
+		Unique:    true,
+		RootPage:  5,
+	}
+
+	if idx.Name != "idx_users_email" {
+		t.Errorf("Name: got %q, want 'idx_users_email'", idx.Name)
+	}
+	if idx.TableName != "users" {
+		t.Errorf("TableName: got %q, want 'users'", idx.TableName)
+	}
+	if len(idx.Columns) != 1 || idx.Columns[0] != "email" {
+		t.Errorf("Columns: got %v, want ['email']", idx.Columns)
+	}
+	if idx.Type != IndexTypeBTree {
+		t.Errorf("Type: got %v, want IndexTypeBTree", idx.Type)
+	}
+	if !idx.Unique {
+		t.Error("Unique: expected true")
+	}
+	if idx.RootPage != 5 {
+		t.Errorf("RootPage: got %d, want 5", idx.RootPage)
+	}
+}
+
+func TestIndexDef_MultiColumn(t *testing.T) {
+	// Test multi-column index
+	idx := IndexDef{
+		Name:      "idx_orders_customer_date",
+		TableName: "orders",
+		Columns:   []string{"customer_id", "order_date"},
+		Type:      IndexTypeBTree,
+		Unique:    false,
+		RootPage:  10,
+	}
+
+	if len(idx.Columns) != 2 {
+		t.Fatalf("Columns: got %d columns, want 2", len(idx.Columns))
+	}
+	if idx.Columns[0] != "customer_id" || idx.Columns[1] != "order_date" {
+		t.Errorf("Columns: got %v, want ['customer_id', 'order_date']", idx.Columns)
+	}
+}
+
+// ========== Index Catalog Tests ==========
+
+func TestCatalog_CreateIndex(t *testing.T) {
+	catalog := NewCatalog()
+
+	// Create a table first
+	table := &TableDef{
+		Name: "users",
+		Columns: []ColumnDef{
+			{Name: "id", Type: types.TypeInt},
+			{Name: "email", Type: types.TypeText},
+		},
+		RootPage: 2,
+	}
+	catalog.CreateTable(table)
+
+	// Create an index
+	idx := &IndexDef{
+		Name:      "idx_users_email",
+		TableName: "users",
+		Columns:   []string{"email"},
+		Type:      IndexTypeBTree,
+		Unique:    true,
+		RootPage:  5,
+	}
+
+	err := catalog.CreateIndex(idx)
+	if err != nil {
+		t.Fatalf("CreateIndex: %v", err)
+	}
+
+	// Index should exist
+	got := catalog.GetIndex("idx_users_email")
+	if got == nil {
+		t.Fatal("GetIndex: index not found")
+	}
+	if got.Name != "idx_users_email" {
+		t.Errorf("GetIndex: got name %q", got.Name)
+	}
+}
+
+func TestCatalog_CreateIndex_Duplicate(t *testing.T) {
+	catalog := NewCatalog()
+
+	// Create a table first
+	catalog.CreateTable(&TableDef{Name: "users", Columns: []ColumnDef{{Name: "email", Type: types.TypeText}}})
+
+	idx := &IndexDef{Name: "idx_users_email", TableName: "users", Columns: []string{"email"}}
+	catalog.CreateIndex(idx)
+
+	// Try to create duplicate
+	err := catalog.CreateIndex(idx)
+	if err == nil {
+		t.Error("CreateIndex: expected error for duplicate index")
+	}
+	if err != ErrIndexExists {
+		t.Errorf("CreateIndex: got error %v, want ErrIndexExists", err)
+	}
+}
+
+func TestCatalog_DropIndex(t *testing.T) {
+	catalog := NewCatalog()
+
+	catalog.CreateTable(&TableDef{Name: "users", Columns: []ColumnDef{{Name: "email", Type: types.TypeText}}})
+	catalog.CreateIndex(&IndexDef{Name: "idx_users_email", TableName: "users", Columns: []string{"email"}})
+
+	err := catalog.DropIndex("idx_users_email")
+	if err != nil {
+		t.Fatalf("DropIndex: %v", err)
+	}
+
+	if catalog.GetIndex("idx_users_email") != nil {
+		t.Error("DropIndex: index still exists")
+	}
+}
+
+func TestCatalog_DropIndex_NotExists(t *testing.T) {
+	catalog := NewCatalog()
+
+	err := catalog.DropIndex("nonexistent")
+	if err == nil {
+		t.Error("DropIndex: expected error for nonexistent index")
+	}
+	if err != ErrIndexNotFound {
+		t.Errorf("DropIndex: got error %v, want ErrIndexNotFound", err)
+	}
+}
+
+func TestCatalog_ListIndexes(t *testing.T) {
+	catalog := NewCatalog()
+
+	catalog.CreateTable(&TableDef{Name: "users", Columns: []ColumnDef{{Name: "email", Type: types.TypeText}, {Name: "name", Type: types.TypeText}}})
+	catalog.CreateIndex(&IndexDef{Name: "idx_users_email", TableName: "users", Columns: []string{"email"}})
+	catalog.CreateIndex(&IndexDef{Name: "idx_users_name", TableName: "users", Columns: []string{"name"}})
+
+	indexes := catalog.ListIndexes()
+	if len(indexes) != 2 {
+		t.Fatalf("ListIndexes: got %d indexes, want 2", len(indexes))
+	}
+
+	// Check sorted order
+	if indexes[0] != "idx_users_email" || indexes[1] != "idx_users_name" {
+		t.Errorf("ListIndexes: got %v, want [idx_users_email, idx_users_name]", indexes)
+	}
+}
+
+func TestCatalog_IndexCount(t *testing.T) {
+	catalog := NewCatalog()
+
+	catalog.CreateTable(&TableDef{Name: "users", Columns: []ColumnDef{{Name: "email", Type: types.TypeText}}})
+
+	if catalog.IndexCount() != 0 {
+		t.Errorf("IndexCount: got %d, want 0", catalog.IndexCount())
+	}
+
+	catalog.CreateIndex(&IndexDef{Name: "idx1", TableName: "users", Columns: []string{"email"}})
+	if catalog.IndexCount() != 1 {
+		t.Errorf("IndexCount: got %d, want 1", catalog.IndexCount())
+	}
+
+	catalog.CreateIndex(&IndexDef{Name: "idx2", TableName: "users", Columns: []string{"email"}})
+	if catalog.IndexCount() != 2 {
+		t.Errorf("IndexCount: got %d, want 2", catalog.IndexCount())
+	}
+}
+
+// ========== HNSW Index Parameters Tests ==========
+
+func TestIndexDef_HNSWParams(t *testing.T) {
+	// Test HNSW index with parameters
+	idx := IndexDef{
+		Name:      "idx_embeddings_vec",
+		TableName: "embeddings",
+		Columns:   []string{"embedding"},
+		Type:      IndexTypeHNSW,
+		Unique:    false,
+		RootPage:  10,
+		HNSWParams: &HNSWParams{
+			M:              16,
+			EfConstruction: 200,
+		},
+	}
+
+	if idx.Type != IndexTypeHNSW {
+		t.Errorf("Type: got %v, want IndexTypeHNSW", idx.Type)
+	}
+	if idx.HNSWParams == nil {
+		t.Fatal("HNSWParams: expected non-nil")
+	}
+	if idx.HNSWParams.M != 16 {
+		t.Errorf("HNSWParams.M: got %d, want 16", idx.HNSWParams.M)
+	}
+	if idx.HNSWParams.EfConstruction != 200 {
+		t.Errorf("HNSWParams.EfConstruction: got %d, want 200", idx.HNSWParams.EfConstruction)
+	}
+}
+
+func TestIndexDef_HNSWParams_Defaults(t *testing.T) {
+	// Test that B-tree index doesn't need HNSW params
+	idx := IndexDef{
+		Name:      "idx_users_email",
+		TableName: "users",
+		Columns:   []string{"email"},
+		Type:      IndexTypeBTree,
+	}
+
+	if idx.HNSWParams != nil {
+		t.Error("HNSWParams: expected nil for BTree index")
+	}
+}
+
+func TestHNSWParams_DefaultValues(t *testing.T) {
+	params := DefaultHNSWParams()
+
+	// SQLite vec extension defaults: M=16, efConstruction=200
+	if params.M != 16 {
+		t.Errorf("M: got %d, want 16", params.M)
+	}
+	if params.EfConstruction != 200 {
+		t.Errorf("EfConstruction: got %d, want 200", params.EfConstruction)
+	}
+}
+
+// ========== Index Lookup Tests ==========
+
+func TestCatalog_GetIndexesForTable(t *testing.T) {
+	catalog := NewCatalog()
+
+	catalog.CreateTable(&TableDef{Name: "users", Columns: []ColumnDef{
+		{Name: "id", Type: types.TypeInt},
+		{Name: "email", Type: types.TypeText},
+		{Name: "name", Type: types.TypeText},
+	}})
+	catalog.CreateTable(&TableDef{Name: "orders", Columns: []ColumnDef{
+		{Name: "id", Type: types.TypeInt},
+	}})
+
+	catalog.CreateIndex(&IndexDef{Name: "idx_users_email", TableName: "users", Columns: []string{"email"}})
+	catalog.CreateIndex(&IndexDef{Name: "idx_users_name", TableName: "users", Columns: []string{"name"}})
+	catalog.CreateIndex(&IndexDef{Name: "idx_orders_id", TableName: "orders", Columns: []string{"id"}})
+
+	// Get indexes for users table
+	usersIndexes := catalog.GetIndexesForTable("users")
+	if len(usersIndexes) != 2 {
+		t.Fatalf("GetIndexesForTable('users'): got %d, want 2", len(usersIndexes))
+	}
+
+	// Check names are in sorted order
+	if usersIndexes[0].Name != "idx_users_email" || usersIndexes[1].Name != "idx_users_name" {
+		t.Errorf("GetIndexesForTable('users'): got %v, want sorted by name", usersIndexes)
+	}
+
+	// Get indexes for orders table
+	ordersIndexes := catalog.GetIndexesForTable("orders")
+	if len(ordersIndexes) != 1 {
+		t.Fatalf("GetIndexesForTable('orders'): got %d, want 1", len(ordersIndexes))
+	}
+
+	// Get indexes for nonexistent table
+	noneIndexes := catalog.GetIndexesForTable("nonexistent")
+	if len(noneIndexes) != 0 {
+		t.Errorf("GetIndexesForTable('nonexistent'): got %d, want 0", len(noneIndexes))
+	}
+}
+
+func TestCatalog_GetIndexByColumn(t *testing.T) {
+	catalog := NewCatalog()
+
+	catalog.CreateTable(&TableDef{Name: "users", Columns: []ColumnDef{
+		{Name: "id", Type: types.TypeInt},
+		{Name: "email", Type: types.TypeText},
+	}})
+
+	catalog.CreateIndex(&IndexDef{Name: "idx_users_email", TableName: "users", Columns: []string{"email"}})
+
+	// Find index by table and column
+	idx := catalog.GetIndexByColumn("users", "email")
+	if idx == nil {
+		t.Fatal("GetIndexByColumn('users', 'email'): expected non-nil")
+	}
+	if idx.Name != "idx_users_email" {
+		t.Errorf("Name: got %q, want 'idx_users_email'", idx.Name)
+	}
+
+	// Column without index
+	idx = catalog.GetIndexByColumn("users", "id")
+	if idx != nil {
+		t.Errorf("GetIndexByColumn('users', 'id'): expected nil, got %v", idx)
+	}
+
+	// Nonexistent table
+	idx = catalog.GetIndexByColumn("nonexistent", "col")
+	if idx != nil {
+		t.Errorf("GetIndexByColumn('nonexistent', 'col'): expected nil, got %v", idx)
+	}
+}
+
+func TestCatalog_GetIndexByColumn_MultiColumn(t *testing.T) {
+	catalog := NewCatalog()
+
+	catalog.CreateTable(&TableDef{Name: "orders", Columns: []ColumnDef{
+		{Name: "customer_id", Type: types.TypeInt},
+		{Name: "order_date", Type: types.TypeText},
+	}})
+
+	catalog.CreateIndex(&IndexDef{
+		Name:      "idx_orders_composite",
+		TableName: "orders",
+		Columns:   []string{"customer_id", "order_date"},
+	})
+
+	// First column of composite index should be found
+	idx := catalog.GetIndexByColumn("orders", "customer_id")
+	if idx == nil {
+		t.Fatal("GetIndexByColumn('orders', 'customer_id'): expected non-nil for first column of composite index")
+	}
+
+	// Second column of composite index may not be directly indexable (only first column is usable for prefix matching)
+	// But for simplicity, we still return the index if the column is part of it
+	idx = catalog.GetIndexByColumn("orders", "order_date")
+	if idx == nil {
+		t.Fatal("GetIndexByColumn('orders', 'order_date'): expected non-nil for second column of composite index")
+	}
+}

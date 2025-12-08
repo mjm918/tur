@@ -725,3 +725,81 @@ func TestParser_CreateTable_NamedConstraint(t *testing.T) {
 		t.Errorf("Name = %q, want 'pk_t'", pk.Name)
 	}
 }
+
+// ========== CREATE INDEX Tests ==========
+
+func TestParser_CreateIndex_Simple(t *testing.T) {
+	input := "CREATE INDEX idx_users_email ON users (email)"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create, ok := stmt.(*CreateIndexStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateIndexStmt, got %T", stmt)
+	}
+
+	if create.IndexName != "idx_users_email" {
+		t.Errorf("IndexName = %q, want 'idx_users_email'", create.IndexName)
+	}
+	if create.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", create.TableName)
+	}
+	if len(create.Columns) != 1 || create.Columns[0] != "email" {
+		t.Errorf("Columns = %v, want ['email']", create.Columns)
+	}
+	if create.Unique {
+		t.Error("Unique = true, want false")
+	}
+}
+
+func TestParser_CreateIndex_MultiColumn(t *testing.T) {
+	input := "CREATE INDEX idx_orders ON orders (customer_id, order_date)"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create := stmt.(*CreateIndexStmt)
+	if len(create.Columns) != 2 {
+		t.Fatalf("Columns count = %d, want 2", len(create.Columns))
+	}
+	if create.Columns[0] != "customer_id" || create.Columns[1] != "order_date" {
+		t.Errorf("Columns = %v, want ['customer_id', 'order_date']", create.Columns)
+	}
+}
+
+func TestParser_CreateIndex_Unique(t *testing.T) {
+	input := "CREATE UNIQUE INDEX idx_users_email ON users (email)"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create := stmt.(*CreateIndexStmt)
+	if !create.Unique {
+		t.Error("Unique = false, want true")
+	}
+}
+
+func TestParser_DropIndex(t *testing.T) {
+	input := "DROP INDEX idx_users_email"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	drop, ok := stmt.(*DropIndexStmt)
+	if !ok {
+		t.Fatalf("Expected *DropIndexStmt, got %T", stmt)
+	}
+
+	if drop.IndexName != "idx_users_email" {
+		t.Errorf("IndexName = %q, want 'idx_users_email'", drop.IndexName)
+	}
+}

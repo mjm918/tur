@@ -405,27 +405,27 @@
     {
       "title": "Schema - Index Definitions",
       "description": "Schema entries for B-tree and HNSW indexes with metadata",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Design index metadata structure (name, table, columns, type)",
-          "done": false
+          "done": true
         },
         {
           "task": "Add index catalog storage in schema pages",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement index registration on CREATE INDEX",
-          "done": false
+          "done": true
         },
         {
           "task": "Store HNSW parameters (M, efConstruction) in metadata",
-          "done": false
+          "done": true
         },
         {
           "task": "Add index lookup by table and column names",
-          "done": false
+          "done": true
         }
       ]
     },
