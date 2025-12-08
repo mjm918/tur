@@ -103,6 +103,12 @@ func Open(path string, opts *Options) (*Database, error) {
 		return nil, err
 	}
 
+	// Validate header fields
+	if err := ValidateHeader(header); err != nil {
+		file.Close()
+		return nil, err
+	}
+
 	db := &Database{
 		path:     path,
 		file:     file,
