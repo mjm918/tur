@@ -584,27 +584,27 @@
     {
       "title": "SQL - Index Selection",
       "description": "Automatic index selection in query optimizer for optimal performance",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Identify candidate indexes for WHERE clause predicates",
-          "done": false
+          "done": true
         },
         {
           "task": "Estimate selectivity of index lookups",
-          "done": false
+          "done": true
         },
         {
           "task": "Compare cost of index scan vs full table scan",
-          "done": false
+          "done": true
         },
         {
           "task": "Choose index with lowest estimated cost",
-          "done": false
+          "done": true
         },
         {
           "task": "Handle multi-column index prefix matching",
-          "done": false
+          "done": true
         }
       ]
     },

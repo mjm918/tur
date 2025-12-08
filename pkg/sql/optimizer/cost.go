@@ -3,7 +3,9 @@ package optimizer
 
 import (
 	"math"
+
 	"tur/pkg/schema"
+	"tur/pkg/sql/lexer"
 )
 
 // Cost constants for estimation
@@ -175,4 +177,55 @@ func calculateBTreeHeight(entries int64) int {
 	}
 
 	return height
+}
+
+// EstimateIndexSelectivity estimates the selectivity for an index lookup
+// based on the comparison operator used. Returns a value between 0.0 and 1.0.
+func (e *CostEstimator) EstimateIndexSelectivity(op lexer.TokenType) float64 {
+	switch op {
+	case lexer.EQ:
+		return 0.01 // 1% - equality is highly selective
+	case lexer.NEQ:
+		return 0.9 // 90% - not-equal is not selective
+	case lexer.LT, lexer.GT, lexer.LTE, lexer.GTE:
+		return 0.33 // 33% - range operators are moderately selective
+	default:
+		return 0.1 // Default conservative estimate
+	}
+}
+
+// EstimateCandidateSelectivity estimates the selectivity for an IndexCandidate
+func (e *CostEstimator) EstimateCandidateSelectivity(candidate IndexCandidate) float64 {
+	return e.EstimateIndexSelectivity(candidate.Operator)
+}
+
+// AccessPathComparison contains the cost comparison between different access methods
+type AccessPathComparison struct {
+	TableScanCost float64 // Cost of full table scan
+	TableScanRows int64   // Rows returned by table scan
+	IndexCost     float64 // Cost of index scan
+	IndexRows     int64   // Rows returned by index scan
+	UseIndex      bool    // Recommendation: true = use index, false = use table scan
+}
+
+// CompareAccessPaths compares the cost of using an index vs a full table scan
+func (e *CostEstimator) CompareAccessPaths(table *schema.TableDef, candidate IndexCandidate, tableRows int64) AccessPathComparison {
+	// Calculate table scan cost
+	tableScanCost, tableScanRows := e.EstimateTableScan(table, tableRows)
+
+	// Calculate index scan cost
+	selectivity := e.EstimateCandidateSelectivity(candidate)
+	indexCost, indexRows := e.EstimateIndexScan(candidate.Index, tableRows, selectivity)
+
+	// Decide whether to use the index
+	// Use index if it's cheaper and returns significantly fewer rows
+	useIndex := indexCost < tableScanCost
+
+	return AccessPathComparison{
+		TableScanCost: tableScanCost,
+		TableScanRows: tableScanRows,
+		IndexCost:     indexCost,
+		IndexRows:     indexRows,
+		UseIndex:      useIndex,
+	}
 }
