@@ -598,3 +598,172 @@ func TestIncrementalIndex_GetOperationsBetweenCheckpoints(t *testing.T) {
 		t.Fatalf("expected 3 operations between checkpoints, got %d", len(ops))
 	}
 }
+
+// Tests for Memory Optimization
+
+func TestChangeLog_CompactDuplicates(t *testing.T) {
+	log := NewChangeLog()
+
+	// Insert then delete same row - should compact to nothing
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	log.RecordInsert(1, 100, v1)
+	log.RecordDelete(1, 100)
+
+	// Compact the log
+	log.Compact()
+
+	// After compaction, insert-delete pair should be removed
+	ops := log.Operations()
+	if len(ops) != 0 {
+		t.Errorf("expected 0 operations after compact, got %d", len(ops))
+	}
+}
+
+func TestChangeLog_CompactPreservesNetChanges(t *testing.T) {
+	log := NewChangeLog()
+
+	// Insert, update, then final state should just be final insert
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	v2 := types.NewVector([]float32{0.0, 1.0, 0.0})
+	v3 := types.NewVector([]float32{0.0, 0.0, 1.0})
+
+	log.RecordInsert(1, 100, v1)
+	log.RecordUpdate(1, 100, v1, v2)
+	log.RecordUpdate(1, 100, v2, v3)
+
+	// Before compaction
+	if log.Size() != 3 {
+		t.Fatalf("expected 3 operations before compact, got %d", log.Size())
+	}
+
+	// Compact the log
+	log.Compact()
+
+	// After compaction, should have single insert with final vector
+	ops := log.Operations()
+	if len(ops) != 1 {
+		t.Fatalf("expected 1 operation after compact, got %d", len(ops))
+	}
+
+	if ops[0].Type != OpInsert {
+		t.Errorf("expected OpInsert, got %v", ops[0].Type)
+	}
+
+	// Should have the final vector
+	if ops[0].Vector == nil {
+		t.Error("expected vector to be set")
+	}
+}
+
+func TestChangeLog_CompactMultipleRows(t *testing.T) {
+	log := NewChangeLog()
+
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	v2 := types.NewVector([]float32{0.0, 1.0, 0.0})
+
+	// Row 100: insert, update, delete = net nothing
+	log.RecordInsert(1, 100, v1)
+	log.RecordUpdate(1, 100, v1, v2)
+	log.RecordDelete(1, 100)
+
+	// Row 200: insert only = net insert
+	log.RecordInsert(2, 200, v1)
+
+	// Row 300: insert, update = net insert with final vector
+	log.RecordInsert(3, 300, v1)
+	log.RecordUpdate(3, 300, v1, v2)
+
+	log.Compact()
+
+	ops := log.Operations()
+	if len(ops) != 2 {
+		t.Fatalf("expected 2 operations after compact, got %d", len(ops))
+	}
+}
+
+func TestChangeLog_EstimateMemoryUsage(t *testing.T) {
+	log := NewChangeLog()
+
+	// Should have some base memory
+	baseUsage := log.EstimateMemoryUsage()
+	if baseUsage == 0 {
+		t.Error("expected non-zero base memory usage")
+	}
+
+	// Add operations - memory should grow
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	for i := 0; i < 100; i++ {
+		log.RecordInsert(uint64(i), int64(i), v1)
+	}
+
+	usageAfter := log.EstimateMemoryUsage()
+	if usageAfter <= baseUsage {
+		t.Errorf("expected memory to grow after inserts, base=%d after=%d", baseUsage, usageAfter)
+	}
+}
+
+func TestIncrementalIndex_CompactChangeLog(t *testing.T) {
+	config := Config{
+		M:              16,
+		MMax0:          32,
+		EfConstruction: 100,
+		EfSearch:       50,
+		Dimension:      3,
+		ML:             0.25,
+	}
+
+	idx := NewIncrementalIndex(config)
+
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	v2 := types.NewVector([]float32{0.0, 1.0, 0.0})
+
+	// Make changes that cancel out
+	idx.Insert(1, v1)
+	idx.Delete(1)
+	idx.Insert(2, v2)
+
+	if idx.PendingChanges() != 3 {
+		t.Errorf("expected 3 pending changes before compact, got %d", idx.PendingChanges())
+	}
+
+	// Compact the change log
+	idx.CompactChangeLog()
+
+	// Should only have 1 net change (insert 2)
+	if idx.PendingChanges() != 1 {
+		t.Errorf("expected 1 pending change after compact, got %d", idx.PendingChanges())
+	}
+}
+
+func TestChangeLog_TruncateOlderThan(t *testing.T) {
+	log := NewChangeLog()
+
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+
+	// Add some operations
+	log.RecordInsert(1, 100, v1)
+	log.RecordInsert(2, 200, v1)
+	seq := log.LastSeq()
+	log.RecordInsert(3, 300, v1)
+	log.RecordInsert(4, 400, v1)
+
+	if log.Size() != 4 {
+		t.Fatalf("expected 4 operations, got %d", log.Size())
+	}
+
+	// Truncate operations older than seq
+	log.TruncateOlderThan(seq)
+
+	// Should only have operations after seq
+	ops := log.Operations()
+	if len(ops) != 2 {
+		t.Fatalf("expected 2 operations after truncate, got %d", len(ops))
+	}
+
+	// All remaining operations should have seq > the truncate point
+	for _, op := range ops {
+		if op.Seq <= seq {
+			t.Errorf("found operation with seq %d <= truncate seq %d", op.Seq, seq)
+		}
+	}
+}

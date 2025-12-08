@@ -141,6 +141,110 @@ func (cl *ChangeLog) OperationsSince(seq uint64) []Operation {
 	return result
 }
 
+// rowState tracks the net state of operations on a single row
+type rowState struct {
+	exists      bool          // Does the row exist after all operations?
+	finalVector *types.Vector // The final vector value (if exists)
+	rowID       int64
+	nodeID      uint64
+}
+
+// Compact removes redundant operations by computing net changes per row
+// This reduces memory usage by eliminating insert-delete pairs and
+// collapsing multiple updates into single operations
+func (cl *ChangeLog) Compact() {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+
+	if len(cl.operations) == 0 {
+		return
+	}
+
+	// Track net state per rowID
+	states := make(map[int64]*rowState)
+
+	for _, op := range cl.operations {
+		state, exists := states[op.RowID]
+		if !exists {
+			state = &rowState{
+				rowID:  op.RowID,
+				nodeID: op.NodeID,
+			}
+			states[op.RowID] = state
+		}
+
+		switch op.Type {
+		case OpInsert:
+			state.exists = true
+			state.finalVector = op.Vector
+			state.nodeID = op.NodeID
+		case OpDelete:
+			state.exists = false
+			state.finalVector = nil
+		case OpUpdate:
+			if state.exists {
+				state.finalVector = op.Vector
+			}
+		}
+	}
+
+	// Build compacted operations list
+	compacted := make([]Operation, 0)
+	for _, state := range states {
+		if state.exists && state.finalVector != nil {
+			compacted = append(compacted, Operation{
+				Seq:    cl.nextSeq,
+				Type:   OpInsert,
+				NodeID: state.nodeID,
+				RowID:  state.rowID,
+				Vector: state.finalVector,
+			})
+			cl.nextSeq++
+		}
+	}
+
+	cl.operations = compacted
+}
+
+// EstimateMemoryUsage returns an estimate of memory used by the change log in bytes
+func (cl *ChangeLog) EstimateMemoryUsage() int64 {
+	cl.mu.RLock()
+	defer cl.mu.RUnlock()
+
+	// Base struct size
+	var total int64 = 64 // approximate base overhead
+
+	// Size per operation (without vectors)
+	const opBaseSize = 48 // Seq(8) + Type(8) + NodeID(8) + RowID(8) + 2 pointers(16)
+
+	for _, op := range cl.operations {
+		total += opBaseSize
+		if op.Vector != nil {
+			total += int64(op.Vector.Dimension() * 4) // float32 = 4 bytes
+		}
+		if op.OldVector != nil {
+			total += int64(op.OldVector.Dimension() * 4)
+		}
+	}
+
+	return total
+}
+
+// TruncateOlderThan removes operations with sequence number <= seq
+// This is useful after checkpoint persistence to free memory
+func (cl *ChangeLog) TruncateOlderThan(seq uint64) {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+
+	var remaining []Operation
+	for _, op := range cl.operations {
+		if op.Seq > seq {
+			remaining = append(remaining, op)
+		}
+	}
+	cl.operations = remaining
+}
+
 // IndexSnapshot represents a point-in-time snapshot of the index state
 type IndexSnapshot struct {
 	Version   uint64 // Version at time of snapshot (based on last seq)
@@ -350,4 +454,20 @@ func (idx *IncrementalIndex) OperationsBetween(startSeq, endSeq uint64) []Operat
 		}
 	}
 	return result
+}
+
+// CompactChangeLog compresses the change log by computing net changes
+// This is useful for reducing memory usage during long-running operations
+func (idx *IncrementalIndex) CompactChangeLog() {
+	idx.changeLog.Compact()
+}
+
+// EstimateMemoryUsage returns estimated memory usage of the change log
+func (idx *IncrementalIndex) EstimateMemoryUsage() int64 {
+	return idx.changeLog.EstimateMemoryUsage()
+}
+
+// TruncateChangeLogOlderThan removes operations older than the given sequence
+func (idx *IncrementalIndex) TruncateChangeLogOlderThan(seq uint64) {
+	idx.changeLog.TruncateOlderThan(seq)
 }
