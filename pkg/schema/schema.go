@@ -15,21 +15,147 @@ var (
 	ErrColumnNotFound = errors.New("column not found")
 )
 
+// Constraint violation errors
+var (
+	ErrNotNullViolation    = errors.New("NOT NULL constraint violation")
+	ErrUniqueViolation     = errors.New("UNIQUE constraint violation")
+	ErrPrimaryKeyViolation = errors.New("PRIMARY KEY constraint violation")
+	ErrCheckViolation      = errors.New("CHECK constraint violation")
+	ErrForeignKeyViolation = errors.New("FOREIGN KEY constraint violation")
+)
+
+// ConstraintType represents the type of constraint
+type ConstraintType int
+
+const (
+	ConstraintPrimaryKey ConstraintType = iota
+	ConstraintUnique
+	ConstraintNotNull
+	ConstraintCheck
+	ConstraintForeignKey
+	ConstraintDefault
+)
+
+// String returns the string representation of the constraint type
+func (ct ConstraintType) String() string {
+	switch ct {
+	case ConstraintPrimaryKey:
+		return "PRIMARY KEY"
+	case ConstraintUnique:
+		return "UNIQUE"
+	case ConstraintNotNull:
+		return "NOT NULL"
+	case ConstraintCheck:
+		return "CHECK"
+	case ConstraintForeignKey:
+		return "FOREIGN KEY"
+	case ConstraintDefault:
+		return "DEFAULT"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+// ForeignKeyAction represents the action to take when a referenced row is modified
+type ForeignKeyAction int
+
+const (
+	FKActionNoAction ForeignKeyAction = iota
+	FKActionRestrict
+	FKActionCascade
+	FKActionSetNull
+	FKActionSetDefault
+)
+
+// String returns the string representation of the foreign key action
+func (fka ForeignKeyAction) String() string {
+	switch fka {
+	case FKActionNoAction:
+		return "NO ACTION"
+	case FKActionRestrict:
+		return "RESTRICT"
+	case FKActionCascade:
+		return "CASCADE"
+	case FKActionSetNull:
+		return "SET NULL"
+	case FKActionSetDefault:
+		return "SET DEFAULT"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+// Constraint represents a column-level constraint
+type Constraint struct {
+	Type            ConstraintType   // Type of constraint
+	Name            string           // Optional constraint name
+	CheckExpression string           // For CHECK constraints: the expression as SQL string
+	DefaultValue    *types.Value     // For DEFAULT constraints: the default value
+	RefTable        string           // For FOREIGN KEY: referenced table name
+	RefColumn       string           // For FOREIGN KEY: referenced column name
+	OnDelete        ForeignKeyAction // For FOREIGN KEY: action on delete
+	OnUpdate        ForeignKeyAction // For FOREIGN KEY: action on update
+}
+
+// TableConstraint represents a table-level constraint (can span multiple columns)
+type TableConstraint struct {
+	Type            ConstraintType   // Type of constraint
+	Name            string           // Constraint name
+	Columns         []string         // Column names involved in this constraint
+	CheckExpression string           // For CHECK constraints: the expression as SQL string
+	RefTable        string           // For FOREIGN KEY: referenced table name
+	RefColumns      []string         // For FOREIGN KEY: referenced column names
+	OnDelete        ForeignKeyAction // For FOREIGN KEY: action on delete
+	OnUpdate        ForeignKeyAction // For FOREIGN KEY: action on update
+}
+
 // ColumnDef defines a table column
 type ColumnDef struct {
-	Name       string
-	Type       types.ValueType
-	PrimaryKey bool
-	NotNull    bool
-	Default    *types.Value // nil means no default
-	VectorDim  int          // Dimension for VECTOR type, 0 for others
+	Name        string
+	Type        types.ValueType
+	PrimaryKey  bool           // Legacy field for backward compatibility
+	NotNull     bool           // Legacy field for backward compatibility
+	Default     *types.Value   // nil means no default (legacy)
+	VectorDim   int            // Dimension for VECTOR type, 0 for others
+	Constraints []Constraint   // Column-level constraints
+}
+
+// HasConstraint returns true if the column has a constraint of the given type
+func (c *ColumnDef) HasConstraint(ct ConstraintType) bool {
+	for i := range c.Constraints {
+		if c.Constraints[i].Type == ct {
+			return true
+		}
+	}
+	return false
+}
+
+// GetConstraint returns the first constraint of the given type, or nil if not found
+func (c *ColumnDef) GetConstraint(ct ConstraintType) *Constraint {
+	for i := range c.Constraints {
+		if c.Constraints[i].Type == ct {
+			return &c.Constraints[i]
+		}
+	}
+	return nil
 }
 
 // TableDef defines a table schema
 type TableDef struct {
-	Name     string
-	Columns  []ColumnDef
-	RootPage uint32 // B-tree root page number
+	Name             string
+	Columns          []ColumnDef
+	RootPage         uint32            // B-tree root page number
+	TableConstraints []TableConstraint // Table-level constraints
+}
+
+// GetTableConstraint returns the first table constraint of the given type, or nil if not found
+func (t *TableDef) GetTableConstraint(ct ConstraintType) *TableConstraint {
+	for i := range t.TableConstraints {
+		if t.TableConstraints[i].Type == ct {
+			return &t.TableConstraints[i]
+		}
+	}
+	return nil
 }
 
 // GetColumn returns the column definition and index by name

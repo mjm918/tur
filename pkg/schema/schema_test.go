@@ -187,3 +187,244 @@ func TestCatalog_ListTables(t *testing.T) {
 		t.Errorf("ListTables: missing tables, got %v", tables)
 	}
 }
+
+// ========== Constraint System Tests ==========
+
+func TestConstraintType_String(t *testing.T) {
+	tests := []struct {
+		ct   ConstraintType
+		want string
+	}{
+		{ConstraintPrimaryKey, "PRIMARY KEY"},
+		{ConstraintUnique, "UNIQUE"},
+		{ConstraintNotNull, "NOT NULL"},
+		{ConstraintCheck, "CHECK"},
+		{ConstraintForeignKey, "FOREIGN KEY"},
+		{ConstraintDefault, "DEFAULT"},
+	}
+
+	for _, tt := range tests {
+		got := tt.ct.String()
+		if got != tt.want {
+			t.Errorf("ConstraintType(%d).String() = %q, want %q", tt.ct, got, tt.want)
+		}
+	}
+}
+
+func TestConstraint_Basic(t *testing.T) {
+	// Test NOT NULL constraint
+	notNullConstraint := Constraint{
+		Type: ConstraintNotNull,
+		Name: "users_name_nn",
+	}
+
+	if notNullConstraint.Type != ConstraintNotNull {
+		t.Errorf("Type: got %v, want ConstraintNotNull", notNullConstraint.Type)
+	}
+	if notNullConstraint.Name != "users_name_nn" {
+		t.Errorf("Name: got %q, want 'users_name_nn'", notNullConstraint.Name)
+	}
+}
+
+func TestConstraint_Check(t *testing.T) {
+	// Test CHECK constraint with expression
+	checkConstraint := Constraint{
+		Type:            ConstraintCheck,
+		Name:            "users_age_check",
+		CheckExpression: "age >= 0",
+	}
+
+	if checkConstraint.Type != ConstraintCheck {
+		t.Errorf("Type: got %v, want ConstraintCheck", checkConstraint.Type)
+	}
+	if checkConstraint.CheckExpression != "age >= 0" {
+		t.Errorf("CheckExpression: got %q, want 'age >= 0'", checkConstraint.CheckExpression)
+	}
+}
+
+func TestConstraint_ForeignKey(t *testing.T) {
+	// Test FOREIGN KEY constraint
+	fkConstraint := Constraint{
+		Type:          ConstraintForeignKey,
+		Name:          "orders_user_fk",
+		RefTable:      "users",
+		RefColumn:     "id",
+		OnDelete:      FKActionCascade,
+		OnUpdate:      FKActionSetNull,
+	}
+
+	if fkConstraint.Type != ConstraintForeignKey {
+		t.Errorf("Type: got %v, want ConstraintForeignKey", fkConstraint.Type)
+	}
+	if fkConstraint.RefTable != "users" {
+		t.Errorf("RefTable: got %q, want 'users'", fkConstraint.RefTable)
+	}
+	if fkConstraint.RefColumn != "id" {
+		t.Errorf("RefColumn: got %q, want 'id'", fkConstraint.RefColumn)
+	}
+	if fkConstraint.OnDelete != FKActionCascade {
+		t.Errorf("OnDelete: got %v, want FKActionCascade", fkConstraint.OnDelete)
+	}
+	if fkConstraint.OnUpdate != FKActionSetNull {
+		t.Errorf("OnUpdate: got %v, want FKActionSetNull", fkConstraint.OnUpdate)
+	}
+}
+
+func TestForeignKeyAction_String(t *testing.T) {
+	tests := []struct {
+		action ForeignKeyAction
+		want   string
+	}{
+		{FKActionNoAction, "NO ACTION"},
+		{FKActionRestrict, "RESTRICT"},
+		{FKActionCascade, "CASCADE"},
+		{FKActionSetNull, "SET NULL"},
+		{FKActionSetDefault, "SET DEFAULT"},
+	}
+
+	for _, tt := range tests {
+		got := tt.action.String()
+		if got != tt.want {
+			t.Errorf("ForeignKeyAction(%d).String() = %q, want %q", tt.action, got, tt.want)
+		}
+	}
+}
+
+func TestColumnDef_Constraints(t *testing.T) {
+	// Test ColumnDef with multiple constraints
+	col := ColumnDef{
+		Name: "email",
+		Type: types.TypeText,
+		Constraints: []Constraint{
+			{Type: ConstraintNotNull, Name: "email_nn"},
+			{Type: ConstraintUnique, Name: "email_unique"},
+		},
+	}
+
+	if len(col.Constraints) != 2 {
+		t.Fatalf("Constraints: got %d, want 2", len(col.Constraints))
+	}
+	if col.Constraints[0].Type != ConstraintNotNull {
+		t.Errorf("Constraints[0].Type: got %v, want ConstraintNotNull", col.Constraints[0].Type)
+	}
+	if col.Constraints[1].Type != ConstraintUnique {
+		t.Errorf("Constraints[1].Type: got %v, want ConstraintUnique", col.Constraints[1].Type)
+	}
+}
+
+func TestColumnDef_HasConstraint(t *testing.T) {
+	col := ColumnDef{
+		Name: "id",
+		Type: types.TypeInt,
+		Constraints: []Constraint{
+			{Type: ConstraintPrimaryKey},
+			{Type: ConstraintNotNull},
+		},
+	}
+
+	if !col.HasConstraint(ConstraintPrimaryKey) {
+		t.Error("HasConstraint(ConstraintPrimaryKey): expected true")
+	}
+	if !col.HasConstraint(ConstraintNotNull) {
+		t.Error("HasConstraint(ConstraintNotNull): expected true")
+	}
+	if col.HasConstraint(ConstraintUnique) {
+		t.Error("HasConstraint(ConstraintUnique): expected false")
+	}
+	if col.HasConstraint(ConstraintForeignKey) {
+		t.Error("HasConstraint(ConstraintForeignKey): expected false")
+	}
+}
+
+func TestColumnDef_GetConstraint(t *testing.T) {
+	col := ColumnDef{
+		Name: "user_id",
+		Type: types.TypeInt,
+		Constraints: []Constraint{
+			{Type: ConstraintNotNull},
+			{Type: ConstraintForeignKey, Name: "fk_user", RefTable: "users", RefColumn: "id"},
+		},
+	}
+
+	// Get existing constraint
+	fk := col.GetConstraint(ConstraintForeignKey)
+	if fk == nil {
+		t.Fatal("GetConstraint(ConstraintForeignKey): expected non-nil")
+	}
+	if fk.RefTable != "users" {
+		t.Errorf("RefTable: got %q, want 'users'", fk.RefTable)
+	}
+
+	// Get non-existing constraint
+	check := col.GetConstraint(ConstraintCheck)
+	if check != nil {
+		t.Errorf("GetConstraint(ConstraintCheck): expected nil, got %v", check)
+	}
+}
+
+func TestTableDef_TableConstraints(t *testing.T) {
+	// Test table-level constraints
+	table := TableDef{
+		Name: "order_items",
+		Columns: []ColumnDef{
+			{Name: "order_id", Type: types.TypeInt},
+			{Name: "product_id", Type: types.TypeInt},
+			{Name: "quantity", Type: types.TypeInt},
+		},
+		TableConstraints: []TableConstraint{
+			{
+				Type:    ConstraintPrimaryKey,
+				Name:    "pk_order_items",
+				Columns: []string{"order_id", "product_id"},
+			},
+			{
+				Type:            ConstraintCheck,
+				Name:            "ck_quantity",
+				CheckExpression: "quantity > 0",
+			},
+		},
+	}
+
+	if len(table.TableConstraints) != 2 {
+		t.Fatalf("TableConstraints: got %d, want 2", len(table.TableConstraints))
+	}
+
+	pk := table.TableConstraints[0]
+	if pk.Type != ConstraintPrimaryKey {
+		t.Errorf("TableConstraints[0].Type: got %v, want ConstraintPrimaryKey", pk.Type)
+	}
+	if len(pk.Columns) != 2 {
+		t.Errorf("TableConstraints[0].Columns: got %d columns, want 2", len(pk.Columns))
+	}
+
+	check := table.TableConstraints[1]
+	if check.CheckExpression != "quantity > 0" {
+		t.Errorf("TableConstraints[1].CheckExpression: got %q, want 'quantity > 0'", check.CheckExpression)
+	}
+}
+
+func TestTableDef_GetTableConstraint(t *testing.T) {
+	table := TableDef{
+		Name: "users",
+		Columns: []ColumnDef{
+			{Name: "id", Type: types.TypeInt},
+		},
+		TableConstraints: []TableConstraint{
+			{Type: ConstraintPrimaryKey, Name: "pk_users", Columns: []string{"id"}},
+		},
+	}
+
+	pk := table.GetTableConstraint(ConstraintPrimaryKey)
+	if pk == nil {
+		t.Fatal("GetTableConstraint(ConstraintPrimaryKey): expected non-nil")
+	}
+	if pk.Name != "pk_users" {
+		t.Errorf("Name: got %q, want 'pk_users'", pk.Name)
+	}
+
+	// Non-existing constraint
+	fk := table.GetTableConstraint(ConstraintForeignKey)
+	if fk != nil {
+		t.Errorf("GetTableConstraint(ConstraintForeignKey): expected nil, got %v", fk)
+	}
+}

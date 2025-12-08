@@ -16,21 +16,67 @@ type Expression interface {
 	expressionNode()
 }
 
+// FKAction represents a foreign key action
+type FKAction int
+
+const (
+	FKActionNoAction FKAction = iota
+	FKActionRestrict
+	FKActionCascade
+	FKActionSetNull
+	FKActionSetDefault
+)
+
+// ForeignKeyRef represents a foreign key reference
+type ForeignKeyRef struct {
+	RefTable  string
+	RefColumn string
+	OnDelete  FKAction
+	OnUpdate  FKAction
+}
+
+// TableConstraintType represents the type of table-level constraint
+type TableConstraintType int
+
+const (
+	TableConstraintPrimaryKey TableConstraintType = iota
+	TableConstraintUnique
+	TableConstraintForeignKey
+	TableConstraintCheck
+)
+
+// TableConstraint represents a table-level constraint
+type TableConstraint struct {
+	Type       TableConstraintType
+	Name       string     // Optional constraint name
+	Columns    []string   // Column names for PK, UNIQUE, FK
+	RefTable   string     // For FK: referenced table
+	RefColumns []string   // For FK: referenced columns
+	OnDelete   FKAction   // For FK: ON DELETE action
+	OnUpdate   FKAction   // For FK: ON UPDATE action
+	CheckExpr  Expression // For CHECK: the check expression
+}
+
 // CreateTableStmt represents a CREATE TABLE statement
 type CreateTableStmt struct {
-	TableName string
-	Columns   []ColumnDef
+	TableName        string
+	Columns          []ColumnDef
+	TableConstraints []TableConstraint
 }
 
 func (s *CreateTableStmt) statementNode() {}
 
 // ColumnDef represents a column definition in CREATE TABLE
 type ColumnDef struct {
-	Name       string
-	Type       types.ValueType
-	PrimaryKey bool
-	NotNull    bool
-	VectorDim  int
+	Name        string
+	Type        types.ValueType
+	PrimaryKey  bool
+	NotNull     bool
+	Unique      bool
+	VectorDim   int
+	DefaultExpr Expression     // For DEFAULT constraint
+	CheckExpr   Expression     // For CHECK constraint
+	ForeignKey  *ForeignKeyRef // For REFERENCES constraint
 }
 
 // InsertStmt represents an INSERT statement

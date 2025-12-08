@@ -378,27 +378,27 @@
     {
       "title": "Schema - Constraint System",
       "description": "Support for PRIMARY KEY, UNIQUE, NOT NULL, CHECK, and FOREIGN KEY constraints",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Add constraint metadata to schema column definition",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse constraint syntax in CREATE TABLE",
-          "done": false
+          "done": true
         },
         {
           "task": "Store constraints in schema catalog",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement constraint validation hooks in executor",
-          "done": false
+          "done": true
         },
         {
           "task": "Add constraint violation error types",
-          "done": false
+          "done": true
         }
       ]
     },

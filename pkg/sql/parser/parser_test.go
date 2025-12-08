@@ -411,3 +411,317 @@ func TestParser_CreateTable_VectorType(t *testing.T) {
 		}
 	}
 }
+
+// ========== Constraint Parsing Tests ==========
+
+func TestParser_CreateTable_UniqueConstraint(t *testing.T) {
+	input := "CREATE TABLE users (email TEXT UNIQUE)"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create := stmt.(*CreateTableStmt)
+	if len(create.Columns) != 1 {
+		t.Fatalf("Columns count = %d, want 1", len(create.Columns))
+	}
+
+	col := create.Columns[0]
+	if !col.Unique {
+		t.Error("Column.Unique = false, want true")
+	}
+}
+
+func TestParser_CreateTable_DefaultConstraint(t *testing.T) {
+	tests := []struct {
+		input          string
+		wantDefaultInt int64
+	}{
+		{"CREATE TABLE t (status INT DEFAULT 0)", 0},
+		{"CREATE TABLE t (count INT DEFAULT 100)", 100},
+	}
+
+	for _, tt := range tests {
+		p := New(tt.input)
+		stmt, err := p.Parse()
+		if err != nil {
+			t.Fatalf("Parse(%q) error: %v", tt.input, err)
+		}
+
+		create := stmt.(*CreateTableStmt)
+		col := create.Columns[0]
+
+		if col.DefaultExpr == nil {
+			t.Fatalf("Parse(%q): DefaultExpr = nil, want non-nil", tt.input)
+		}
+
+		lit, ok := col.DefaultExpr.(*Literal)
+		if !ok {
+			t.Fatalf("Parse(%q): DefaultExpr type = %T, want *Literal", tt.input, col.DefaultExpr)
+		}
+
+		if lit.Value.Int() != tt.wantDefaultInt {
+			t.Errorf("Parse(%q): DefaultExpr value = %d, want %d", tt.input, lit.Value.Int(), tt.wantDefaultInt)
+		}
+	}
+}
+
+func TestParser_CreateTable_DefaultTextConstraint(t *testing.T) {
+	input := "CREATE TABLE t (name TEXT DEFAULT 'unknown')"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create := stmt.(*CreateTableStmt)
+	col := create.Columns[0]
+
+	if col.DefaultExpr == nil {
+		t.Fatal("DefaultExpr = nil, want non-nil")
+	}
+
+	lit := col.DefaultExpr.(*Literal)
+	if lit.Value.Text() != "unknown" {
+		t.Errorf("DefaultExpr value = %q, want 'unknown'", lit.Value.Text())
+	}
+}
+
+func TestParser_CreateTable_CheckConstraint(t *testing.T) {
+	input := "CREATE TABLE t (age INT CHECK (age >= 0))"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create := stmt.(*CreateTableStmt)
+	col := create.Columns[0]
+
+	if col.CheckExpr == nil {
+		t.Fatal("CheckExpr = nil, want non-nil")
+	}
+
+	// Verify it's a binary expression with >= operator
+	binary, ok := col.CheckExpr.(*BinaryExpr)
+	if !ok {
+		t.Fatalf("CheckExpr type = %T, want *BinaryExpr", col.CheckExpr)
+	}
+
+	if binary.Op != lexer.GTE {
+		t.Errorf("CheckExpr.Op = %v, want GTE", binary.Op)
+	}
+}
+
+func TestParser_CreateTable_ForeignKeyConstraint(t *testing.T) {
+	input := "CREATE TABLE orders (user_id INT REFERENCES users(id))"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create := stmt.(*CreateTableStmt)
+	col := create.Columns[0]
+
+	if col.ForeignKey == nil {
+		t.Fatal("ForeignKey = nil, want non-nil")
+	}
+
+	if col.ForeignKey.RefTable != "users" {
+		t.Errorf("ForeignKey.RefTable = %q, want 'users'", col.ForeignKey.RefTable)
+	}
+
+	if col.ForeignKey.RefColumn != "id" {
+		t.Errorf("ForeignKey.RefColumn = %q, want 'id'", col.ForeignKey.RefColumn)
+	}
+}
+
+func TestParser_CreateTable_ForeignKeyWithActions(t *testing.T) {
+	input := "CREATE TABLE orders (user_id INT REFERENCES users(id) ON DELETE CASCADE ON UPDATE SET NULL)"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create := stmt.(*CreateTableStmt)
+	col := create.Columns[0]
+
+	if col.ForeignKey == nil {
+		t.Fatal("ForeignKey = nil, want non-nil")
+	}
+
+	if col.ForeignKey.OnDelete != FKActionCascade {
+		t.Errorf("ForeignKey.OnDelete = %v, want FKActionCascade", col.ForeignKey.OnDelete)
+	}
+
+	if col.ForeignKey.OnUpdate != FKActionSetNull {
+		t.Errorf("ForeignKey.OnUpdate = %v, want FKActionSetNull", col.ForeignKey.OnUpdate)
+	}
+}
+
+func TestParser_CreateTable_MultipleColumnConstraints(t *testing.T) {
+	input := "CREATE TABLE users (id INT PRIMARY KEY NOT NULL, email TEXT UNIQUE NOT NULL, age INT DEFAULT 0 CHECK (age >= 0))"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create := stmt.(*CreateTableStmt)
+	if len(create.Columns) != 3 {
+		t.Fatalf("Columns count = %d, want 3", len(create.Columns))
+	}
+
+	// Check id column
+	id := create.Columns[0]
+	if !id.PrimaryKey {
+		t.Error("id.PrimaryKey = false, want true")
+	}
+	if !id.NotNull {
+		t.Error("id.NotNull = false, want true")
+	}
+
+	// Check email column
+	email := create.Columns[1]
+	if !email.Unique {
+		t.Error("email.Unique = false, want true")
+	}
+	if !email.NotNull {
+		t.Error("email.NotNull = false, want true")
+	}
+
+	// Check age column
+	age := create.Columns[2]
+	if age.DefaultExpr == nil {
+		t.Error("age.DefaultExpr = nil, want non-nil")
+	}
+	if age.CheckExpr == nil {
+		t.Error("age.CheckExpr = nil, want non-nil")
+	}
+}
+
+func TestParser_CreateTable_TableLevelPrimaryKey(t *testing.T) {
+	input := "CREATE TABLE order_items (order_id INT, product_id INT, PRIMARY KEY (order_id, product_id))"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create := stmt.(*CreateTableStmt)
+	if len(create.TableConstraints) != 1 {
+		t.Fatalf("TableConstraints count = %d, want 1", len(create.TableConstraints))
+	}
+
+	pk := create.TableConstraints[0]
+	if pk.Type != TableConstraintPrimaryKey {
+		t.Errorf("TableConstraints[0].Type = %v, want TableConstraintPrimaryKey", pk.Type)
+	}
+
+	if len(pk.Columns) != 2 {
+		t.Fatalf("TableConstraints[0].Columns count = %d, want 2", len(pk.Columns))
+	}
+
+	if pk.Columns[0] != "order_id" || pk.Columns[1] != "product_id" {
+		t.Errorf("TableConstraints[0].Columns = %v, want ['order_id', 'product_id']", pk.Columns)
+	}
+}
+
+func TestParser_CreateTable_TableLevelUnique(t *testing.T) {
+	input := "CREATE TABLE t (a INT, b INT, UNIQUE (a, b))"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create := stmt.(*CreateTableStmt)
+	if len(create.TableConstraints) != 1 {
+		t.Fatalf("TableConstraints count = %d, want 1", len(create.TableConstraints))
+	}
+
+	unique := create.TableConstraints[0]
+	if unique.Type != TableConstraintUnique {
+		t.Errorf("Type = %v, want TableConstraintUnique", unique.Type)
+	}
+
+	if len(unique.Columns) != 2 {
+		t.Errorf("Columns = %v, want 2 columns", unique.Columns)
+	}
+}
+
+func TestParser_CreateTable_TableLevelForeignKey(t *testing.T) {
+	input := "CREATE TABLE orders (id INT, user_id INT, FOREIGN KEY (user_id) REFERENCES users(id))"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create := stmt.(*CreateTableStmt)
+	if len(create.TableConstraints) != 1 {
+		t.Fatalf("TableConstraints count = %d, want 1", len(create.TableConstraints))
+	}
+
+	fk := create.TableConstraints[0]
+	if fk.Type != TableConstraintForeignKey {
+		t.Errorf("Type = %v, want TableConstraintForeignKey", fk.Type)
+	}
+
+	if len(fk.Columns) != 1 || fk.Columns[0] != "user_id" {
+		t.Errorf("Columns = %v, want ['user_id']", fk.Columns)
+	}
+
+	if fk.RefTable != "users" {
+		t.Errorf("RefTable = %q, want 'users'", fk.RefTable)
+	}
+
+	if len(fk.RefColumns) != 1 || fk.RefColumns[0] != "id" {
+		t.Errorf("RefColumns = %v, want ['id']", fk.RefColumns)
+	}
+}
+
+func TestParser_CreateTable_TableLevelCheck(t *testing.T) {
+	input := "CREATE TABLE t (start_date INT, end_date INT, CHECK (start_date < end_date))"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create := stmt.(*CreateTableStmt)
+	if len(create.TableConstraints) != 1 {
+		t.Fatalf("TableConstraints count = %d, want 1", len(create.TableConstraints))
+	}
+
+	check := create.TableConstraints[0]
+	if check.Type != TableConstraintCheck {
+		t.Errorf("Type = %v, want TableConstraintCheck", check.Type)
+	}
+
+	if check.CheckExpr == nil {
+		t.Fatal("CheckExpr = nil, want non-nil")
+	}
+}
+
+func TestParser_CreateTable_NamedConstraint(t *testing.T) {
+	input := "CREATE TABLE t (id INT, CONSTRAINT pk_t PRIMARY KEY (id))"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create := stmt.(*CreateTableStmt)
+	if len(create.TableConstraints) != 1 {
+		t.Fatalf("TableConstraints count = %d, want 1", len(create.TableConstraints))
+	}
+
+	pk := create.TableConstraints[0]
+	if pk.Name != "pk_t" {
+		t.Errorf("Name = %q, want 'pk_t'", pk.Name)
+	}
+}
