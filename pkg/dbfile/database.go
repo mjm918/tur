@@ -224,3 +224,47 @@ func (db *Database) IsClosed() bool {
 	defer db.mu.RUnlock()
 	return db.closed
 }
+
+// SchemaVersion returns the schema format version.
+func (db *Database) SchemaVersion() uint32 {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	return db.header.SchemaVersion
+}
+
+// SetSchemaVersion sets the schema format version.
+func (db *Database) SetSchemaVersion(version uint32) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	db.header.SchemaVersion = version
+}
+
+// SchemaCookie returns the schema cookie (incremented on schema changes).
+func (db *Database) SchemaCookie() uint32 {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	return db.header.SchemaCookie
+}
+
+// IncrementSchemaCookie increments the schema cookie.
+// This should be called when the schema changes (CREATE/DROP TABLE, etc.).
+func (db *Database) IncrementSchemaCookie() {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	db.header.SchemaCookie++
+}
+
+// ChangeCounter returns the file change counter.
+func (db *Database) ChangeCounter() uint32 {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	return db.header.ChangeCounter
+}
+
+// IncrementChangeCounter increments the change counter.
+// This should be called when the database file is modified.
+func (db *Database) IncrementChangeCounter() {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	db.header.ChangeCounter++
+}
