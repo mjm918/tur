@@ -388,3 +388,213 @@ func TestIncrementalIndex_ClearPendingChanges(t *testing.T) {
 		t.Errorf("expected 0 pending changes after clear, got %d", idx.PendingChanges())
 	}
 }
+
+// Tests for Version Tracking
+
+func TestIncrementalIndex_VersionIncrementsOnChange(t *testing.T) {
+	config := Config{
+		M:              16,
+		MMax0:          32,
+		EfConstruction: 100,
+		EfSearch:       50,
+		Dimension:      3,
+		ML:             0.25,
+	}
+
+	idx := NewIncrementalIndex(config)
+
+	// Initial version should be 0
+	if idx.Version() != 0 {
+		t.Errorf("expected initial version 0, got %d", idx.Version())
+	}
+
+	// Insert should increment version
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	idx.Insert(1, v1)
+
+	if idx.Version() != 1 {
+		t.Errorf("expected version 1 after insert, got %d", idx.Version())
+	}
+
+	// Delete should increment version
+	idx.Delete(1)
+
+	if idx.Version() != 2 {
+		t.Errorf("expected version 2 after delete, got %d", idx.Version())
+	}
+}
+
+func TestIncrementalIndex_SnapshotContainsVersion(t *testing.T) {
+	config := Config{
+		M:              16,
+		MMax0:          32,
+		EfConstruction: 100,
+		EfSearch:       50,
+		Dimension:      3,
+		ML:             0.25,
+	}
+
+	idx := NewIncrementalIndex(config)
+
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	idx.Insert(1, v1)
+	idx.Insert(2, v1)
+
+	snapshot := idx.Snapshot()
+
+	// Snapshot version should match last sequence
+	if snapshot.Version != idx.LastSeq() {
+		t.Errorf("snapshot version %d doesn't match lastSeq %d", snapshot.Version, idx.LastSeq())
+	}
+}
+
+func TestIncrementalIndex_CreateCheckpoint(t *testing.T) {
+	config := Config{
+		M:              16,
+		MMax0:          32,
+		EfConstruction: 100,
+		EfSearch:       50,
+		Dimension:      3,
+		ML:             0.25,
+	}
+
+	idx := NewIncrementalIndex(config)
+
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	v2 := types.NewVector([]float32{0.0, 1.0, 0.0})
+	idx.Insert(1, v1)
+	idx.Insert(2, v2)
+
+	// Create a checkpoint
+	checkpoint := idx.CreateCheckpoint()
+
+	if checkpoint.Version == 0 {
+		t.Error("expected checkpoint version > 0")
+	}
+
+	if checkpoint.Timestamp == 0 {
+		t.Error("expected checkpoint timestamp > 0")
+	}
+
+	if checkpoint.NodeCount != 2 {
+		t.Errorf("expected 2 nodes in checkpoint, got %d", checkpoint.NodeCount)
+	}
+
+	// Make more changes
+	idx.Insert(3, v1)
+
+	// Version should have advanced
+	if idx.Version() <= checkpoint.Version {
+		t.Error("version should have advanced after checkpoint")
+	}
+}
+
+func TestIncrementalIndex_RestoreToCheckpoint(t *testing.T) {
+	config := Config{
+		M:              16,
+		MMax0:          32,
+		EfConstruction: 100,
+		EfSearch:       50,
+		Dimension:      3,
+		ML:             0.25,
+	}
+
+	idx := NewIncrementalIndex(config)
+
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	v2 := types.NewVector([]float32{0.0, 1.0, 0.0})
+	idx.Insert(1, v1)
+	idx.Insert(2, v2)
+
+	// Create checkpoint
+	checkpoint := idx.CreateCheckpoint()
+
+	// Make more changes
+	v3 := types.NewVector([]float32{0.0, 0.0, 1.0})
+	idx.Insert(3, v3)
+	idx.Delete(1)
+
+	// Verify current state
+	if idx.Len() != 2 {
+		t.Errorf("expected 2 nodes before restore, got %d", idx.Len())
+	}
+
+	// Get operations since checkpoint
+	ops := idx.OperationsSince(checkpoint.Version)
+	if len(ops) != 2 {
+		t.Errorf("expected 2 operations since checkpoint, got %d", len(ops))
+	}
+}
+
+func TestIncrementalIndex_CheckpointHistory(t *testing.T) {
+	config := Config{
+		M:              16,
+		MMax0:          32,
+		EfConstruction: 100,
+		EfSearch:       50,
+		Dimension:      3,
+		ML:             0.25,
+	}
+
+	idx := NewIncrementalIndex(config)
+
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+
+	// Create multiple checkpoints
+	idx.Insert(1, v1)
+	cp1 := idx.CreateCheckpoint()
+
+	idx.Insert(2, v1)
+	cp2 := idx.CreateCheckpoint()
+
+	idx.Insert(3, v1)
+	cp3 := idx.CreateCheckpoint()
+
+	// Get checkpoint history
+	history := idx.CheckpointHistory()
+
+	if len(history) != 3 {
+		t.Fatalf("expected 3 checkpoints, got %d", len(history))
+	}
+
+	// Checkpoints should be in order
+	if history[0].Version != cp1.Version {
+		t.Error("checkpoint history not in order")
+	}
+	if history[1].Version != cp2.Version {
+		t.Error("checkpoint history not in order")
+	}
+	if history[2].Version != cp3.Version {
+		t.Error("checkpoint history not in order")
+	}
+}
+
+func TestIncrementalIndex_GetOperationsBetweenCheckpoints(t *testing.T) {
+	config := Config{
+		M:              16,
+		MMax0:          32,
+		EfConstruction: 100,
+		EfSearch:       50,
+		Dimension:      3,
+		ML:             0.25,
+	}
+
+	idx := NewIncrementalIndex(config)
+
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+
+	idx.Insert(1, v1)
+	cp1 := idx.CreateCheckpoint()
+
+	idx.Insert(2, v1)
+	idx.Insert(3, v1)
+	idx.Delete(2)
+	cp2 := idx.CreateCheckpoint()
+
+	// Get operations between checkpoints
+	ops := idx.OperationsBetween(cp1.Version, cp2.Version)
+
+	if len(ops) != 3 {
+		t.Fatalf("expected 3 operations between checkpoints, got %d", len(ops))
+	}
+}

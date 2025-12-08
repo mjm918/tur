@@ -3,6 +3,7 @@ package hnsw
 
 import (
 	"sync"
+	"time"
 
 	"tur/pkg/types"
 )
@@ -146,21 +147,30 @@ type IndexSnapshot struct {
 	NodeCount int    // Number of nodes at snapshot time
 }
 
+// Checkpoint represents a named point-in-time state that can be referenced
+type Checkpoint struct {
+	Version   uint64 // Version at time of checkpoint
+	Timestamp int64  // Unix timestamp when checkpoint was created
+	NodeCount int    // Number of nodes at checkpoint time
+}
+
 // IncrementalIndex wraps an HNSW Index with change tracking for incremental updates
 // It maintains a change log that can be used to merge deltas into the main index
 // without requiring a full rebuild
 type IncrementalIndex struct {
-	*Index                // Embedded Index for all HNSW operations
-	changeLog  *ChangeLog // Log of all modifications
-	version    uint64     // Current version (incremented on each change)
+	*Index                   // Embedded Index for all HNSW operations
+	changeLog   *ChangeLog   // Log of all modifications
+	version     uint64       // Current version (incremented on each change)
+	checkpoints []Checkpoint // History of checkpoints
 }
 
 // NewIncrementalIndex creates a new incremental index with change tracking
 func NewIncrementalIndex(config Config) *IncrementalIndex {
 	return &IncrementalIndex{
-		Index:     NewIndex(config),
-		changeLog: NewChangeLog(),
-		version:   0,
+		Index:       NewIndex(config),
+		changeLog:   NewChangeLog(),
+		version:     0,
+		checkpoints: make([]Checkpoint, 0),
 	}
 }
 
@@ -301,4 +311,43 @@ func (idx *IncrementalIndex) ClearPendingChanges() {
 // SearchKNN finds the k nearest neighbors
 func (idx *IncrementalIndex) SearchKNN(query *types.Vector, k int) ([]SearchResult, error) {
 	return idx.Index.SearchKNN(query, k)
+}
+
+// Version returns the current version of the index
+func (idx *IncrementalIndex) Version() uint64 {
+	return idx.version
+}
+
+// CreateCheckpoint creates a new checkpoint at the current state
+func (idx *IncrementalIndex) CreateCheckpoint() Checkpoint {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	cp := Checkpoint{
+		Version:   idx.changeLog.LastSeq(),
+		Timestamp: time.Now().Unix(),
+		NodeCount: len(idx.nodes),
+	}
+
+	idx.checkpoints = append(idx.checkpoints, cp)
+	return cp
+}
+
+// CheckpointHistory returns all checkpoints in creation order
+func (idx *IncrementalIndex) CheckpointHistory() []Checkpoint {
+	result := make([]Checkpoint, len(idx.checkpoints))
+	copy(result, idx.checkpoints)
+	return result
+}
+
+// OperationsBetween returns operations with sequence numbers in range (startSeq, endSeq]
+func (idx *IncrementalIndex) OperationsBetween(startSeq, endSeq uint64) []Operation {
+	allOps := idx.changeLog.Operations()
+	var result []Operation
+	for _, op := range allOps {
+		if op.Seq > startSeq && op.Seq <= endSeq {
+			result = append(result, op)
+		}
+	}
+	return result
 }
