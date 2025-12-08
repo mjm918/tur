@@ -623,3 +623,60 @@ func TestCatalog_IndexCount(t *testing.T) {
 		t.Errorf("IndexCount: got %d, want 2", catalog.IndexCount())
 	}
 }
+
+// ========== HNSW Index Parameters Tests ==========
+
+func TestIndexDef_HNSWParams(t *testing.T) {
+	// Test HNSW index with parameters
+	idx := IndexDef{
+		Name:      "idx_embeddings_vec",
+		TableName: "embeddings",
+		Columns:   []string{"embedding"},
+		Type:      IndexTypeHNSW,
+		Unique:    false,
+		RootPage:  10,
+		HNSWParams: &HNSWParams{
+			M:              16,
+			EfConstruction: 200,
+		},
+	}
+
+	if idx.Type != IndexTypeHNSW {
+		t.Errorf("Type: got %v, want IndexTypeHNSW", idx.Type)
+	}
+	if idx.HNSWParams == nil {
+		t.Fatal("HNSWParams: expected non-nil")
+	}
+	if idx.HNSWParams.M != 16 {
+		t.Errorf("HNSWParams.M: got %d, want 16", idx.HNSWParams.M)
+	}
+	if idx.HNSWParams.EfConstruction != 200 {
+		t.Errorf("HNSWParams.EfConstruction: got %d, want 200", idx.HNSWParams.EfConstruction)
+	}
+}
+
+func TestIndexDef_HNSWParams_Defaults(t *testing.T) {
+	// Test that B-tree index doesn't need HNSW params
+	idx := IndexDef{
+		Name:      "idx_users_email",
+		TableName: "users",
+		Columns:   []string{"email"},
+		Type:      IndexTypeBTree,
+	}
+
+	if idx.HNSWParams != nil {
+		t.Error("HNSWParams: expected nil for BTree index")
+	}
+}
+
+func TestHNSWParams_DefaultValues(t *testing.T) {
+	params := DefaultHNSWParams()
+
+	// SQLite vec extension defaults: M=16, efConstruction=200
+	if params.M != 16 {
+		t.Errorf("M: got %d, want 16", params.M)
+	}
+	if params.EfConstruction != 200 {
+		t.Errorf("EfConstruction: got %d, want 200", params.EfConstruction)
+	}
+}

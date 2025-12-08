@@ -131,14 +131,29 @@ func (it IndexType) String() string {
 	}
 }
 
+// HNSWParams holds HNSW-specific index parameters
+type HNSWParams struct {
+	M              int // Maximum number of connections per node (default: 16)
+	EfConstruction int // Size of the dynamic candidate list during construction (default: 200)
+}
+
+// DefaultHNSWParams returns HNSW parameters with SQLite vec extension defaults
+func DefaultHNSWParams() *HNSWParams {
+	return &HNSWParams{
+		M:              16,
+		EfConstruction: 200,
+	}
+}
+
 // IndexDef defines an index schema
 type IndexDef struct {
-	Name      string    // Index name
-	TableName string    // Table the index belongs to
-	Columns   []string  // Column names in the index (order matters for multi-column)
-	Type      IndexType // Type of index (B-tree or HNSW)
-	Unique    bool      // Whether the index enforces uniqueness
-	RootPage  uint32    // B-tree root page number for this index
+	Name       string      // Index name
+	TableName  string      // Table the index belongs to
+	Columns    []string    // Column names in the index (order matters for multi-column)
+	Type       IndexType   // Type of index (B-tree or HNSW)
+	Unique     bool        // Whether the index enforces uniqueness
+	RootPage   uint32      // B-tree root page number for this index
+	HNSWParams *HNSWParams // HNSW-specific parameters (nil for non-HNSW indexes)
 }
 
 // ColumnDef defines a table column

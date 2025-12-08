@@ -421,7 +421,7 @@
         },
         {
           "task": "Store HNSW parameters (M, efConstruction) in metadata",
-          "done": false
+          "done": true
         },
         {
           "task": "Add index lookup by table and column names",
