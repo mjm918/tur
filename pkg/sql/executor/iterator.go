@@ -405,6 +405,151 @@ func (it *NestedLoopJoinIterator) Close() {
 	// Right is already closed/materialized
 }
 
+// HashJoinIterator performs hash join for equi-joins
+// Build phase: materialize left side into hash table keyed by join key
+// Probe phase: for each right row, look up matching left rows
+type HashJoinIterator struct {
+	left     RowIterator
+	right    RowIterator
+	executor *Executor
+
+	// Join key column indices
+	leftKeyIdx  int
+	rightKeyIdx int
+
+	// Schema info
+	leftSchemaLen  int
+	rightSchemaLen int
+	combinedMap    map[string]int
+
+	// Hash table: key hash -> list of left rows with that key
+	hashTable map[string][][]types.Value
+
+	// Current state
+	currentRightRow  []types.Value
+	matchingLeftRows [][]types.Value
+	matchingIdx      int
+	built            bool
+	rightExhausted   bool
+	val              []types.Value
+}
+
+// buildHashTable materializes the left side into a hash map
+func (it *HashJoinIterator) buildHashTable() {
+	it.hashTable = make(map[string][][]types.Value)
+
+	for it.left.Next() {
+		row := it.left.Value()
+		clone := make([]types.Value, len(row))
+		copy(clone, row)
+
+		// Get key value
+		if it.leftKeyIdx >= len(clone) {
+			continue
+		}
+		keyVal := clone[it.leftKeyIdx]
+		keyStr := valueToHashKey(keyVal)
+
+		it.hashTable[keyStr] = append(it.hashTable[keyStr], clone)
+	}
+	it.left.Close()
+
+	// Infer leftSchemaLen from first entry if not set
+	if it.leftSchemaLen == 0 {
+		for _, rows := range it.hashTable {
+			if len(rows) > 0 {
+				it.leftSchemaLen = len(rows[0])
+				break
+			}
+		}
+	}
+}
+
+func (it *HashJoinIterator) Next() bool {
+	// Build phase (first call)
+	if !it.built {
+		it.buildHashTable()
+		it.built = true
+	}
+
+	// Continue matching from current bucket
+	for {
+		// If we have matching left rows for current right row
+		if it.matchingIdx < len(it.matchingLeftRows) {
+			leftRow := it.matchingLeftRows[it.matchingIdx]
+			it.matchingIdx++
+
+			// Combine left + right rows
+			combined := make([]types.Value, len(leftRow)+len(it.currentRightRow))
+			copy(combined, leftRow)
+			copy(combined[len(leftRow):], it.currentRightRow)
+			it.val = combined
+			return true
+		}
+
+		// Need next right row
+		if it.rightExhausted {
+			return false
+		}
+
+		if !it.right.Next() {
+			it.rightExhausted = true
+			return false
+		}
+
+		// Get right row and probe hash table
+		rightRow := it.right.Value()
+		it.currentRightRow = make([]types.Value, len(rightRow))
+		copy(it.currentRightRow, rightRow)
+
+		// Infer rightSchemaLen
+		if it.rightSchemaLen == 0 {
+			it.rightSchemaLen = len(rightRow)
+		}
+
+		// Get key value from right row
+		if it.rightKeyIdx >= len(rightRow) {
+			it.matchingLeftRows = nil
+			it.matchingIdx = 0
+			continue
+		}
+		keyVal := rightRow[it.rightKeyIdx]
+		keyStr := valueToHashKey(keyVal)
+
+		// Look up in hash table
+		it.matchingLeftRows = it.hashTable[keyStr]
+		it.matchingIdx = 0
+	}
+}
+
+func (it *HashJoinIterator) Value() []types.Value {
+	return it.val
+}
+
+func (it *HashJoinIterator) Close() {
+	it.right.Close()
+	// Left is already closed
+}
+
+// valueToHashKey converts a value to a string key for the hash table
+func valueToHashKey(v types.Value) string {
+	if v.IsNull() {
+		return "NULL"
+	}
+	switch v.Type() {
+	case types.TypeInt:
+		return fmt.Sprintf("I:%d", v.Int())
+	case types.TypeFloat:
+		return fmt.Sprintf("F:%f", v.Float())
+	case types.TypeText:
+		return fmt.Sprintf("T:%s", v.Text())
+	case types.TypeBlob:
+		return fmt.Sprintf("B:%x", v.Blob())
+	default:
+		return fmt.Sprintf("?:%v", v)
+	}
+}
+
 // SortIterator materializes and sorts rows from child
 type SortIterator struct {
 	child    RowIterator

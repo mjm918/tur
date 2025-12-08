@@ -12,9 +12,9 @@
       ],
       "implementationCycle": [
         "STEP 1: Create feature worktree with dedicated directory",
-        "  → Run: git worktree add ../tur-feature-<feature-title-kebab-case> -b feature/<feature-title-kebab-case>",
-        "  → Example: git worktree add ../tur-feature-storage-database-file-format -b feature/storage-database-file-format",
-        "  → Change directory: cd ../tur-feature-<feature-title-kebab-case>",
+        "  → Run: git worktree add ./tur-feature-<feature-title-kebab-case> -b feature/<feature-title-kebab-case>",
+        "  → Example: git worktree add ./tur-feature-storage-database-file-format -b feature/storage-database-file-format",
+        "  → Change directory: cd ./tur-feature-<feature-title-kebab-case>",
         "",
         "STEP 2: For EACH task in the feature.tasks array (in order):",
         "  ",
@@ -986,13 +986,13 @@
         },
         {
           "task": "Update indexes to remove deleted entries",
-          "done": false,
-          "note": "Deferred: index update on delete requires index tracking of rowids"
+          "done": true,
+          "note": "Implemented: deleteFromIndexes in executor_indexes.go"
         },
         {
           "task": "Check foreign key constraints before deletion",
-          "done": false,
-          "note": "Deferred: requires full foreign key enforcement implementation"
+          "done": true,
+          "note": "Implemented: checkForeignKeyOnDelete with NO ACTION/RESTRICT support"
         }
       ]
     },
@@ -1053,8 +1053,8 @@
         },
         {
           "task": "Implement hash join for equi-joins",
-          "done": false,
-          "note": "Deferred - HashJoinNode exists in optimizer but executor not implemented"
+          "done": true,
+          "note": "Implemented: HashJoinIterator with build-and-probe phases"
         },
         {
           "task": "Handle NULL padding for outer joins",

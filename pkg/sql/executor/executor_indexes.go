@@ -79,3 +79,59 @@ func (e *Executor) updateIndexes(table *schema.TableDef, rowID uint64, values []
 
 	return nil
 }
+
+// deleteFromIndexes removes index entries for a deleted row
+func (e *Executor) deleteFromIndexes(table *schema.TableDef, rowID uint64, values []types.Value) error {
+	indexes := e.catalog.GetIndexesForTable(table.Name)
+	if len(indexes) == 0 {
+		return nil
+	}
+
+	// Map column name to value for easy access
+	valMap := make(map[string]types.Value)
+	for i, col := range table.Columns {
+		if i < len(values) {
+			valMap[col.Name] = values[i]
+		}
+	}
+
+	for _, idx := range indexes {
+		// Get B-tree for index
+		idxTreeName := "index:" + idx.Name
+		tree := e.trees[idxTreeName]
+		if tree == nil {
+			tree = btree.Open(e.pager, idx.RootPage)
+			e.trees[idxTreeName] = tree
+		}
+
+		// Build index key values
+		var keyValues []types.Value
+		for _, colName := range idx.Columns {
+			val, ok := valMap[colName]
+			if !ok {
+				val = types.NewNull()
+			}
+			keyValues = append(keyValues, val)
+		}
+
+		// Build key (same logic as updateIndexes)
+		var key []byte
+		if idx.Unique {
+			// Unique index: Key = Columns
+			key = record.Encode(keyValues)
+		} else {
+			// Non-unique index: Key = Columns + RowID
+			keyValues = append(keyValues, types.NewInt(int64(rowID)))
+			key = record.Encode(keyValues)
+		}
+
+		// Delete from index
+		if err := tree.Delete(key); err != nil {
+			// Ignore "key not found" errors as index might not have the entry
+			// This can happen for rows inserted before index was created
+			continue
+		}
+	}
+
+	return nil
+}

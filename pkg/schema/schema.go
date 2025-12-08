@@ -161,11 +161,11 @@ type IndexDef struct {
 type ColumnDef struct {
 	Name        string
 	Type        types.ValueType
-	PrimaryKey  bool           // Legacy field for backward compatibility
-	NotNull     bool           // Legacy field for backward compatibility
-	Default     *types.Value   // nil means no default (legacy)
-	VectorDim   int            // Dimension for VECTOR type, 0 for others
-	Constraints []Constraint   // Column-level constraints
+	PrimaryKey  bool         // Legacy field for backward compatibility
+	NotNull     bool         // Legacy field for backward compatibility
+	Default     *types.Value // nil means no default (legacy)
+	VectorDim   int          // Dimension for VECTOR type, 0 for others
+	Constraints []Constraint // Column-level constraints
 }
 
 // HasConstraint returns true if the column has a constraint of the given type
@@ -514,4 +514,60 @@ func (c *Catalog) GetColumnStatistics(tableName, columnName string) *ColumnStati
 	}
 
 	return tableStats.ColumnStats[columnName]
+}
+
+// ForeignKeyReference represents a foreign key that references a specific table/column
+type ForeignKeyReference struct {
+	ReferencingTable   string           // Table containing the FK
+	ReferencingColumn  string           // Column with the FK (for column-level)
+	ReferencingColumns []string         // Columns with FK (for table-level composite)
+	OnDelete           ForeignKeyAction // Action on delete
+	OnUpdate           ForeignKeyAction // Action on update
+}
+
+// GetForeignKeyReferences returns all foreign key references to a specific table and column
+// This is used to check FK constraints before DELETE operations
+func (c *Catalog) GetForeignKeyReferences(tableName, columnName string) []ForeignKeyReference {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var refs []ForeignKeyReference
+
+	for _, table := range c.tables {
+		// Check column-level constraints
+		for _, col := range table.Columns {
+			for _, constraint := range col.Constraints {
+				if constraint.Type == ConstraintForeignKey &&
+					constraint.RefTable == tableName &&
+					constraint.RefColumn == columnName {
+					refs = append(refs, ForeignKeyReference{
+						ReferencingTable:  table.Name,
+						ReferencingColumn: col.Name,
+						OnDelete:          constraint.OnDelete,
+						OnUpdate:          constraint.OnUpdate,
+					})
+				}
+			}
+		}
+
+		// Check table-level constraints
+		for _, tc := range table.TableConstraints {
+			if tc.Type == ConstraintForeignKey && tc.RefTable == tableName {
+				// Check if the referenced column is in the list
+				for _, refCol := range tc.RefColumns {
+					if refCol == columnName {
+						refs = append(refs, ForeignKeyReference{
+							ReferencingTable:   table.Name,
+							ReferencingColumns: tc.Columns,
+							OnDelete:           tc.OnDelete,
+							OnUpdate:           tc.OnUpdate,
+						})
+						break
+					}
+				}
+			}
+		}
+	}
+
+	return refs
 }

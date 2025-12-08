@@ -631,8 +631,12 @@ func (e *Executor) executeDelete(stmt *parser.DeleteStmt) (*Result, error) {
 		colMap[col.Name] = i
 	}
 
-	// Collect keys to delete: iterate through all rows, evaluate WHERE clause
-	var keysToDelete [][]byte
+	// Collect entries to delete: iterate through all rows, evaluate WHERE clause
+	type deleteEntry struct {
+		key    []byte
+		values []types.Value
+	}
+	var entriesToDelete []deleteEntry
 
 	cursor := tree.Cursor()
 	defer cursor.Close()
@@ -658,13 +662,27 @@ func (e *Executor) executeDelete(stmt *parser.DeleteStmt) (*Result, error) {
 		// Copy key for deletion (cursor key may be reused)
 		keyCopy := make([]byte, len(key))
 		copy(keyCopy, key)
-		keysToDelete = append(keysToDelete, keyCopy)
+		entriesToDelete = append(entriesToDelete, deleteEntry{key: keyCopy, values: values})
 	}
 
 	// Delete collected rows
 	var rowsAffected int64
-	for _, key := range keysToDelete {
-		if err := tree.Delete(key); err != nil {
+	for _, entry := range entriesToDelete {
+		// Extract rowid from key for index deletion
+		rowid := binary.BigEndian.Uint64(entry.key)
+
+		// Check foreign key constraints before deletion
+		if err := e.checkForeignKeyOnDelete(table, entry.values, colMap); err != nil {
+			return nil, err
+		}
+
+		// Delete from indexes first
+		if err := e.deleteFromIndexes(table, rowid, entry.values); err != nil {
+			return nil, fmt.Errorf("failed to delete from indexes: %w", err)
+		}
+
+		// Delete from main table
+		if err := tree.Delete(entry.key); err != nil {
 			return nil, fmt.Errorf("failed to delete row: %w", err)
 		}
 		rowsAffected++
@@ -676,6 +694,151 @@ func (e *Executor) executeDelete(stmt *parser.DeleteStmt) (*Result, error) {
 	}
 
 	return &Result{RowsAffected: rowsAffected}, nil
+}
+
+// checkForeignKeyOnDelete checks if deleting a row would violate foreign key constraints
+// in other tables that reference this table
+func (e *Executor) checkForeignKeyOnDelete(table *schema.TableDef, values []types.Value, colMap map[string]int) error {
+	// For each column that might be referenced, check for FK constraints
+	for i, col := range table.Columns {
+		// Get all FK references to this table/column
+		refs := e.catalog.GetForeignKeyReferences(table.Name, col.Name)
+		if len(refs) == 0 {
+			continue
+		}
+
+		// Get the value being deleted
+		if i >= len(values) {
+			continue
+		}
+		deletedValue := values[i]
+
+		// Check each referencing table for rows that reference this value
+		for _, ref := range refs {
+			// Get the referencing table
+			refTable := e.catalog.GetTable(ref.ReferencingTable)
+			if refTable == nil {
+				continue
+			}
+
+			// Get or open the B-tree for the referencing table
+			refTree := e.trees[ref.ReferencingTable]
+			if refTree == nil {
+				if refTable.RootPage == 0 {
+					continue
+				}
+				refTree = btree.Open(e.pager, refTable.RootPage)
+				e.trees[ref.ReferencingTable] = refTree
+			}
+
+			// Find the column index in the referencing table
+			var refColIdx int = -1
+			if ref.ReferencingColumn != "" {
+				// Column-level FK
+				_, refColIdx = refTable.GetColumn(ref.ReferencingColumn)
+			} else if len(ref.ReferencingColumns) > 0 {
+				// Table-level FK - find the corresponding column
+				_, refColIdx = refTable.GetColumn(ref.ReferencingColumns[0])
+			}
+			if refColIdx < 0 {
+				continue
+			}
+
+			// Scan the referencing table for matching rows
+			cursor := refTree.Cursor()
+			for cursor.First(); cursor.Valid(); cursor.Next() {
+				refRowData := cursor.Value()
+				refRowValues := record.Decode(refRowData)
+
+				if refColIdx >= len(refRowValues) {
+					continue
+				}
+
+				refValue := refRowValues[refColIdx]
+
+				// Check if the FK value matches the value being deleted
+				if valuesEqual(refValue, deletedValue) {
+					cursor.Close()
+
+					// Handle based on ON DELETE action
+					switch ref.OnDelete {
+					case schema.FKActionNoAction, schema.FKActionRestrict:
+						return fmt.Errorf("FOREIGN KEY constraint failed: table '%s' has rows referencing this record (ON DELETE %s)",
+							ref.ReferencingTable, ref.OnDelete.String())
+					case schema.FKActionCascade:
+						// TODO: Implement CASCADE - delete referencing rows
+						return fmt.Errorf("ON DELETE CASCADE not yet implemented: cannot delete row referenced by '%s'",
+							ref.ReferencingTable)
+					case schema.FKActionSetNull:
+						// TODO: Implement SET NULL - update FK columns to NULL
+						return fmt.Errorf("ON DELETE SET NULL not yet implemented: cannot delete row referenced by '%s'",
+							ref.ReferencingTable)
+					case schema.FKActionSetDefault:
+						// TODO: Implement SET DEFAULT - update FK columns to default
+						return fmt.Errorf("ON DELETE SET DEFAULT not yet implemented: cannot delete row referenced by '%s'",
+							ref.ReferencingTable)
+					}
+				}
+			}
+			cursor.Close()
+		}
+	}
+
+	return nil
+}
+
+// valuesEqual compares two values for equality (used in FK checks)
+func valuesEqual(a, b types.Value) bool {
+	if a.IsNull() && b.IsNull() {
+		return true
+	}
+	if a.IsNull() || b.IsNull() {
+		return false
+	}
+	if a.Type() != b.Type() {
+		// Try numeric comparison
+		if isNumeric(a) && isNumeric(b) {
+			return toFloat(a) == toFloat(b)
+		}
+		return false
+	}
+
+	switch a.Type() {
+	case types.TypeInt:
+		return a.Int() == b.Int()
+	case types.TypeFloat:
+		return a.Float() == b.Float()
+	case types.TypeText:
+		return a.Text() == b.Text()
+	case types.TypeBlob:
+		aBlob, bBlob := a.Blob(), b.Blob()
+		if len(aBlob) != len(bBlob) {
+			return false
+		}
+		for i := range aBlob {
+			if aBlob[i] != bBlob[i] {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+func isNumeric(v types.Value) bool {
+	return v.Type() == types.TypeInt || v.Type() == types.TypeFloat
+}
+
+func toFloat(v types.Value) float64 {
+	switch v.Type() {
+	case types.TypeInt:
+		return float64(v.Int())
+	case types.TypeFloat:
+		return v.Float()
+	default:
+		return 0
+	}
 }
 
 // incrementTableRowCount increments the row count in table statistics
@@ -932,6 +1095,57 @@ func (e *Executor) executePlan(plan optimizer.PlanNode) (RowIterator, []string, 
 			combinedMap:    colMap,
 			leftSchemaLen:  len(leftCols),
 			rightSchemaLen: len(rightCols),
+		}, combinedCols, nil
+
+	case *optimizer.HashJoinNode:
+		leftIter, leftCols, err := e.executePlan(node.Left)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		rightIter, rightCols, err := e.executePlan(node.Right)
+		if err != nil {
+			leftIter.Close()
+			return nil, nil, err
+		}
+
+		combinedCols := append(append([]string{}, leftCols...), rightCols...)
+		colMap := e.buildColMap(combinedCols)
+
+		// Find column index for left key
+		leftKeyIdx := -1
+		leftColMap := e.buildColMap(leftCols)
+		if idx, ok := leftColMap[node.LeftKey]; ok {
+			leftKeyIdx = idx
+		}
+
+		// Find column index for right key
+		rightKeyIdx := -1
+		rightColMap := e.buildColMap(rightCols)
+		if idx, ok := rightColMap[node.RightKey]; ok {
+			rightKeyIdx = idx
+		}
+
+		if leftKeyIdx < 0 {
+			leftIter.Close()
+			rightIter.Close()
+			return nil, nil, fmt.Errorf("hash join: left key column '%s' not found", node.LeftKey)
+		}
+		if rightKeyIdx < 0 {
+			leftIter.Close()
+			rightIter.Close()
+			return nil, nil, fmt.Errorf("hash join: right key column '%s' not found", node.RightKey)
+		}
+
+		return &HashJoinIterator{
+			left:           leftIter,
+			right:          rightIter,
+			executor:       e,
+			leftKeyIdx:     leftKeyIdx,
+			rightKeyIdx:    rightKeyIdx,
+			leftSchemaLen:  len(leftCols),
+			rightSchemaLen: len(rightCols),
+			combinedMap:    colMap,
 		}, combinedCols, nil
 
 	case *optimizer.SortNode:
