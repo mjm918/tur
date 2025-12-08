@@ -239,3 +239,22 @@ type WithClause struct {
 	Recursive bool  // Whether this is RECURSIVE
 	CTEs      []CTE // List of CTEs
 }
+
+// SetOperator represents a set operation type
+type SetOperator int
+
+const (
+	SetOpUnion SetOperator = iota
+	SetOpIntersect
+	SetOpExcept
+)
+
+// SetOperation represents a set operation (UNION, INTERSECT, EXCEPT)
+type SetOperation struct {
+	Left     *SelectStmt // Left query
+	Operator SetOperator // Set operator
+	All      bool        // Whether this is UNION ALL, etc.
+	Right    *SelectStmt // Right query
+}
+
+func (s *SetOperation) statementNode() {}

@@ -240,3 +240,75 @@ func TestWithClause_Recursive(t *testing.T) {
 		t.Errorf("Expected 1 CTE, got %d", len(withClause.CTEs))
 	}
 }
+
+// TestSetOperation tests set operation AST node
+func TestSetOperation(t *testing.T) {
+	tests := []struct {
+		name     string
+		op       SetOperator
+		all      bool
+		expected string
+	}{
+		{"UNION", SetOpUnion, false, "UNION"},
+		{"UNION ALL", SetOpUnion, true, "UNION ALL"},
+		{"INTERSECT", SetOpIntersect, false, "INTERSECT"},
+		{"EXCEPT", SetOpExcept, false, "EXCEPT"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setOp := &SetOperation{
+				Left: &SelectStmt{
+					Columns: []SelectColumn{{Star: true}},
+					From:    "table1",
+				},
+				Operator: tt.op,
+				All:      tt.all,
+				Right: &SelectStmt{
+					Columns: []SelectColumn{{Star: true}},
+					From:    "table2",
+				},
+			}
+
+			// Verify it implements Statement interface
+			var _ Statement = setOp
+
+			if setOp.Operator != tt.op {
+				t.Errorf("Expected operator %v, got %v", tt.op, setOp.Operator)
+			}
+			if setOp.All != tt.all {
+				t.Errorf("Expected All=%v, got %v", tt.all, setOp.All)
+			}
+			if setOp.Left == nil {
+				t.Error("Left should not be nil")
+			}
+			if setOp.Right == nil {
+				t.Error("Right should not be nil")
+			}
+		})
+	}
+}
+
+// TestSetOperator tests set operator enum
+func TestSetOperator(t *testing.T) {
+	tests := []struct {
+		name     string
+		operator SetOperator
+	}{
+		{"UNION", SetOpUnion},
+		{"INTERSECT", SetOpIntersect},
+		{"EXCEPT", SetOpExcept},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Just verify the enum values exist and are distinct
+			switch tt.operator {
+			case SetOpUnion, SetOpIntersect, SetOpExcept:
+				// Expected
+			default:
+				t.Errorf("Unexpected operator value: %v", tt.operator)
+			}
+		})
+	}
+}

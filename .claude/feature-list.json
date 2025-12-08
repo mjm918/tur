@@ -533,7 +533,7 @@
         },
         {
           "task": "Add AST nodes for set operations (UNION, INTERSECT, EXCEPT)",
-          "done": false
+          "done": true
         },
         {
           "task": "Add AST nodes for trigger definitions",
