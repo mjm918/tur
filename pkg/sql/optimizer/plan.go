@@ -204,6 +204,45 @@ func (n *LimitNode) EstimatedRows() int64 {
 	return inputRows / 2
 }
 
+// AggregateExpr represents an aggregate function in a query
+type AggregateExpr struct {
+	FuncName string            // e.g., "COUNT", "SUM", "AVG"
+	Arg      parser.Expression // The argument to the aggregate (e.g., column ref)
+}
+
+// AggregateNode represents a GROUP BY operation with aggregations
+type AggregateNode struct {
+	Input      PlanNode            // Input plan (filtered data)
+	GroupBy    []parser.Expression // GROUP BY expressions (e.g., column refs)
+	Aggregates []AggregateExpr     // Aggregate functions to compute
+	Having     parser.Expression   // Optional HAVING filter (nil if none)
+}
+
+func (n *AggregateNode) EstimatedCost() float64 {
+	// Aggregate cost = child cost + (rows * cost per group operation)
+	const costPerGroupOp = 0.02
+	inputRows := float64(n.Input.EstimatedRows())
+	return n.Input.EstimatedCost() + (inputRows * costPerGroupOp)
+}
+
+func (n *AggregateNode) EstimatedRows() int64 {
+	// Estimate: number of groups = sqrt(input rows) as a heuristic
+	// This is a rough estimate since we don't know actual group cardinality
+	inputRows := n.Input.EstimatedRows()
+	if inputRows <= 1 {
+		return 1
+	}
+	// Use sqrt as rough group count estimate
+	groupCount := int64(1)
+	for groupCount*groupCount < inputRows {
+		groupCount++
+	}
+	if groupCount > inputRows {
+		groupCount = inputRows
+	}
+	return groupCount
+}
+
 // Helper for log base 2
 func log2(x float64) float64 {
 	if x <= 1 {

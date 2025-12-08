@@ -983,6 +983,34 @@ func (e *Executor) executePlan(plan optimizer.PlanNode) (RowIterator, []string, 
 			offset: offset,
 		}, inputCols, nil
 
+	case *optimizer.AggregateNode:
+		inputIter, inputCols, err := e.executePlan(node.Input)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		colMap := e.buildColMap(inputCols)
+
+		// Build output column names: groupBy columns + aggregate results
+		var outputCols []string
+		for _, expr := range node.GroupBy {
+			if colRef, ok := expr.(*parser.ColumnRef); ok {
+				outputCols = append(outputCols, colRef.Name)
+			} else {
+				outputCols = append(outputCols, "?")
+			}
+		}
+		// Add a column for COUNT(*) as placeholder
+		outputCols = append(outputCols, "COUNT(*)")
+
+		return &HashGroupByIterator{
+			child:    inputIter,
+			groupBy:  node.GroupBy,
+			having:   node.Having,
+			colMap:   colMap,
+			executor: e,
+		}, outputCols, nil
+
 	default:
 		return nil, nil, fmt.Errorf("unsupported plan node: %T", plan)
 	}

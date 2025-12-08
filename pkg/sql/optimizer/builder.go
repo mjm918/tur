@@ -24,14 +24,28 @@ func BuildPlan(stmt *parser.SelectStmt, catalog *schema.Catalog) (PlanNode, erro
 		}
 	}
 
-	// 3. Apply Projection (Select columns)
+	// 3. Apply GROUP BY with aggregations
+	if len(stmt.GroupBy) > 0 {
+		// Extract aggregate functions from SELECT columns
+		aggregates := extractAggregates(stmt.Columns)
+
+		node = &AggregateNode{
+			Input:      node,
+			GroupBy:    stmt.GroupBy,
+			Aggregates: aggregates,
+			Having:     stmt.Having,
+		}
+	}
+
+	// 4. Apply Projection (Select columns)
+	// Skip projection when GROUP BY is present - AggregateNode handles column output
 	// Check if SELECT *
 	isStar := false
 	if len(stmt.Columns) == 1 && stmt.Columns[0].Star {
 		isStar = true
 	}
 
-	if !isStar {
+	if !isStar && len(stmt.GroupBy) == 0 {
 		var exprs []parser.Expression
 		for _, col := range stmt.Columns {
 			// Convert SelectColumn to Expression
@@ -45,7 +59,7 @@ func BuildPlan(stmt *parser.SelectStmt, catalog *schema.Catalog) (PlanNode, erro
 		}
 	}
 
-	// 4. Apply ORDER BY (Sort)
+	// 5. Apply ORDER BY (Sort)
 	if len(stmt.OrderBy) > 0 {
 		node = &SortNode{
 			Input:   node,
@@ -53,7 +67,7 @@ func BuildPlan(stmt *parser.SelectStmt, catalog *schema.Catalog) (PlanNode, erro
 		}
 	}
 
-	// 5. Apply LIMIT/OFFSET
+	// 6. Apply LIMIT/OFFSET
 	if stmt.Limit != nil || stmt.Offset != nil {
 		node = &LimitNode{
 			Input:  node,
@@ -63,6 +77,40 @@ func BuildPlan(stmt *parser.SelectStmt, catalog *schema.Catalog) (PlanNode, erro
 	}
 
 	return node, nil
+}
+
+// extractAggregates extracts aggregate function expressions from SELECT columns
+// This is a simplified extraction - in a full implementation, we'd parse the
+// actual expression trees, but here we work with column names which may contain
+// function names like "COUNT", "SUM", etc.
+func extractAggregates(columns []parser.SelectColumn) []AggregateExpr {
+	var aggregates []AggregateExpr
+
+	// For now, we detect aggregate functions by name pattern matching
+	// In a full implementation, the parser would create proper FunctionCall nodes
+	aggregateFuncs := map[string]bool{
+		"COUNT": true, "SUM": true, "AVG": true, "MIN": true, "MAX": true,
+	}
+
+	for _, col := range columns {
+		if col.Star {
+			continue
+		}
+		// Check if the column name is an aggregate function
+		// This is a simplified check - real implementation would use AST
+		name := col.Name
+		for funcName := range aggregateFuncs {
+			if len(name) >= len(funcName) && name[:len(funcName)] == funcName {
+				aggregates = append(aggregates, AggregateExpr{
+					FuncName: funcName,
+					Arg:      nil, // Arg would be parsed from the actual expression
+				})
+				break
+			}
+		}
+	}
+
+	return aggregates
 }
 
 func buildTableReference(ref parser.TableReference, catalog *schema.Catalog) (PlanNode, error) {
