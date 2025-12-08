@@ -73,6 +73,20 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Function: builtinLength,
 	})
 
+	// Register UPPER function
+	r.Register(&ScalarFunction{
+		Name:     "UPPER",
+		NumArgs:  1,
+		Function: builtinUpper,
+	})
+
+	// Register LOWER function
+	r.Register(&ScalarFunction{
+		Name:     "LOWER",
+		NumArgs:  1,
+		Function: builtinLower,
+	})
+
 	return r
 }
 
@@ -202,4 +216,42 @@ func builtinLength(args []types.Value) types.Value {
 	default:
 		return types.NewNull()
 	}
+}
+
+// builtinUpper implements UPPER(string)
+// Converts string to uppercase using Unicode case folding.
+func builtinUpper(args []types.Value) types.Value {
+	if len(args) != 1 {
+		return types.NewNull()
+	}
+
+	val := args[0]
+	if val.IsNull() {
+		return types.NewNull()
+	}
+
+	if val.Type() != types.TypeText {
+		return types.NewNull()
+	}
+
+	return types.NewText(strings.ToUpper(val.Text()))
+}
+
+// builtinLower implements LOWER(string)
+// Converts string to lowercase using Unicode case folding.
+func builtinLower(args []types.Value) types.Value {
+	if len(args) != 1 {
+		return types.NewNull()
+	}
+
+	val := args[0]
+	if val.IsNull() {
+		return types.NewNull()
+	}
+
+	if val.Type() != types.TypeText {
+		return types.NewNull()
+	}
+
+	return types.NewText(strings.ToLower(val.Text()))
 }

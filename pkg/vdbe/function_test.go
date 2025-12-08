@@ -305,3 +305,95 @@ func TestLength_Numeric(t *testing.T) {
 		}
 	}
 }
+
+func TestUpper(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	upper := registry.Lookup("UPPER")
+	if upper == nil {
+		t.Fatal("UPPER function not found in default registry")
+	}
+
+	tests := []struct {
+		input  string
+		expect string
+	}{
+		{"hello", "HELLO"},
+		{"Hello World", "HELLO WORLD"},
+		{"ALREADY UPPER", "ALREADY UPPER"},
+		{"", ""},
+		{"123abc", "123ABC"},
+		{"hélló", "HÉLLÓ"}, // Unicode
+		{"日本語", "日本語"},   // Non-Latin (no case change)
+	}
+
+	for _, tc := range tests {
+		args := []types.Value{types.NewText(tc.input)}
+		result := upper.Call(args)
+
+		if result.Type() != types.TypeText {
+			t.Errorf("UPPER(%q): expected text, got %v", tc.input, result.Type())
+			continue
+		}
+		if result.Text() != tc.expect {
+			t.Errorf("UPPER(%q): expected %q, got %q", tc.input, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestUpper_Null(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	upper := registry.Lookup("UPPER")
+
+	args := []types.Value{types.NewNull()}
+	result := upper.Call(args)
+
+	if !result.IsNull() {
+		t.Error("UPPER(NULL) should return NULL")
+	}
+}
+
+func TestLower(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	lower := registry.Lookup("LOWER")
+	if lower == nil {
+		t.Fatal("LOWER function not found in default registry")
+	}
+
+	tests := []struct {
+		input  string
+		expect string
+	}{
+		{"HELLO", "hello"},
+		{"Hello World", "hello world"},
+		{"already lower", "already lower"},
+		{"", ""},
+		{"123ABC", "123abc"},
+		{"HÉLLÓ", "hélló"}, // Unicode
+		{"日本語", "日本語"},   // Non-Latin (no case change)
+	}
+
+	for _, tc := range tests {
+		args := []types.Value{types.NewText(tc.input)}
+		result := lower.Call(args)
+
+		if result.Type() != types.TypeText {
+			t.Errorf("LOWER(%q): expected text, got %v", tc.input, result.Type())
+			continue
+		}
+		if result.Text() != tc.expect {
+			t.Errorf("LOWER(%q): expected %q, got %q", tc.input, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestLower_Null(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	lower := registry.Lookup("LOWER")
+
+	args := []types.Value{types.NewNull()}
+	result := lower.Call(args)
+
+	if !result.IsNull() {
+		t.Error("LOWER(NULL) should return NULL")
+	}
+}
