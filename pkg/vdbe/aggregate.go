@@ -70,3 +70,60 @@ func (c *CountStarAggregate) Step(value types.Value) {
 func (c *CountStarAggregate) Finalize() types.Value {
 	return types.NewInt(c.count)
 }
+
+// SumAggregate implements SUM(column) - sums numeric values
+type SumAggregate struct {
+	intSum   int64
+	floatSum float64
+	hasFloat bool
+	hasValue bool
+}
+
+// NewSumAggregate creates a new SUM aggregate
+func NewSumAggregate() *SumAggregate {
+	return &SumAggregate{}
+}
+
+// Init resets the sum state
+func (s *SumAggregate) Init() {
+	s.intSum = 0
+	s.floatSum = 0
+	s.hasFloat = false
+	s.hasValue = false
+}
+
+// Step adds a value to the sum, ignoring nulls
+func (s *SumAggregate) Step(value types.Value) {
+	if value.IsNull() {
+		return
+	}
+
+	s.hasValue = true
+
+	switch value.Type() {
+	case types.TypeInt:
+		if s.hasFloat {
+			s.floatSum += float64(value.Int())
+		} else {
+			s.intSum += value.Int()
+		}
+	case types.TypeFloat:
+		if !s.hasFloat {
+			// Convert accumulated int sum to float
+			s.floatSum = float64(s.intSum)
+			s.hasFloat = true
+		}
+		s.floatSum += value.Float()
+	}
+}
+
+// Finalize returns the sum as int or float, or NULL if no values
+func (s *SumAggregate) Finalize() types.Value {
+	if !s.hasValue {
+		return types.NewNull()
+	}
+	if s.hasFloat {
+		return types.NewFloat(s.floatSum)
+	}
+	return types.NewInt(s.intSum)
+}

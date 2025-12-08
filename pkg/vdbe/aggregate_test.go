@@ -70,3 +70,88 @@ func TestCountAggregate_EmptyReturnsZero(t *testing.T) {
 		t.Errorf("expected count of 0, got %d", result.Int())
 	}
 }
+
+// ============ SUM Aggregate Tests ============
+
+// Test 5: SUM aggregate sums integer values
+func TestSumAggregate_SumsIntegers(t *testing.T) {
+	sum := NewSumAggregate()
+	sum.Init()
+
+	sum.Step(types.NewInt(10))
+	sum.Step(types.NewInt(20))
+	sum.Step(types.NewInt(30))
+
+	result := sum.Finalize()
+
+	if result.Type() != types.TypeInt {
+		t.Errorf("expected integer result, got %v", result.Type())
+	}
+	if result.Int() != 60 {
+		t.Errorf("expected sum of 60, got %d", result.Int())
+	}
+}
+
+// Test 6: SUM aggregate sums float values
+func TestSumAggregate_SumsFloats(t *testing.T) {
+	sum := NewSumAggregate()
+	sum.Init()
+
+	sum.Step(types.NewFloat(1.5))
+	sum.Step(types.NewFloat(2.5))
+	sum.Step(types.NewFloat(3.0))
+
+	result := sum.Finalize()
+
+	if result.Type() != types.TypeFloat {
+		t.Errorf("expected float result, got %v", result.Type())
+	}
+	if result.Float() != 7.0 {
+		t.Errorf("expected sum of 7.0, got %f", result.Float())
+	}
+}
+
+// Test 7: SUM with mixed int and float returns float
+func TestSumAggregate_MixedIntFloat(t *testing.T) {
+	sum := NewSumAggregate()
+	sum.Init()
+
+	sum.Step(types.NewInt(10))
+	sum.Step(types.NewFloat(2.5))
+
+	result := sum.Finalize()
+
+	if result.Type() != types.TypeFloat {
+		t.Errorf("expected float result for mixed sum, got %v", result.Type())
+	}
+	if result.Float() != 12.5 {
+		t.Errorf("expected sum of 12.5, got %f", result.Float())
+	}
+}
+
+// Test 8: SUM ignores null values
+func TestSumAggregate_IgnoresNulls(t *testing.T) {
+	sum := NewSumAggregate()
+	sum.Init()
+
+	sum.Step(types.NewInt(10))
+	sum.Step(types.NewNull())
+	sum.Step(types.NewInt(20))
+
+	result := sum.Finalize()
+
+	if result.Int() != 30 {
+		t.Errorf("expected sum of 30, got %d", result.Int())
+	}
+}
+
+// Test 9: SUM with no values returns NULL
+func TestSumAggregate_EmptyReturnsNull(t *testing.T) {
+	sum := NewSumAggregate()
+	sum.Init()
+	result := sum.Finalize()
+
+	if !result.IsNull() {
+		t.Errorf("expected NULL for empty SUM, got %v", result.Type())
+	}
+}
