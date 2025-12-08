@@ -553,7 +553,7 @@
     {
       "title": "SQL - Query Optimizer",
       "description": "Optimize query execution plans for SELECT statements with JOIN reordering",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Design query plan tree structure",

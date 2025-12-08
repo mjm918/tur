@@ -409,37 +409,24 @@ func (o *Optimizer) ApplyPredicatePushdown(plan PlanNode) PlanNode {
 func (o *Optimizer) ApplyProjectionPushdown(plan PlanNode) PlanNode {
 	switch node := plan.(type) {
 	case *ProjectionNode:
-		// Recursively optimize child first
-		optimizedChild := o.ApplyProjectionPushdown(node.Input)
+		// Extract required columns from projection expressions
+		requiredCols := extractColumnRefs(node.Expressions)
 
-		switch child := optimizedChild.(type) {
-		case *ProjectionNode:
+		// Push required columns down to child
+		optimizedChild := o.pushRequiredColumns(node.Input, requiredCols)
+
+		// Handle merging consecutive projections
+		if childProj, ok := optimizedChild.(*ProjectionNode); ok {
 			// Merge consecutive projections
 			// Project1(Project2(X)) -> Project1(X)
-			// Keep only the outermost projection (Project1)
 			return &ProjectionNode{
-				Input:       child.Input,
+				Input:       childProj.Input,
 				Expressions: node.Expressions,
 			}
-
-		case *FilterNode:
-			// Cannot push projection through filter easily
-			// (would need to analyze which columns the filter needs)
-			// For now, keep the structure
-			node.Input = optimizedChild
-			return node
-
-		case *NestedLoopJoinNode, *HashJoinNode:
-			// For joins, we could push projections to each side
-			// This is more complex as we need to analyze which columns come from which side
-			// For now, keep the structure
-			node.Input = optimizedChild
-			return node
-
-		default:
-			node.Input = optimizedChild
-			return node
 		}
+
+		node.Input = optimizedChild
+		return node
 
 	case *FilterNode:
 		// Recursively optimize child
@@ -462,4 +449,114 @@ func (o *Optimizer) ApplyProjectionPushdown(plan PlanNode) PlanNode {
 		// Leaf nodes or unknown nodes, return as-is
 		return plan
 	}
+}
+
+// pushRequiredColumns pushes required column information down to table scans
+func (o *Optimizer) pushRequiredColumns(plan PlanNode, requiredCols map[string]bool) PlanNode {
+	switch node := plan.(type) {
+	case *TableScanNode:
+		// Set required columns on the scan
+		cols := make([]string, 0, len(requiredCols))
+		for col := range requiredCols {
+			cols = append(cols, col)
+		}
+		node.RequiredColumns = cols
+		return node
+
+	case *FilterNode:
+		// Extract columns used by the filter condition and add them to required set
+		filterCols := extractColumnRefsFromExpr(node.Condition)
+		for col := range filterCols {
+			requiredCols[col] = true
+		}
+		// Push required columns down to child
+		node.Input = o.pushRequiredColumns(node.Input, requiredCols)
+		return node
+
+	case *ProjectionNode:
+		// Extract columns from projection expressions
+		projCols := extractColumnRefs(node.Expressions)
+		for col := range projCols {
+			requiredCols[col] = true
+		}
+		node.Input = o.pushRequiredColumns(node.Input, requiredCols)
+		return node
+
+	case *NestedLoopJoinNode:
+		// For joins, push required columns to both sides
+		// A more sophisticated implementation would partition columns by table
+		node.Left = o.pushRequiredColumns(node.Left, requiredCols)
+		node.Right = o.pushRequiredColumns(node.Right, requiredCols)
+		return node
+
+	case *HashJoinNode:
+		// For hash joins, also need to include join keys
+		joinCols := make(map[string]bool)
+		for col := range requiredCols {
+			joinCols[col] = true
+		}
+		joinCols[node.LeftKey] = true
+		joinCols[node.RightKey] = true
+		node.Left = o.pushRequiredColumns(node.Left, joinCols)
+		node.Right = o.pushRequiredColumns(node.Right, joinCols)
+		return node
+
+	default:
+		return plan
+	}
+}
+
+// extractColumnRefs extracts column names from a list of expressions
+func extractColumnRefs(exprs []parser.Expression) map[string]bool {
+	result := make(map[string]bool)
+	for _, expr := range exprs {
+		cols := extractColumnRefsFromExpr(expr)
+		for col := range cols {
+			result[col] = true
+		}
+	}
+	return result
+}
+
+// extractColumnRefsFromExpr extracts column names from a single expression
+func extractColumnRefsFromExpr(expr parser.Expression) map[string]bool {
+	result := make(map[string]bool)
+	if expr == nil {
+		return result
+	}
+
+	switch e := expr.(type) {
+	case *parser.ColumnRef:
+		// Use just the column name (without table prefix for simplicity)
+		result[e.Name] = true
+
+	case *parser.BinaryExpr:
+		// Recursively extract from both sides
+		leftCols := extractColumnRefsFromExpr(e.Left)
+		rightCols := extractColumnRefsFromExpr(e.Right)
+		for col := range leftCols {
+			result[col] = true
+		}
+		for col := range rightCols {
+			result[col] = true
+		}
+
+	case *parser.UnaryExpr:
+		// Extract from operand
+		cols := extractColumnRefsFromExpr(e.Right)
+		for col := range cols {
+			result[col] = true
+		}
+
+	case *parser.FunctionCall:
+		// Extract from function arguments
+		for _, arg := range e.Args {
+			cols := extractColumnRefsFromExpr(arg)
+			for col := range cols {
+				result[col] = true
+			}
+		}
+	}
+
+	return result
 }

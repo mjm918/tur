@@ -18,9 +18,20 @@ type TableScanNode struct {
 	Alias string
 	Cost  float64
 	Rows  int64
+	// RequiredColumns specifies which columns need to be read.
+	// If nil or empty, all columns are read.
+	// This is set by projection pushdown optimization.
+	RequiredColumns []string
 }
 
 func (n *TableScanNode) EstimatedCost() float64 {
+	// If RequiredColumns is set, cost is proportional to columns read
+	if len(n.RequiredColumns) > 0 && n.Table != nil && len(n.Table.Columns) > 0 {
+		totalColumns := len(n.Table.Columns)
+		requiredColumns := len(n.RequiredColumns)
+		// Cost scales with the fraction of columns being read
+		return n.Cost * float64(requiredColumns) / float64(totalColumns)
+	}
 	return n.Cost
 }
 

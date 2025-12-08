@@ -205,3 +205,223 @@ func TestOptimize_NoChanges(t *testing.T) {
 		t.Error("cost should not change when no optimization is applied")
 	}
 }
+
+// TestProjectionPushdown_RequiredColumns tests that projection pushdown
+// correctly identifies and propagates required columns to the table scan
+func TestProjectionPushdown_RequiredColumns(t *testing.T) {
+	// Create a table with 5 columns
+	tableDef := &schema.TableDef{
+		Name: "users",
+		Columns: []schema.ColumnDef{
+			{Name: "id"},
+			{Name: "name"},
+			{Name: "email"},
+			{Name: "age"},
+			{Name: "created_at"},
+		},
+	}
+
+	scan := &TableScanNode{
+		Table: tableDef,
+		Cost:  100.0,
+		Rows:  1000,
+	}
+
+	// Project only 2 columns: name and email
+	project := &ProjectionNode{
+		Input: scan,
+		Expressions: []parser.Expression{
+			&parser.ColumnRef{Name: "name"},
+			&parser.ColumnRef{Name: "email"},
+		},
+	}
+
+	optimizer := NewOptimizer()
+	optimized := optimizer.ApplyProjectionPushdown(project)
+
+	// Verify the optimized plan is not nil
+	if optimized == nil {
+		t.Fatal("expected optimized plan, got nil")
+	}
+
+	// Find the TableScanNode in the optimized plan
+	var foundScan *TableScanNode
+	findTableScan(optimized, &foundScan)
+
+	if foundScan == nil {
+		t.Fatal("expected to find TableScanNode in optimized plan")
+	}
+
+	// Verify RequiredColumns is set on the scan
+	if foundScan.RequiredColumns == nil {
+		t.Fatal("expected RequiredColumns to be set on TableScanNode after projection pushdown")
+	}
+
+	// Verify exactly the right columns are required
+	if len(foundScan.RequiredColumns) != 2 {
+		t.Errorf("expected 2 required columns, got %d", len(foundScan.RequiredColumns))
+	}
+
+	// Check that name and email are in RequiredColumns
+	hasName := false
+	hasEmail := false
+	for _, col := range foundScan.RequiredColumns {
+		if col == "name" {
+			hasName = true
+		}
+		if col == "email" {
+			hasEmail = true
+		}
+	}
+
+	if !hasName {
+		t.Error("expected 'name' to be in RequiredColumns")
+	}
+	if !hasEmail {
+		t.Error("expected 'email' to be in RequiredColumns")
+	}
+}
+
+// TestProjectionPushdown_ThroughFilter tests that projection pushdown
+// works correctly when there's a filter between projection and scan
+func TestProjectionPushdown_ThroughFilter(t *testing.T) {
+	tableDef := &schema.TableDef{
+		Name: "users",
+		Columns: []schema.ColumnDef{
+			{Name: "id"},
+			{Name: "name"},
+			{Name: "email"},
+			{Name: "age"},
+		},
+	}
+
+	scan := &TableScanNode{
+		Table: tableDef,
+		Cost:  100.0,
+		Rows:  1000,
+	}
+
+	// Filter uses the 'age' column
+	filter := &FilterNode{
+		Input: scan,
+		Condition: &parser.BinaryExpr{
+			Left: &parser.ColumnRef{Name: "age"},
+			Op:   0, // doesn't matter for this test
+		},
+		Selectivity: 0.5,
+	}
+
+	// Project only 'name' column
+	project := &ProjectionNode{
+		Input:       filter,
+		Expressions: []parser.Expression{&parser.ColumnRef{Name: "name"}},
+	}
+
+	optimizer := NewOptimizer()
+	optimized := optimizer.ApplyProjectionPushdown(project)
+
+	if optimized == nil {
+		t.Fatal("expected optimized plan, got nil")
+	}
+
+	// Find the TableScanNode
+	var foundScan *TableScanNode
+	findTableScan(optimized, &foundScan)
+
+	if foundScan == nil {
+		t.Fatal("expected to find TableScanNode")
+	}
+
+	// RequiredColumns should include both 'name' (from projection) and 'age' (from filter)
+	if foundScan.RequiredColumns == nil {
+		t.Fatal("expected RequiredColumns to be set")
+	}
+
+	hasName := false
+	hasAge := false
+	for _, col := range foundScan.RequiredColumns {
+		if col == "name" {
+			hasName = true
+		}
+		if col == "age" {
+			hasAge = true
+		}
+	}
+
+	if !hasName {
+		t.Error("expected 'name' to be in RequiredColumns (used in projection)")
+	}
+	if !hasAge {
+		t.Error("expected 'age' to be in RequiredColumns (used in filter)")
+	}
+}
+
+// TestProjectionPushdown_CostReduction tests that projection pushdown reduces cost
+func TestProjectionPushdown_CostReduction(t *testing.T) {
+	tableDef := &schema.TableDef{
+		Name: "users",
+		Columns: []schema.ColumnDef{
+			{Name: "id"},
+			{Name: "name"},
+			{Name: "email"},
+			{Name: "age"},
+			{Name: "address"},
+			{Name: "phone"},
+			{Name: "created_at"},
+			{Name: "updated_at"},
+		},
+	}
+
+	scan := &TableScanNode{
+		Table: tableDef,
+		Cost:  100.0, // Base cost for reading all 8 columns
+		Rows:  1000,
+	}
+
+	// Project only 2 out of 8 columns
+	project := &ProjectionNode{
+		Input: scan,
+		Expressions: []parser.Expression{
+			&parser.ColumnRef{Name: "name"},
+			&parser.ColumnRef{Name: "email"},
+		},
+	}
+
+	originalCost := project.EstimatedCost()
+
+	optimizer := NewOptimizer()
+	optimized := optimizer.ApplyProjectionPushdown(project)
+
+	optimizedCost := optimized.EstimatedCost()
+
+	// Cost should be lower because we're reading fewer columns
+	if optimizedCost >= originalCost {
+		t.Errorf("expected optimized cost (%f) to be less than original cost (%f)", optimizedCost, originalCost)
+	}
+}
+
+// findTableScan is a helper to recursively find a TableScanNode in a plan tree
+func findTableScan(node PlanNode, result **TableScanNode) {
+	if node == nil {
+		return
+	}
+
+	switch n := node.(type) {
+	case *TableScanNode:
+		*result = n
+	case *ProjectionNode:
+		findTableScan(n.Input, result)
+	case *FilterNode:
+		findTableScan(n.Input, result)
+	case *NestedLoopJoinNode:
+		findTableScan(n.Left, result)
+		if *result == nil {
+			findTableScan(n.Right, result)
+		}
+	case *HashJoinNode:
+		findTableScan(n.Left, result)
+		if *result == nil {
+			findTableScan(n.Right, result)
+		}
+	}
+}
