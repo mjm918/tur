@@ -158,6 +158,63 @@ func TestParser_Insert_MultipleRows(t *testing.T) {
 	}
 }
 
+func TestParser_Insert_Select(t *testing.T) {
+	input := "INSERT INTO users SELECT * FROM old_users"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	insert, ok := stmt.(*InsertStmt)
+	if !ok {
+		t.Fatalf("Expected *InsertStmt, got %T", stmt)
+	}
+
+	if insert.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", insert.TableName)
+	}
+
+	if insert.SelectStmt == nil {
+		t.Fatal("SelectStmt = nil, want non-nil")
+	}
+
+	if insert.SelectStmt.From != "old_users" {
+		t.Errorf("SelectStmt.From = %q, want 'old_users'", insert.SelectStmt.From)
+	}
+
+	if insert.Values != nil {
+		t.Errorf("Values = %v, want nil (should use SelectStmt instead)", insert.Values)
+	}
+}
+
+func TestParser_Insert_SelectWithColumns(t *testing.T) {
+	input := "INSERT INTO users (id, name) SELECT user_id, username FROM old_users"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	insert := stmt.(*InsertStmt)
+
+	if len(insert.Columns) != 2 {
+		t.Fatalf("Columns count = %d, want 2", len(insert.Columns))
+	}
+
+	if insert.Columns[0] != "id" || insert.Columns[1] != "name" {
+		t.Errorf("Columns = %v, want ['id', 'name']", insert.Columns)
+	}
+
+	if insert.SelectStmt == nil {
+		t.Fatal("SelectStmt = nil, want non-nil")
+	}
+
+	if len(insert.SelectStmt.Columns) != 2 {
+		t.Fatalf("SelectStmt.Columns count = %d, want 2", len(insert.SelectStmt.Columns))
+	}
+}
+
 func TestParser_Select_Star(t *testing.T) {
 	input := "SELECT * FROM users"
 	p := New(input)

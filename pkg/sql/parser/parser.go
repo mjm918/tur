@@ -515,7 +515,7 @@ func (p *Parser) parseColumnType() (types.ValueType, int, error) {
 	}
 }
 
-// parseInsert parses: INSERT INTO table [(columns)] VALUES (values), ...
+// parseInsert parses: INSERT INTO table [(columns)] VALUES (values), ... | SELECT ...
 func (p *Parser) parseInsert() (*InsertStmt, error) {
 	stmt := &InsertStmt{}
 
@@ -544,32 +544,43 @@ func (p *Parser) parseInsert() (*InsertStmt, error) {
 		}
 	}
 
-	// VALUES
-	if !p.expectPeek(lexer.VALUES) {
-		return nil, fmt.Errorf("expected VALUES, got %s", p.peek.Literal)
-	}
+	// VALUES or SELECT
+	p.nextToken()
 
-	// Value rows
-	for {
-		if !p.expectPeek(lexer.LPAREN) {
-			return nil, fmt.Errorf("expected '(', got %s", p.peek.Literal)
+	if p.cur.Type == lexer.VALUES {
+		// Parse VALUES (value_list), ...
+		for {
+			if !p.expectPeek(lexer.LPAREN) {
+				return nil, fmt.Errorf("expected '(', got %s", p.peek.Literal)
+			}
+
+			row, err := p.parseExpressionList()
+			if err != nil {
+				return nil, err
+			}
+			stmt.Values = append(stmt.Values, row)
+
+			if !p.expectPeek(lexer.RPAREN) {
+				return nil, fmt.Errorf("expected ')', got %s", p.peek.Literal)
+			}
+
+			if p.peekIs(lexer.COMMA) {
+				p.nextToken() // consume ,
+			} else {
+				break
+			}
 		}
-
-		row, err := p.parseExpressionList()
+	} else if p.cur.Type == lexer.SELECT {
+		// Parse SELECT statement
+		// Current token is SELECT, advance to start of column list
+		p.nextToken()
+		selectStmt, err := p.parseSelectBody()
 		if err != nil {
 			return nil, err
 		}
-		stmt.Values = append(stmt.Values, row)
-
-		if !p.expectPeek(lexer.RPAREN) {
-			return nil, fmt.Errorf("expected ')', got %s", p.peek.Literal)
-		}
-
-		if p.peekIs(lexer.COMMA) {
-			p.nextToken() // consume ,
-		} else {
-			break
-		}
+		stmt.SelectStmt = selectStmt
+	} else {
+		return nil, fmt.Errorf("expected VALUES or SELECT, got %s", p.cur.Literal)
 	}
 
 	return stmt, nil
@@ -577,10 +588,15 @@ func (p *Parser) parseInsert() (*InsertStmt, error) {
 
 // parseSelect parses: SELECT columns FROM table [WHERE expr]
 func (p *Parser) parseSelect() (*SelectStmt, error) {
-	stmt := &SelectStmt{}
-
 	// SELECT
 	p.nextToken()
+
+	return p.parseSelectBody()
+}
+
+// parseSelectBody parses the body of a SELECT statement (after SELECT keyword)
+func (p *Parser) parseSelectBody() (*SelectStmt, error) {
+	stmt := &SelectStmt{}
 
 	// Columns
 	cols, err := p.parseSelectColumns()
