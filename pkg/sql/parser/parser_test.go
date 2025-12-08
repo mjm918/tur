@@ -341,6 +341,92 @@ func TestParser_DropTable(t *testing.T) {
 	if drop.TableName != "users" {
 		t.Errorf("TableName = %q, want 'users'", drop.TableName)
 	}
+
+	if drop.IfExists {
+		t.Errorf("IfExists = true, want false")
+	}
+
+	if drop.Cascade {
+		t.Errorf("Cascade = true, want false")
+	}
+}
+
+func TestParser_DropTable_IfExists(t *testing.T) {
+	input := "DROP TABLE IF EXISTS users"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	drop, ok := stmt.(*DropTableStmt)
+	if !ok {
+		t.Fatalf("Expected *DropTableStmt, got %T", stmt)
+	}
+
+	if drop.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", drop.TableName)
+	}
+
+	if !drop.IfExists {
+		t.Errorf("IfExists = false, want true")
+	}
+
+	if drop.Cascade {
+		t.Errorf("Cascade = true, want false")
+	}
+}
+
+func TestParser_DropTable_Cascade(t *testing.T) {
+	input := "DROP TABLE users CASCADE"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	drop, ok := stmt.(*DropTableStmt)
+	if !ok {
+		t.Fatalf("Expected *DropTableStmt, got %T", stmt)
+	}
+
+	if drop.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", drop.TableName)
+	}
+
+	if drop.IfExists {
+		t.Errorf("IfExists = true, want false")
+	}
+
+	if !drop.Cascade {
+		t.Errorf("Cascade = false, want true")
+	}
+}
+
+func TestParser_DropTable_IfExists_Cascade(t *testing.T) {
+	input := "DROP TABLE IF EXISTS users CASCADE"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	drop, ok := stmt.(*DropTableStmt)
+	if !ok {
+		t.Fatalf("Expected *DropTableStmt, got %T", stmt)
+	}
+
+	if drop.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", drop.TableName)
+	}
+
+	if !drop.IfExists {
+		t.Errorf("IfExists = false, want true")
+	}
+
+	if !drop.Cascade {
+		t.Errorf("Cascade = false, want true")
+	}
 }
 
 func TestParser_Errors(t *testing.T) {

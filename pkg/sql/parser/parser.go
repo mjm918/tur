@@ -641,16 +641,32 @@ func (p *Parser) parseSelectColumns() ([]SelectColumn, error) {
 	return cols, nil
 }
 
-// parseDropTableBody parses: TABLE name
+// parseDropTableBody parses: TABLE [IF EXISTS] name [CASCADE]
 // Called after DROP has been consumed and current token is TABLE
 func (p *Parser) parseDropTableBody() (*DropTableStmt, error) {
 	stmt := &DropTableStmt{}
 
-	// Current token is TABLE, move to table name
+	// Check for optional IF EXISTS
+	if p.peekIs(lexer.IF) {
+		p.nextToken() // consume TABLE, now at IF
+		if !p.expectPeek(lexer.EXISTS) {
+			return nil, fmt.Errorf("expected EXISTS after IF, got %s", p.peek.Literal)
+		}
+		stmt.IfExists = true
+		// now at EXISTS, need to move to table name
+	}
+
+	// Current token is TABLE or EXISTS, move to table name
 	if !p.expectPeek(lexer.IDENT) {
 		return nil, fmt.Errorf("expected table name, got %s", p.peek.Literal)
 	}
 	stmt.TableName = p.cur.Literal
+
+	// Check for optional CASCADE
+	if p.peekIs(lexer.CASCADE) {
+		p.nextToken() // move to CASCADE
+		stmt.Cascade = true
+	}
 
 	return stmt, nil
 }

@@ -84,6 +84,10 @@ const (
 
 	// Index keywords
 	INDEX
+
+	// Conditional keywords
+	IF
+	EXISTS
 )
 
 // Token represents a lexical token
@@ -226,6 +230,10 @@ func (t TokenType) String() string {
 		return "CONSTRAINT"
 	case INDEX:
 		return "INDEX"
+	case IF:
+		return "IF"
+	case EXISTS:
+		return "EXISTS"
 	default:
 		return "UNKNOWN"
 	}
@@ -277,6 +285,8 @@ var keywords = map[string]TokenType{
 	"ACTION":     ACTION,
 	"CONSTRAINT": CONSTRAINT,
 	"INDEX":      INDEX,
+	"IF":         IF,
+	"EXISTS":     EXISTS,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT

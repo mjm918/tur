@@ -790,7 +790,7 @@
       "tasks": [
         {
           "task": "Parse DROP TABLE statement with optional IF EXISTS",
-          "done": false
+          "done": true
         },
         {
           "task": "Check for dependent views and triggers",

@@ -106,6 +106,8 @@ type SelectColumn struct {
 // DropTableStmt represents a DROP TABLE statement
 type DropTableStmt struct {
 	TableName string
+	IfExists  bool // IF EXISTS clause
+	Cascade   bool // CASCADE clause (for foreign keys)
 }
 
 func (s *DropTableStmt) statementNode() {}
