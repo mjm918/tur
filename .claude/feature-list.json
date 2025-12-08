@@ -573,11 +573,11 @@
         },
         {
           "task": "Implement predicate pushdown to reduce intermediate results",
-          "done": false
+          "done": true
         },
         {
           "task": "Add projection pushdown to avoid reading unused columns",
-          "done": false
+          "done": true
         }
       ]
     },
