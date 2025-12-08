@@ -116,3 +116,68 @@ func extractSimplePredicate(expr *parser.BinaryExpr) *predicate {
 
 	return nil
 }
+
+// AccessPathResult contains the recommendation for how to access a table
+type AccessPathResult struct {
+	RecommendedIndex *schema.IndexDef // The best index to use, nil if table scan is better
+	UseTableScan     bool             // True if table scan is recommended
+	EstimatedCost    float64          // Estimated cost of the recommended access path
+	EstimatedRows    int64            // Estimated number of rows returned
+}
+
+// SelectBestAccessPath analyzes a WHERE clause and selects the best access path
+// for a table query. It considers all available indexes and compares their costs
+// against a full table scan.
+func SelectBestAccessPath(table *schema.TableDef, where parser.Expression, catalog *schema.Catalog, tableRows int64) AccessPathResult {
+	estimator := NewCostEstimator()
+
+	// Calculate table scan cost as baseline
+	tableScanCost, _ := estimator.EstimateTableScan(table, tableRows)
+
+	// If no WHERE clause, table scan is the only option
+	if where == nil {
+		return AccessPathResult{
+			RecommendedIndex: nil,
+			UseTableScan:     true,
+			EstimatedCost:    tableScanCost,
+			EstimatedRows:    tableRows,
+		}
+	}
+
+	// Find all candidate indexes
+	candidates := FindCandidateIndexes(table, where, catalog)
+
+	// If no indexes match, use table scan
+	if len(candidates) == 0 {
+		return AccessPathResult{
+			RecommendedIndex: nil,
+			UseTableScan:     true,
+			EstimatedCost:    tableScanCost,
+			EstimatedRows:    tableRows,
+		}
+	}
+
+	// Evaluate each candidate index and find the best one
+	var bestIndex *schema.IndexDef
+	var bestCost float64 = tableScanCost
+	var bestRows int64 = tableRows
+	useTableScan := true
+
+	for _, candidate := range candidates {
+		comparison := estimator.CompareAccessPaths(table, candidate, tableRows)
+
+		if comparison.UseIndex && comparison.IndexCost < bestCost {
+			bestIndex = candidate.Index
+			bestCost = comparison.IndexCost
+			bestRows = comparison.IndexRows
+			useTableScan = false
+		}
+	}
+
+	return AccessPathResult{
+		RecommendedIndex: bestIndex,
+		UseTableScan:     useTableScan,
+		EstimatedCost:    bestCost,
+		EstimatedRows:    bestRows,
+	}
+}

@@ -491,3 +491,160 @@ func TestCompareAccessPaths_ReturnsCorrectRowEstimates(t *testing.T) {
 			expectedIndexRows, tableRows, comparison.IndexRows)
 	}
 }
+
+// Test Task 4: Choose index with lowest estimated cost
+
+func TestSelectBestAccessPath_ChoosesCheapestIndex(t *testing.T) {
+	// When multiple indexes could be used, choose the one with lowest cost
+	catalog := schema.NewCatalog()
+	tableDef := &schema.TableDef{
+		Name: "users",
+		Columns: []schema.ColumnDef{
+			{Name: "id", Type: types.TypeInt},
+			{Name: "email", Type: types.TypeText},
+			{Name: "status", Type: types.TypeText},
+		},
+	}
+	catalog.CreateTable(tableDef)
+
+	// Index on email (will be used for equality - very selective)
+	catalog.CreateIndex(&schema.IndexDef{
+		Name:      "idx_users_email",
+		TableName: "users",
+		Columns:   []string{"email"},
+		Type:      schema.IndexTypeBTree,
+	})
+
+	// Index on status (will be used for range - less selective)
+	catalog.CreateIndex(&schema.IndexDef{
+		Name:      "idx_users_status",
+		TableName: "users",
+		Columns:   []string{"status"},
+		Type:      schema.IndexTypeBTree,
+	})
+
+	// WHERE email = 'test@example.com' AND status > 'active'
+	whereClause := &parser.BinaryExpr{
+		Left: &parser.BinaryExpr{
+			Left:  &parser.ColumnRef{Name: "email"},
+			Op:    lexer.EQ,
+			Right: &parser.Literal{Value: types.NewText("test@example.com")},
+		},
+		Op: lexer.AND,
+		Right: &parser.BinaryExpr{
+			Left:  &parser.ColumnRef{Name: "status"},
+			Op:    lexer.GT,
+			Right: &parser.Literal{Value: types.NewText("active")},
+		},
+	}
+
+	tableRows := int64(10000)
+	result := SelectBestAccessPath(tableDef, whereClause, catalog, tableRows)
+
+	// Should recommend using the email index (equality is more selective)
+	if result.RecommendedIndex == nil {
+		t.Fatal("should recommend an index for this query")
+	}
+	if result.RecommendedIndex.Name != "idx_users_email" {
+		t.Errorf("should choose email index (most selective), got '%s'",
+			result.RecommendedIndex.Name)
+	}
+}
+
+func TestSelectBestAccessPath_NoIndexReturnsTableScan(t *testing.T) {
+	// When no index matches, return table scan recommendation
+	catalog := schema.NewCatalog()
+	tableDef := &schema.TableDef{
+		Name: "users",
+		Columns: []schema.ColumnDef{
+			{Name: "id", Type: types.TypeInt},
+			{Name: "name", Type: types.TypeText},
+		},
+	}
+	catalog.CreateTable(tableDef)
+
+	// No indexes
+
+	// WHERE name = 'John'
+	whereClause := &parser.BinaryExpr{
+		Left:  &parser.ColumnRef{Name: "name"},
+		Op:    lexer.EQ,
+		Right: &parser.Literal{Value: types.NewText("John")},
+	}
+
+	tableRows := int64(1000)
+	result := SelectBestAccessPath(tableDef, whereClause, catalog, tableRows)
+
+	// Should recommend table scan (no index available)
+	if result.RecommendedIndex != nil {
+		t.Errorf("should not recommend an index when none match, got '%s'",
+			result.RecommendedIndex.Name)
+	}
+	if result.UseTableScan != true {
+		t.Error("should recommend table scan when no index matches")
+	}
+}
+
+func TestSelectBestAccessPath_TableScanBetterThanIndex(t *testing.T) {
+	// When table scan is cheaper, recommend table scan even if index exists
+	catalog := schema.NewCatalog()
+	tableDef := &schema.TableDef{
+		Name: "users",
+		Columns: []schema.ColumnDef{
+			{Name: "status", Type: types.TypeText},
+		},
+	}
+	catalog.CreateTable(tableDef)
+
+	catalog.CreateIndex(&schema.IndexDef{
+		Name:      "idx_users_status",
+		TableName: "users",
+		Columns:   []string{"status"},
+		Type:      schema.IndexTypeBTree,
+	})
+
+	// WHERE status != 'deleted' (non-selective - most rows match)
+	whereClause := &parser.BinaryExpr{
+		Left:  &parser.ColumnRef{Name: "status"},
+		Op:    lexer.NEQ,
+		Right: &parser.Literal{Value: types.NewText("deleted")},
+	}
+
+	tableRows := int64(1000)
+	result := SelectBestAccessPath(tableDef, whereClause, catalog, tableRows)
+
+	// Should prefer table scan for non-selective query
+	if !result.UseTableScan {
+		t.Error("should prefer table scan for non-selective query")
+	}
+}
+
+func TestSelectBestAccessPath_NilWhereClauseUsesTableScan(t *testing.T) {
+	// No WHERE clause = full table scan
+	catalog := schema.NewCatalog()
+	tableDef := &schema.TableDef{
+		Name: "users",
+		Columns: []schema.ColumnDef{
+			{Name: "id", Type: types.TypeInt},
+		},
+	}
+	catalog.CreateTable(tableDef)
+
+	catalog.CreateIndex(&schema.IndexDef{
+		Name:      "idx_users_id",
+		TableName: "users",
+		Columns:   []string{"id"},
+		Type:      schema.IndexTypeBTree,
+	})
+
+	tableRows := int64(1000)
+	result := SelectBestAccessPath(tableDef, nil, catalog, tableRows)
+
+	// Should recommend table scan when no WHERE clause
+	if result.RecommendedIndex != nil {
+		t.Error("should not recommend index without WHERE clause")
+	}
+	if !result.UseTableScan {
+		t.Error("should recommend table scan without WHERE clause")
+	}
+}
