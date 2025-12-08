@@ -399,36 +399,11 @@ func TestExecutor_VectorType_DimensionCheck(t *testing.T) {
 }
 
 func TestExecutor_VectorNormalization(t *testing.T) {
-	exec, cleanup := setupTestExecutor(t)
-	defer cleanup()
-
-	// Create table with a 3-dimensional vector
-	_, err := exec.Execute("CREATE TABLE embeddings (id INT, vec VECTOR(3))")
-	if err != nil {
-		t.Fatalf("Create table: %v", err)
-	}
-
-	// Create a non-normalized vector [3.0, 4.0, 0.0] with magnitude 5.0
-	// After normalization should be [0.6, 0.8, 0.0]
-	vecData := make([]byte, 4+3*4) // dimension count + 3 float32s
-	vecData[0], vecData[1], vecData[2], vecData[3] = 0, 0, 0, 3 // dimension = 3
-
-	// [3.0, 4.0, 0.0] in little-endian float32
-	import "math"
-	import "encoding/binary"
-	binary.LittleEndian.PutUint32(vecData[4:8], math.Float32bits(3.0))
-	binary.LittleEndian.PutUint32(vecData[8:12], math.Float32bits(4.0))
-	binary.LittleEndian.PutUint32(vecData[12:16], math.Float32bits(0.0))
-
-	// For now, we'll insert directly using the executor's internal methods
-	// since we don't have BLOB literal parsing yet
-	// This test verifies the normalization logic exists when we implement it
-
-	// TODO: Once we have proper BLOB literal support, insert like:
-	// exec.Execute("INSERT INTO embeddings VALUES (1, X'...')")
-	// Then SELECT and verify the vector is normalized
-
-	// Placeholder: Mark test as skipped until BLOB literal parsing is implemented
+	// Skipped: Requires BLOB literal parsing to be implemented first
+	// Once BLOB literals are supported, this test should:
+	// 1. Create table with VECTOR(3) column
+	// 2. Insert non-normalized vector [3.0, 4.0, 0.0] (magnitude 5.0)
+	// 3. SELECT and verify vector is normalized to [0.6, 0.8, 0.0]
 	t.Skip("Skipping until BLOB literal parsing is implemented")
 }
 
