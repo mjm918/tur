@@ -119,6 +119,75 @@ func TestExecutor_InsertMultiple(t *testing.T) {
 	}
 }
 
+func TestExecutor_InsertSelect(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create source and destination tables
+	exec.Execute("CREATE TABLE old_users (user_id INT, username TEXT)")
+	exec.Execute("CREATE TABLE new_users (id INT, name TEXT)")
+
+	// Populate source table
+	exec.Execute("INSERT INTO old_users VALUES (1, 'Alice'), (2, 'Bob')")
+
+	// INSERT SELECT
+	result, err := exec.Execute("INSERT INTO new_users SELECT * FROM old_users")
+	if err != nil {
+		t.Fatalf("Execute INSERT SELECT: %v", err)
+	}
+
+	if result.RowsAffected != 2 {
+		t.Errorf("RowsAffected = %d, want 2", result.RowsAffected)
+	}
+
+	// Verify data was copied
+	selectResult, err := exec.Execute("SELECT * FROM new_users")
+	if err != nil {
+		t.Fatalf("Execute SELECT: %v", err)
+	}
+
+	if len(selectResult.Rows) != 2 {
+		t.Errorf("Rows in new_users = %d, want 2", len(selectResult.Rows))
+	}
+
+	// Verify first row
+	if selectResult.Rows[0][0].Int() != 1 || selectResult.Rows[0][1].Text() != "Alice" {
+		t.Errorf("Row[0] = %v, want [1, 'Alice']", selectResult.Rows[0])
+	}
+}
+
+func TestExecutor_InsertSelectWithColumns(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create source and destination tables with different column names
+	exec.Execute("CREATE TABLE old_users (user_id INT, username TEXT, email TEXT)")
+	exec.Execute("CREATE TABLE new_users (id INT, name TEXT)")
+
+	// Populate source table
+	exec.Execute("INSERT INTO old_users VALUES (1, 'Alice', 'alice@example.com'), (2, 'Bob', 'bob@example.com')")
+
+	// INSERT SELECT with specific columns
+	result, err := exec.Execute("INSERT INTO new_users (id, name) SELECT user_id, username FROM old_users")
+	if err != nil {
+		t.Fatalf("Execute INSERT SELECT: %v", err)
+	}
+
+	if result.RowsAffected != 2 {
+		t.Errorf("RowsAffected = %d, want 2", result.RowsAffected)
+	}
+
+	// Verify data was copied correctly
+	selectResult, err := exec.Execute("SELECT * FROM new_users")
+	if err != nil {
+		t.Fatalf("Execute SELECT: %v", err)
+	}
+
+	if len(selectResult.Rows) != 2 {
+		t.Errorf("Rows in new_users = %d, want 2", len(selectResult.Rows))
+	}
+}
+
 func TestExecutor_Select_All(t *testing.T) {
 	exec, cleanup := setupTestExecutor(t)
 	defer cleanup()
@@ -327,6 +396,40 @@ func TestExecutor_VectorType_DimensionCheck(t *testing.T) {
 
 	// Since we can't parse vector literals yet, we manually verify strict typing logic
 	// would go here if we could insert them. For now, we verified schema storage.
+}
+
+func TestExecutor_VectorNormalization(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create table with a 3-dimensional vector
+	_, err := exec.Execute("CREATE TABLE embeddings (id INT, vec VECTOR(3))")
+	if err != nil {
+		t.Fatalf("Create table: %v", err)
+	}
+
+	// Create a non-normalized vector [3.0, 4.0, 0.0] with magnitude 5.0
+	// After normalization should be [0.6, 0.8, 0.0]
+	vecData := make([]byte, 4+3*4) // dimension count + 3 float32s
+	vecData[0], vecData[1], vecData[2], vecData[3] = 0, 0, 0, 3 // dimension = 3
+
+	// [3.0, 4.0, 0.0] in little-endian float32
+	import "math"
+	import "encoding/binary"
+	binary.LittleEndian.PutUint32(vecData[4:8], math.Float32bits(3.0))
+	binary.LittleEndian.PutUint32(vecData[8:12], math.Float32bits(4.0))
+	binary.LittleEndian.PutUint32(vecData[12:16], math.Float32bits(0.0))
+
+	// For now, we'll insert directly using the executor's internal methods
+	// since we don't have BLOB literal parsing yet
+	// This test verifies the normalization logic exists when we implement it
+
+	// TODO: Once we have proper BLOB literal support, insert like:
+	// exec.Execute("INSERT INTO embeddings VALUES (1, X'...')")
+	// Then SELECT and verify the vector is normalized
+
+	// Placeholder: Mark test as skipped until BLOB literal parsing is implemented
+	t.Skip("Skipping until BLOB literal parsing is implemented")
 }
 
 // ========== Constraint Catalog Tests ==========

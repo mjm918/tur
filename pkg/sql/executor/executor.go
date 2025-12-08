@@ -352,17 +352,34 @@ func (e *Executor) executeInsert(stmt *parser.InsertStmt) (*Result, error) {
 
 	var rowsAffected int64
 
-	// Insert each row
-	for _, row := range stmt.Values {
-		// Evaluate expressions to get values
-		values := make([]types.Value, len(row))
-		for i, expr := range row {
-			val, err := e.evaluateExpr(expr, nil, nil)
-			if err != nil {
-				return nil, err
-			}
-			values[i] = val
+	// Get rows to insert - either from VALUES or SELECT
+	var rowsToInsert [][]types.Value
+
+	if stmt.SelectStmt != nil {
+		// INSERT SELECT: Execute the SELECT statement
+		selectResult, err := e.executeSelect(stmt.SelectStmt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to execute SELECT in INSERT: %w", err)
 		}
+		rowsToInsert = selectResult.Rows
+	} else {
+		// INSERT VALUES: Evaluate expression rows
+		rowsToInsert = make([][]types.Value, len(stmt.Values))
+		for i, row := range stmt.Values {
+			values := make([]types.Value, len(row))
+			for j, expr := range row {
+				val, err := e.evaluateExpr(expr, nil, nil)
+				if err != nil {
+					return nil, err
+				}
+				values[j] = val
+			}
+			rowsToInsert[i] = values
+		}
+	}
+
+	// Insert each row
+	for _, values := range rowsToInsert {
 
 		// Validate constraints
 		if err := e.validateConstraints(table, values); err != nil {
