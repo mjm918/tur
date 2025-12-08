@@ -2,9 +2,13 @@
 package vdbe
 
 import (
+	"path/filepath"
 	"testing"
 
+	"tur/pkg/btree"
 	"tur/pkg/hnsw"
+	"tur/pkg/pager"
+	"tur/pkg/record"
 	"tur/pkg/types"
 )
 
@@ -776,4 +780,231 @@ func TestVMRunVectorDot_Orthogonal(t *testing.T) {
 	if dot < -0.001 || dot > 0.001 {
 		t.Errorf("expected dot product ~0 for orthogonal vectors, got %f", dot)
 	}
+}
+
+// TestVMRunRowid tests OpRowid: extract rowid from cursor into register
+func TestVMRunRowid(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	p, err := pager.Open(path, pager.Options{PageSize: 4096})
+	if err != nil {
+		t.Fatalf("failed to open pager: %v", err)
+	}
+	defer p.Close()
+
+	// Create B-tree and insert a row with rowid=42
+	bt, _ := btree.Create(p)
+	key := make([]byte, 8)
+	rowid := int64(42)
+	for i := 7; i >= 0; i-- {
+		key[i] = byte(rowid)
+		rowid >>= 8
+	}
+	values := []types.Value{types.NewInt(42), types.NewText("test")}
+	bt.Insert(key, record.Encode(values))
+
+	// Program: OpenRead -> Rewind -> Rowid -> Halt
+	prog := NewProgram()
+	prog.AddOp(OpInit, 0, 1, 0)
+	prog.AddOp(OpOpenRead, 0, int(bt.RootPage()), 0) // cursor 0, rootPage
+	prog.AddOp(OpRewind, 0, 6, 0)                    // cursor 0, jump to halt if empty
+	prog.AddOp(OpRowid, 0, 1, 0)                     // cursor 0, dest reg 1
+	prog.AddOp(OpClose, 0, 0, 0)
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, p)
+	vm.SetNumRegisters(5)
+
+	err = vm.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val := vm.Register(1)
+	if val.Type() != types.TypeInt {
+		t.Errorf("expected TypeInt, got %v", val.Type())
+	}
+	if val.Int() != 42 {
+		t.Errorf("expected rowid 42, got %d", val.Int())
+	}
+}
+
+// TestVMRunSeek tests OpSeek: seek cursor to specific rowid
+func TestVMRunSeek(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	p, err := pager.Open(path, pager.Options{PageSize: 4096})
+	if err != nil {
+		t.Fatalf("failed to open pager: %v", err)
+	}
+	defer p.Close()
+
+	// Create B-tree and insert multiple rows
+	bt, _ := btree.Create(p)
+	for _, rowid := range []int64{10, 20, 30} {
+		key := make([]byte, 8)
+		r := rowid
+		for i := 7; i >= 0; i-- {
+			key[i] = byte(r)
+			r >>= 8
+		}
+		values := []types.Value{types.NewInt(rowid), types.NewText("value")}
+		bt.Insert(key, record.Encode(values))
+	}
+
+	// Program: OpenRead -> Integer 20 (rowid to seek) -> Seek -> Column -> Halt
+	prog := NewProgram()
+	prog.AddOp(OpInit, 0, 1, 0)
+	prog.AddOp(OpOpenRead, 0, int(bt.RootPage()), 0) // cursor 0
+	prog.AddOp(OpInteger, 20, 1, 0)                  // r[1] = 20 (rowid to seek)
+	prog.AddOp(OpSeek, 0, 7, 1)                      // cursor 0, jump to halt if not found, rowid in r[1]
+	prog.AddOp(OpColumn, 0, 0, 2)                    // cursor 0, col 0, dest r[2]
+	prog.AddOp(OpClose, 0, 0, 0)
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, p)
+	vm.SetNumRegisters(5)
+
+	err = vm.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val := vm.Register(2)
+	if val.Type() != types.TypeInt {
+		t.Errorf("expected TypeInt, got %v", val.Type())
+	}
+	if val.Int() != 20 {
+		t.Errorf("expected value 20, got %d", val.Int())
+	}
+}
+
+// TestVMRunSeek_NotFound tests OpSeek when rowid doesn't exist
+func TestVMRunSeek_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	p, err := pager.Open(path, pager.Options{PageSize: 4096})
+	if err != nil {
+		t.Fatalf("failed to open pager: %v", err)
+	}
+	defer p.Close()
+
+	// Create B-tree with one row
+	bt, _ := btree.Create(p)
+	key := make([]byte, 8)
+	key[7] = 10
+	values := []types.Value{types.NewInt(10)}
+	bt.Insert(key, record.Encode(values))
+
+	// Program: seek to non-existent rowid 99
+	prog := NewProgram()
+	prog.AddOp(OpInit, 0, 1, 0)
+	prog.AddOp(OpOpenRead, 0, int(bt.RootPage()), 0)
+	prog.AddOp(OpInteger, 99, 1, 0)  // r[1] = 99 (rowid that doesn't exist)
+	prog.AddOp(OpSeek, 0, 6, 1)      // cursor 0, jump to end if not found
+	prog.AddOp(OpInteger, 1, 2, 0)   // r[2] = 1 (should be skipped)
+	prog.AddOp(OpGoto, 0, 7, 0)      // skip over the "not found" marker
+	prog.AddOp(OpInteger, 99, 2, 0)  // r[2] = 99 (marker for not found)
+	prog.AddOp(OpClose, 0, 0, 0)
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, p)
+	vm.SetNumRegisters(5)
+
+	err = vm.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// If seek failed, r[2] should be 99
+	val := vm.Register(2)
+	if val.Int() != 99 {
+		t.Errorf("expected 99 (not found marker), got %d", val.Int())
+	}
+}
+
+// TestVMRunDelete tests OpDelete: delete current row from cursor
+func TestVMRunDelete(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	p, err := pager.Open(path, pager.Options{PageSize: 4096})
+	if err != nil {
+		t.Fatalf("failed to open pager: %v", err)
+	}
+	defer p.Close()
+
+	// Create B-tree and insert rows
+	bt, _ := btree.Create(p)
+	for _, rowid := range []int64{10, 20, 30} {
+		key := make([]byte, 8)
+		r := rowid
+		for i := 7; i >= 0; i-- {
+			key[i] = byte(r)
+			r >>= 8
+		}
+		values := []types.Value{types.NewInt(rowid)}
+		bt.Insert(key, record.Encode(values))
+	}
+
+	// Verify initial count is 3
+	cursor := bt.Cursor()
+	count := 0
+	for cursor.First(); cursor.Valid(); cursor.Next() {
+		count++
+	}
+	cursor.Close()
+	if count != 3 {
+		t.Fatalf("expected 3 rows before delete, got %d", count)
+	}
+
+	// Program: seek to rowid 20 and delete it
+	prog := NewProgram()
+	prog.AddOp(OpInit, 0, 1, 0)
+	prog.AddOp(OpOpenWrite, 0, int(bt.RootPage()), 0) // cursor 0, must use OpenWrite for delete
+	prog.AddOp(OpInteger, 20, 1, 0)                   // r[1] = 20
+	prog.AddOp(OpSeek, 0, 6, 1)                       // cursor 0, jump to close if not found
+	prog.AddOp(OpDelete, 0, 0, 0)                     // delete current row from cursor 0
+	prog.AddOp(OpClose, 0, 0, 0)
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, p)
+	vm.SetNumRegisters(5)
+
+	err = vm.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify row was deleted (count should be 2)
+	cursor = bt.Cursor()
+	count = 0
+	for cursor.First(); cursor.Valid(); cursor.Next() {
+		count++
+	}
+	cursor.Close()
+	if count != 2 {
+		t.Errorf("expected 2 rows after delete, got %d", count)
+	}
+
+	// Verify rowid 20 is gone
+	seekKey := make([]byte, 8)
+	seekKey[7] = 20
+	cursor = bt.Cursor()
+	cursor.Seek(seekKey)
+	// After seek, cursor should be at 30, not 20
+	if cursor.Valid() {
+		key := cursor.Key()
+		rowid := int64(0)
+		for i := 0; i < 8; i++ {
+			rowid = (rowid << 8) | int64(key[i])
+		}
+		if rowid == 20 {
+			t.Error("rowid 20 should have been deleted")
+		}
+	}
+	cursor.Close()
 }

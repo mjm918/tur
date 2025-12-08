@@ -314,6 +314,14 @@ func (vm *VM) step(instr *Instruction) error {
 		// Read column P2 from cursor P1 into register P3
 		return vm.execColumn(instr)
 
+	case OpRowid:
+		// Store rowid from cursor P1 into register P2
+		return vm.execRowid(instr)
+
+	case OpSeek:
+		// Seek cursor P1 to rowid in register P3, jump to P2 if not found
+		return vm.execSeek(instr)
+
 	case OpMakeRecord:
 		// Create record from registers P1..P1+P2-1, store in P3
 		return vm.execMakeRecord(instr)
@@ -321,6 +329,10 @@ func (vm *VM) step(instr *Instruction) error {
 	case OpInsert:
 		// Insert record r[P2] at rowid r[P3] into cursor P1
 		return vm.execInsert(instr)
+
+	case OpDelete:
+		// Delete current row in cursor P1
+		return vm.execDelete(instr)
 
 	case OpAggInit:
 		// Initialize aggregate: P1=aggIdx, P4=name (string)
@@ -610,6 +622,125 @@ func (vm *VM) execColumn(instr *Instruction) error {
 		vm.registers[destReg] = values[columnIdx]
 	} else {
 		vm.registers[destReg] = types.NewNull()
+	}
+
+	vm.pc++
+	return nil
+}
+
+// execRowid extracts the rowid from the current cursor position
+func (vm *VM) execRowid(instr *Instruction) error {
+	cursorIdx := instr.P1
+	destReg := instr.P2
+
+	if cursorIdx >= len(vm.cursors) || vm.cursors[cursorIdx] == nil {
+		return fmt.Errorf("cursor %d not open", cursorIdx)
+	}
+
+	cursor := vm.cursors[cursorIdx].cursor
+	if !cursor.Valid() {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	// Extract rowid from key (big-endian 8-byte integer)
+	key := cursor.Key()
+	if len(key) < 8 {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	var rowid int64
+	for i := 0; i < 8; i++ {
+		rowid = (rowid << 8) | int64(key[i])
+	}
+
+	vm.registers[destReg] = types.NewInt(rowid)
+	vm.pc++
+	return nil
+}
+
+// execSeek seeks the cursor to a specific rowid
+func (vm *VM) execSeek(instr *Instruction) error {
+	cursorIdx := instr.P1
+	jumpAddr := instr.P2
+	rowidReg := instr.P3
+
+	if cursorIdx >= len(vm.cursors) || vm.cursors[cursorIdx] == nil {
+		return fmt.Errorf("cursor %d not open", cursorIdx)
+	}
+
+	// Get rowid from register
+	rowidVal := vm.registers[rowidReg]
+	rowid := rowidVal.Int()
+
+	// Create key from rowid (big-endian)
+	key := make([]byte, 8)
+	for i := 7; i >= 0; i-- {
+		key[i] = byte(rowid)
+		rowid >>= 8
+	}
+
+	// Seek to the key
+	cursor := vm.cursors[cursorIdx].cursor
+	cursor.Seek(key)
+
+	// Check if we found the exact key
+	if !cursor.Valid() {
+		// Not found, jump to P2
+		vm.pc = jumpAddr
+		return nil
+	}
+
+	// Verify the key matches exactly
+	foundKey := cursor.Key()
+	for i := 0; i < 8; i++ {
+		if foundKey[i] != key[i] {
+			// Key doesn't match, jump to P2
+			vm.pc = jumpAddr
+			return nil
+		}
+	}
+
+	// Found the row, continue to next instruction
+	vm.pc++
+	return nil
+}
+
+// execDelete deletes the current row from the cursor
+func (vm *VM) execDelete(instr *Instruction) error {
+	cursorIdx := instr.P1
+
+	if cursorIdx >= len(vm.cursors) || vm.cursors[cursorIdx] == nil {
+		return fmt.Errorf("cursor %d not open", cursorIdx)
+	}
+
+	vdbeCursor := vm.cursors[cursorIdx]
+	cursor := vdbeCursor.cursor
+
+	if !cursor.Valid() {
+		// No current row, nothing to delete
+		vm.pc++
+		return nil
+	}
+
+	// Get the current key
+	key := cursor.Key()
+	if key == nil {
+		vm.pc++
+		return nil
+	}
+
+	// Make a copy of the key since the cursor may become invalid after delete
+	keyCopy := make([]byte, len(key))
+	copy(keyCopy, key)
+
+	// Delete from B-tree
+	bt := vdbeCursor.btree
+	if err := bt.Delete(keyCopy); err != nil {
+		return fmt.Errorf("delete failed: %w", err)
 	}
 
 	vm.pc++
