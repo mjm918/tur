@@ -954,3 +954,61 @@ func TestParser_DropIndex(t *testing.T) {
 		t.Errorf("IndexName = %q, want 'idx_users_email'", drop.IndexName)
 	}
 }
+
+// ========== ANALYZE Tests ==========
+
+func TestParser_Analyze_AllTables(t *testing.T) {
+	input := "ANALYZE"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	analyze, ok := stmt.(*AnalyzeStmt)
+	if !ok {
+		t.Fatalf("Expected *AnalyzeStmt, got %T", stmt)
+	}
+
+	if analyze.TableName != "" {
+		t.Errorf("TableName = %q, want empty string for all tables", analyze.TableName)
+	}
+}
+
+func TestParser_Analyze_SpecificTable(t *testing.T) {
+	input := "ANALYZE users"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	analyze, ok := stmt.(*AnalyzeStmt)
+	if !ok {
+		t.Fatalf("Expected *AnalyzeStmt, got %T", stmt)
+	}
+
+	if analyze.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", analyze.TableName)
+	}
+}
+
+func TestParser_Analyze_SpecificIndex(t *testing.T) {
+	input := "ANALYZE idx_users_email"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	analyze, ok := stmt.(*AnalyzeStmt)
+	if !ok {
+		t.Fatalf("Expected *AnalyzeStmt, got %T", stmt)
+	}
+
+	// When only one identifier is given, it could be a table or index name
+	// The executor will determine which based on what exists in the catalog
+	if analyze.TableName != "idx_users_email" {
+		t.Errorf("TableName = %q, want 'idx_users_email'", analyze.TableName)
+	}
+}

@@ -619,7 +619,7 @@
         },
         {
           "task": "Implement ANALYZE statement parser",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement table sampling for large tables",

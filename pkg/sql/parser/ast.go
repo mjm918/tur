@@ -337,3 +337,10 @@ type PragmaStmt struct {
 }
 
 func (s *PragmaStmt) statementNode() {}
+
+// AnalyzeStmt represents an ANALYZE statement for collecting table statistics
+type AnalyzeStmt struct {
+	TableName string // Optional: table or index name to analyze (empty = all tables)
+}
+
+func (s *AnalyzeStmt) statementNode() {}
