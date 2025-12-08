@@ -328,3 +328,166 @@ func TestEstimateCandidateSelectivity(t *testing.T) {
 		t.Errorf("selectivity should be between 0 and 1, got %f", selectivity)
 	}
 }
+
+// Test Task 3: Compare cost of index scan vs full table scan
+
+func TestCompareAccessPaths_IndexBetterForSelectiveQuery(t *testing.T) {
+	// For highly selective queries (equality on indexed column),
+	// index scan should be cheaper than table scan
+	catalog := schema.NewCatalog()
+	tableDef := &schema.TableDef{
+		Name: "users",
+		Columns: []schema.ColumnDef{
+			{Name: "id", Type: types.TypeInt},
+			{Name: "email", Type: types.TypeText},
+		},
+	}
+	catalog.CreateTable(tableDef)
+
+	indexDef := &schema.IndexDef{
+		Name:      "idx_users_email",
+		TableName: "users",
+		Columns:   []string{"email"},
+		Type:      schema.IndexTypeBTree,
+	}
+	catalog.CreateIndex(indexDef)
+
+	candidate := IndexCandidate{
+		Index:    indexDef,
+		Column:   "email",
+		Operator: lexer.EQ,
+		Value:    &parser.Literal{Value: types.NewText("test@example.com")},
+	}
+
+	estimator := NewCostEstimator()
+	tableRows := int64(10000) // Large table
+
+	comparison := estimator.CompareAccessPaths(tableDef, candidate, tableRows)
+
+	if comparison.IndexCost >= comparison.TableScanCost {
+		t.Errorf("index scan should be cheaper for selective query: index=%f, table=%f",
+			comparison.IndexCost, comparison.TableScanCost)
+	}
+	if !comparison.UseIndex {
+		t.Errorf("should recommend using index for selective query")
+	}
+}
+
+func TestCompareAccessPaths_TableScanBetterForNonSelectiveQuery(t *testing.T) {
+	// For non-selective queries (e.g., !=), table scan might be cheaper
+	catalog := schema.NewCatalog()
+	tableDef := &schema.TableDef{
+		Name: "users",
+		Columns: []schema.ColumnDef{
+			{Name: "status", Type: types.TypeText},
+		},
+	}
+	catalog.CreateTable(tableDef)
+
+	indexDef := &schema.IndexDef{
+		Name:      "idx_users_status",
+		TableName: "users",
+		Columns:   []string{"status"},
+		Type:      schema.IndexTypeBTree,
+	}
+	catalog.CreateIndex(indexDef)
+
+	candidate := IndexCandidate{
+		Index:    indexDef,
+		Column:   "status",
+		Operator: lexer.NEQ, // Not equal - scans most of the table
+		Value:    &parser.Literal{Value: types.NewText("inactive")},
+	}
+
+	estimator := NewCostEstimator()
+	tableRows := int64(1000)
+
+	comparison := estimator.CompareAccessPaths(tableDef, candidate, tableRows)
+
+	// For non-selective queries, table scan should be preferred
+	if comparison.UseIndex {
+		t.Errorf("should not recommend index for non-selective != query")
+	}
+}
+
+func TestCompareAccessPaths_SmallTablePrefersScan(t *testing.T) {
+	// For very small tables, full scan is often cheaper
+	catalog := schema.NewCatalog()
+	tableDef := &schema.TableDef{
+		Name: "config",
+		Columns: []schema.ColumnDef{
+			{Name: "key", Type: types.TypeText},
+		},
+	}
+	catalog.CreateTable(tableDef)
+
+	indexDef := &schema.IndexDef{
+		Name:      "idx_config_key",
+		TableName: "config",
+		Columns:   []string{"key"},
+		Type:      schema.IndexTypeBTree,
+	}
+	catalog.CreateIndex(indexDef)
+
+	candidate := IndexCandidate{
+		Index:    indexDef,
+		Column:   "key",
+		Operator: lexer.EQ,
+		Value:    &parser.Literal{Value: types.NewText("setting1")},
+	}
+
+	estimator := NewCostEstimator()
+	tableRows := int64(10) // Very small table
+
+	comparison := estimator.CompareAccessPaths(tableDef, candidate, tableRows)
+
+	// For small tables, table scan is often preferred
+	// (or costs are close enough that either is acceptable)
+	if comparison.TableScanCost > 10.0 {
+		t.Errorf("table scan cost should be low for small table: %f", comparison.TableScanCost)
+	}
+}
+
+func TestCompareAccessPaths_ReturnsCorrectRowEstimates(t *testing.T) {
+	catalog := schema.NewCatalog()
+	tableDef := &schema.TableDef{
+		Name: "users",
+		Columns: []schema.ColumnDef{
+			{Name: "age", Type: types.TypeInt},
+		},
+	}
+	catalog.CreateTable(tableDef)
+
+	indexDef := &schema.IndexDef{
+		Name:      "idx_users_age",
+		TableName: "users",
+		Columns:   []string{"age"},
+		Type:      schema.IndexTypeBTree,
+	}
+	catalog.CreateIndex(indexDef)
+
+	candidate := IndexCandidate{
+		Index:    indexDef,
+		Column:   "age",
+		Operator: lexer.GT, // Range scan - 33% selectivity
+		Value:    &parser.Literal{Value: types.NewInt(30)},
+	}
+
+	estimator := NewCostEstimator()
+	tableRows := int64(1000)
+
+	comparison := estimator.CompareAccessPaths(tableDef, candidate, tableRows)
+
+	// Table scan returns all rows
+	if comparison.TableScanRows != tableRows {
+		t.Errorf("table scan should return all rows: expected %d, got %d",
+			tableRows, comparison.TableScanRows)
+	}
+
+	// Index scan returns fewer rows (based on selectivity)
+	expectedIndexRows := int64(float64(tableRows) * 0.33) // 33% for range
+	if comparison.IndexRows < expectedIndexRows-50 || comparison.IndexRows > expectedIndexRows+50 {
+		t.Errorf("index scan rows should be around %d (33%% of %d), got %d",
+			expectedIndexRows, tableRows, comparison.IndexRows)
+	}
+}

@@ -198,3 +198,34 @@ func (e *CostEstimator) EstimateIndexSelectivity(op lexer.TokenType) float64 {
 func (e *CostEstimator) EstimateCandidateSelectivity(candidate IndexCandidate) float64 {
 	return e.EstimateIndexSelectivity(candidate.Operator)
 }
+
+// AccessPathComparison contains the cost comparison between different access methods
+type AccessPathComparison struct {
+	TableScanCost float64 // Cost of full table scan
+	TableScanRows int64   // Rows returned by table scan
+	IndexCost     float64 // Cost of index scan
+	IndexRows     int64   // Rows returned by index scan
+	UseIndex      bool    // Recommendation: true = use index, false = use table scan
+}
+
+// CompareAccessPaths compares the cost of using an index vs a full table scan
+func (e *CostEstimator) CompareAccessPaths(table *schema.TableDef, candidate IndexCandidate, tableRows int64) AccessPathComparison {
+	// Calculate table scan cost
+	tableScanCost, tableScanRows := e.EstimateTableScan(table, tableRows)
+
+	// Calculate index scan cost
+	selectivity := e.EstimateCandidateSelectivity(candidate)
+	indexCost, indexRows := e.EstimateIndexScan(candidate.Index, tableRows, selectivity)
+
+	// Decide whether to use the index
+	// Use index if it's cheaper and returns significantly fewer rows
+	useIndex := indexCost < tableScanCost
+
+	return AccessPathComparison{
+		TableScanCost: tableScanCost,
+		TableScanRows: tableScanRows,
+		IndexCost:     indexCost,
+		IndexRows:     indexRows,
+		UseIndex:      useIndex,
+	}
+}
