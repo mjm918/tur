@@ -541,7 +541,7 @@
         },
         {
           "task": "Add AST nodes for PRAGMA statements",
-          "done": false
+          "done": true
         }
       ]
     },

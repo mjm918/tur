@@ -410,3 +410,92 @@ func TestDropTriggerStmt(t *testing.T) {
 		t.Errorf("Expected trigger name my_trigger, got %s", drop.TriggerName)
 	}
 }
+
+// TestPragmaStmt tests PRAGMA statement AST node
+func TestPragmaStmt(t *testing.T) {
+	tests := []struct {
+		name     string
+		pragma   *PragmaStmt
+		checkKey string
+		checkVal interface{}
+	}{
+		{
+			name: "PRAGMA without value",
+			pragma: &PragmaStmt{
+				Name: "cache_size",
+			},
+			checkKey: "cache_size",
+			checkVal: nil,
+		},
+		{
+			name: "PRAGMA with integer value",
+			pragma: &PragmaStmt{
+				Name: "cache_size",
+				Value: &Literal{},
+			},
+			checkKey: "cache_size",
+			checkVal: "has_value",
+		},
+		{
+			name: "PRAGMA with string value",
+			pragma: &PragmaStmt{
+				Name: "journal_mode",
+				Value: &Literal{},
+			},
+			checkKey: "journal_mode",
+			checkVal: "has_value",
+		},
+		{
+			name: "PRAGMA with equals syntax",
+			pragma: &PragmaStmt{
+				Name:  "synchronous",
+				Value: &Literal{},
+			},
+			checkKey: "synchronous",
+			checkVal: "has_value",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Verify it implements Statement interface
+			var _ Statement = tt.pragma
+
+			if tt.pragma.Name != tt.checkKey {
+				t.Errorf("Expected pragma name %s, got %s", tt.checkKey, tt.pragma.Name)
+			}
+
+			if tt.checkVal == nil && tt.pragma.Value != nil {
+				t.Error("Expected nil value")
+			}
+			if tt.checkVal == "has_value" && tt.pragma.Value == nil {
+				t.Error("Expected non-nil value")
+			}
+		})
+	}
+}
+
+// TestPragmaStmt_CommonPragmas tests common PRAGMA names
+func TestPragmaStmt_CommonPragmas(t *testing.T) {
+	commonPragmas := []string{
+		"cache_size",
+		"journal_mode",
+		"synchronous",
+		"page_size",
+		"foreign_keys",
+		"integrity_check",
+		"table_info",
+	}
+
+	for _, name := range commonPragmas {
+		t.Run(name, func(t *testing.T) {
+			pragma := &PragmaStmt{
+				Name: name,
+			}
+
+			if pragma.Name != name {
+				t.Errorf("Expected pragma name %s, got %s", name, pragma.Name)
+			}
+		})
+	}
+}

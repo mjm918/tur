@@ -293,3 +293,11 @@ type DropTriggerStmt struct {
 }
 
 func (s *DropTriggerStmt) statementNode() {}
+
+// PragmaStmt represents a PRAGMA statement
+type PragmaStmt struct {
+	Name  string     // PRAGMA name (e.g., cache_size, journal_mode)
+	Value Expression // Optional value (nil for query pragmas)
+}
+
+func (s *PragmaStmt) statementNode() {}
