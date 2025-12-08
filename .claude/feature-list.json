@@ -732,7 +732,7 @@
         },
         {
           "task": "Implement vector distance computation in VM",
-          "done": false
+          "done": true
         },
         {
           "task": "Add vector normalization function",

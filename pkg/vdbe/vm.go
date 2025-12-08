@@ -268,6 +268,10 @@ func (vm *VM) step(instr *Instruction) error {
 		// Finalize aggregate: P1=aggIdx, P2=destReg
 		return vm.execAggFinal(instr)
 
+	case OpVectorDistance:
+		// r[P3] = cosine_distance(r[P1], r[P2])
+		return vm.ExecuteVectorDistance(instr)
+
 	default:
 		return fmt.Errorf("unimplemented opcode: %s", instr.Op)
 	}
@@ -640,6 +644,40 @@ func (vm *VM) execAggFinal(instr *Instruction) error {
 
 	result := vm.aggregates[aggIdx].Finalize()
 	vm.registers[destReg] = result
+
+	vm.pc++
+	return nil
+}
+
+// ExecuteVectorDistance computes cosine distance between two vectors
+// r[P3] = cosine_distance(r[P1], r[P2])
+func (vm *VM) ExecuteVectorDistance(instr *Instruction) error {
+	v1Reg := instr.P1
+	v2Reg := instr.P2
+	destReg := instr.P3
+
+	v1Val := vm.registers[v1Reg]
+	v2Val := vm.registers[v2Reg]
+
+	// Check if both values are vectors
+	if v1Val.Type() != types.TypeVector || v2Val.Type() != types.TypeVector {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	vec1 := v1Val.Vector()
+	vec2 := v2Val.Vector()
+
+	if vec1 == nil || vec2 == nil {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	// Compute cosine distance
+	dist := vec1.CosineDistance(vec2)
+	vm.registers[destReg] = types.NewFloat(float64(dist))
 
 	vm.pc++
 	return nil

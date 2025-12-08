@@ -376,3 +376,94 @@ func TestVMResultRow(t *testing.T) {
 		t.Errorf("expected second column = 'hello', got '%s'", rows[0][1].Text())
 	}
 }
+
+func TestVMRunVectorDistance(t *testing.T) {
+	// Create two vectors and compute cosine distance
+	// v1 = [1, 0, 0] (normalized)
+	// v2 = [1, 0, 0] (normalized) - same vector, distance should be 0
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	v2 := types.NewVector([]float32{1.0, 0.0, 0.0})
+
+	prog := NewProgram()
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	vm.SetNumRegisters(5)
+
+	// Set vectors in registers (using P4 would be for blobs, we use SetRegister for vectors)
+	vm.SetRegister(1, types.NewVectorValue(v1))
+	vm.SetRegister(2, types.NewVectorValue(v2))
+
+	// Manually invoke distance computation
+	distInstr := &Instruction{Op: OpVectorDistance, P1: 1, P2: 2, P3: 3}
+	err := vm.ExecuteVectorDistance(distInstr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val := vm.Register(3)
+	if val.Type() != types.TypeFloat {
+		t.Errorf("expected TypeFloat, got %v", val.Type())
+	}
+	dist := val.Float()
+	if dist < -0.001 || dist > 0.001 {
+		t.Errorf("expected distance ~0 for identical vectors, got %f", dist)
+	}
+}
+
+func TestVMRunVectorDistance_Orthogonal(t *testing.T) {
+	// v1 = [1, 0, 0], v2 = [0, 1, 0] - orthogonal, cosine distance = 1
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	v2 := types.NewVector([]float32{0.0, 1.0, 0.0})
+
+	prog := NewProgram()
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	vm.SetNumRegisters(5)
+
+	vm.SetRegister(1, types.NewVectorValue(v1))
+	vm.SetRegister(2, types.NewVectorValue(v2))
+
+	distInstr := &Instruction{Op: OpVectorDistance, P1: 1, P2: 2, P3: 3}
+	err := vm.ExecuteVectorDistance(distInstr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val := vm.Register(3)
+	dist := val.Float()
+	// Cosine distance for orthogonal vectors: 1 - 0 = 1
+	if dist < 0.999 || dist > 1.001 {
+		t.Errorf("expected distance ~1 for orthogonal vectors, got %f", dist)
+	}
+}
+
+func TestVMRunVectorDistance_ViaProgram(t *testing.T) {
+	// Test OpVectorDistance through normal VM execution
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	v2 := types.NewVector([]float32{0.0, 1.0, 0.0})
+
+	prog := NewProgram()
+	prog.AddOp(OpVectorDistance, 1, 2, 3) // r[3] = distance(r[1], r[2])
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	vm.SetNumRegisters(5)
+	vm.SetRegister(1, types.NewVectorValue(v1))
+	vm.SetRegister(2, types.NewVectorValue(v2))
+
+	err := vm.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val := vm.Register(3)
+	if val.Type() != types.TypeFloat {
+		t.Errorf("expected TypeFloat, got %v", val.Type())
+	}
+	dist := val.Float()
+	if dist < 0.999 || dist > 1.001 {
+		t.Errorf("expected distance ~1 for orthogonal vectors, got %f", dist)
+	}
+}
