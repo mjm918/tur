@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 
-	"tur/internal/encoding"
+	"tur/pkg/encoding"
 )
 
 /*

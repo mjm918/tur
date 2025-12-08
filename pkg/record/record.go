@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"math"
 
+	"tur/pkg/encoding"
 	"tur/pkg/types"
 )
 
@@ -118,13 +119,13 @@ func Encode(values []types.Value) []byte {
 		st := SerialTypeFor(v)
 		serialTypes[i] = st
 		dataSize += SerialTypeSize(st)
-		headerSize += VarintLength(st)
+		headerSize += encoding.VarintLen(st)
 	}
 
 	// Header size includes the header-size varint itself
-	hdrSizeLen := VarintLength(uint64(headerSize + 1))
-	for hdrSizeLen != VarintLength(uint64(headerSize+hdrSizeLen)) {
-		hdrSizeLen = VarintLength(uint64(headerSize + hdrSizeLen))
+	hdrSizeLen := encoding.VarintLen(uint64(headerSize + 1))
+	for hdrSizeLen != encoding.VarintLen(uint64(headerSize+hdrSizeLen)) {
+		hdrSizeLen = encoding.VarintLen(uint64(headerSize + hdrSizeLen))
 	}
 	headerSize += hdrSizeLen
 
@@ -132,9 +133,9 @@ func Encode(values []types.Value) []byte {
 	buf := make([]byte, headerSize+dataSize)
 
 	// Write header
-	pos := PutVarint(buf, uint64(headerSize))
+	pos := encoding.PutVarint(buf, uint64(headerSize))
 	for _, st := range serialTypes {
-		pos += PutVarint(buf[pos:], st)
+		pos += encoding.PutVarint(buf[pos:], st)
 	}
 
 	// Write data
@@ -199,7 +200,7 @@ func Decode(data []byte) []types.Value {
 	}
 
 	// Read header size
-	headerSize, n := GetVarint(data)
+	headerSize, n := encoding.GetVarint(data)
 	if headerSize == 0 || int(headerSize) > len(data) {
 		return nil
 	}
@@ -208,7 +209,7 @@ func Decode(data []byte) []types.Value {
 	var serialTypes []uint64
 	pos := n
 	for pos < int(headerSize) {
-		st, m := GetVarint(data[pos:])
+		st, m := encoding.GetVarint(data[pos:])
 		serialTypes = append(serialTypes, st)
 		pos += m
 	}

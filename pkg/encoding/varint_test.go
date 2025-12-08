@@ -1,4 +1,4 @@
-package record
+package encoding
 
 import "testing"
 
@@ -106,7 +106,7 @@ func TestVarintRoundTrip(t *testing.T) {
 	}
 }
 
-func TestVarintLength(t *testing.T) {
+func TestVarintLen(t *testing.T) {
 	tests := []struct {
 		value  uint64
 		length int
@@ -121,9 +121,9 @@ func TestVarintLength(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		n := VarintLength(tt.value)
+		n := VarintLen(tt.value)
 		if n != tt.length {
-			t.Errorf("VarintLength(%d): got %d, want %d", tt.value, n, tt.length)
+			t.Errorf("VarintLen(%d): got %d, want %d", tt.value, n, tt.length)
 		}
 	}
 }

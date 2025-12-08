@@ -1,5 +1,5 @@
-// pkg/record/varint.go
-package record
+// pkg/encoding/varint.go
+package encoding
 
 // PutVarint encodes v as a varint into buf and returns the number of bytes written.
 // The buffer must have at least 9 bytes available.
@@ -12,7 +12,7 @@ func PutVarint(buf []byte, v uint64) int {
 	}
 
 	// Count how many bytes we need
-	n := VarintLength(v)
+	n := VarintLen(v)
 
 	// Special case: 9-byte encoding
 	if n == 9 {
@@ -63,8 +63,8 @@ func GetVarint(buf []byte) (uint64, int) {
 	return v, n
 }
 
-// VarintLength returns the number of bytes needed to encode v as a varint.
-func VarintLength(v uint64) int {
+// VarintLen returns the number of bytes needed to encode v as a varint.
+func VarintLen(v uint64) int {
 	if v <= 0x7F {
 		return 1
 	}
