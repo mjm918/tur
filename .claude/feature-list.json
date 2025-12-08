@@ -345,13 +345,13 @@
     {
       "title": "MVCC - Savepoint Support",
       "description": "Nested transaction savepoints with rollback capability",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
-        {"task": "Add savepoint stack to transaction context", "done": false},
-        {"task": "Implement SAVEPOINT creation with unique name", "done": false},
-        {"task": "Implement ROLLBACK TO savepoint logic", "done": false},
-        {"task": "Track modified pages per savepoint level", "done": false},
-        {"task": "Handle nested savepoint cleanup on commit", "done": false}
+        {"task": "Add savepoint stack to transaction context", "done": true},
+        {"task": "Implement SAVEPOINT creation with unique name", "done": true},
+        {"task": "Implement ROLLBACK TO savepoint logic", "done": true},
+        {"task": "Track modified pages per savepoint level", "done": true},
+        {"task": "Handle nested savepoint cleanup on commit", "done": true}
       ]
     },
     {
