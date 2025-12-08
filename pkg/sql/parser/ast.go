@@ -124,12 +124,14 @@ func (j *Join) tableRefNode() {}
 
 // SelectStmt represents a SELECT statement
 type SelectStmt struct {
-	Columns []SelectColumn  // * or column list
+	Columns []SelectColumn // * or column list
 	From    TableReference
-	Where   Expression      // optional WHERE clause (nil if none)
-	OrderBy []OrderByExpr   // optional ORDER BY clause
-	Limit   Expression      // optional LIMIT expression
-	Offset  Expression      // optional OFFSET expression
+	Where   Expression    // optional WHERE clause (nil if none)
+	GroupBy []Expression  // optional GROUP BY clause
+	Having  Expression    // optional HAVING clause (nil if none)
+	OrderBy []OrderByExpr // optional ORDER BY clause
+	Limit   Expression    // optional LIMIT expression
+	Offset  Expression    // optional OFFSET expression
 }
 
 func (s *SelectStmt) statementNode() {}
@@ -382,11 +384,11 @@ const (
 
 // AlterTableStmt represents an ALTER TABLE statement
 type AlterTableStmt struct {
-	TableName   string      // Table to alter
-	Action      AlterAction // Type of alteration
-	NewColumn   *ColumnDef  // For ADD COLUMN: the new column definition
-	ColumnName  string      // For DROP COLUMN: column to drop
-	NewName     string      // For RENAME TO: new table name
+	TableName  string      // Table to alter
+	Action     AlterAction // Type of alteration
+	NewColumn  *ColumnDef  // For ADD COLUMN: the new column definition
+	ColumnName string      // For DROP COLUMN: column to drop
+	NewName    string      // For RENAME TO: new table name
 }
 
 func (s *AlterTableStmt) statementNode() {}

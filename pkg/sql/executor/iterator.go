@@ -736,3 +736,237 @@ func (it *LimitIterator) Value() []types.Value {
 func (it *LimitIterator) Close() {
 	it.child.Close()
 }
+
+// HashGroupByIterator performs GROUP BY with hash-based grouping
+type HashGroupByIterator struct {
+	child    RowIterator
+	groupBy  []parser.Expression // GROUP BY expressions
+	having   parser.Expression   // Optional HAVING clause
+	colMap   map[string]int      // Input schema mapping
+	executor *Executor
+
+	// State
+	groups   []groupEntry // Collected groups after materialization
+	idx      int          // Current position in groups
+	prepared bool
+}
+
+// groupEntry represents a single group with its key and accumulated aggregates
+type groupEntry struct {
+	key        string                     // Serialized group key
+	keyValues  []types.Value              // Original key values for output
+	aggregates map[string]*aggregateState // funcName -> state
+	rows       [][]types.Value            // All rows in this group (for computing aggregates)
+}
+
+// aggregateState holds the state of an aggregate function
+type aggregateState struct {
+	funcName string
+	count    int64   // Used by COUNT, AVG
+	sum      float64 // Used by SUM, AVG
+	min      types.Value
+	max      types.Value
+	hasValue bool
+}
+
+func (it *HashGroupByIterator) Next() bool {
+	if !it.prepared {
+		it.prepare()
+	}
+
+	for it.idx < len(it.groups) {
+		group := it.groups[it.idx]
+		it.idx++
+
+		// Check HAVING clause if present
+		if it.having != nil {
+			// Create a row with group key values and aggregate results for HAVING evaluation
+			havingRow := it.buildOutputRow(&group)
+			match, err := it.executor.evaluateCondition(it.having, havingRow, it.buildHavingColMap(&group))
+			if err != nil || !match {
+				continue
+			}
+		}
+
+		return true
+	}
+	return false
+}
+
+// prepare materializes input and builds groups
+func (it *HashGroupByIterator) prepare() {
+	groupMap := make(map[string]*groupEntry)
+
+	// Materialize all input rows and group them
+	for it.child.Next() {
+		row := it.child.Value()
+		clone := make([]types.Value, len(row))
+		copy(clone, row)
+
+		// Compute group key
+		key, keyValues := it.computeGroupKey(row)
+
+		// Get or create group
+		group, exists := groupMap[key]
+		if !exists {
+			group = &groupEntry{
+				key:        key,
+				keyValues:  keyValues,
+				aggregates: make(map[string]*aggregateState),
+				rows:       nil,
+			}
+			groupMap[key] = group
+		}
+		group.rows = append(group.rows, clone)
+	}
+	it.child.Close()
+
+	// Convert map to slice and compute final aggregates
+	for _, group := range groupMap {
+		it.computeAggregates(group)
+		it.groups = append(it.groups, *group)
+	}
+
+	it.idx = 0
+	it.prepared = true
+}
+
+// computeGroupKey computes a string key for grouping
+func (it *HashGroupByIterator) computeGroupKey(row []types.Value) (string, []types.Value) {
+	if len(it.groupBy) == 0 {
+		// No GROUP BY - everything in one group
+		return "", nil
+	}
+
+	keyValues := make([]types.Value, len(it.groupBy))
+	parts := make([]string, len(it.groupBy))
+
+	for i, expr := range it.groupBy {
+		val, err := it.executor.evaluateExpr(expr, row, it.colMap)
+		if err != nil {
+			parts[i] = "NULL"
+			keyValues[i] = types.NewNull()
+		} else {
+			keyValues[i] = val
+			// Serialize value to string for map key
+			if val.IsNull() {
+				parts[i] = "NULL"
+			} else {
+				parts[i] = fmt.Sprintf("%v", val)
+			}
+		}
+	}
+
+	// Combine parts with separator
+	key := ""
+	for i, p := range parts {
+		if i > 0 {
+			key += "|"
+		}
+		key += p
+	}
+
+	return key, keyValues
+}
+
+// computeAggregates computes aggregate values for a group
+func (it *HashGroupByIterator) computeAggregates(group *groupEntry) {
+	// Initialize aggregate states for common aggregates
+	for _, name := range []string{"COUNT", "COUNT*", "SUM", "AVG", "MIN", "MAX"} {
+		group.aggregates[name] = &aggregateState{funcName: name}
+	}
+
+	// Process each row in the group
+	for _, row := range group.rows {
+		// COUNT(*)
+		group.aggregates["COUNT*"].count++
+
+		// For other aggregates, we'd need to know which columns to aggregate
+		// For now, use the first non-key column as a default
+		if len(row) > len(it.groupBy) {
+			val := row[len(it.groupBy)] // Simple heuristic
+
+			// COUNT (non-null)
+			if !val.IsNull() {
+				group.aggregates["COUNT"].count++
+			}
+
+			// SUM and AVG
+			switch val.Type() {
+			case types.TypeInt:
+				group.aggregates["SUM"].sum += float64(val.Int())
+				group.aggregates["AVG"].sum += float64(val.Int())
+				group.aggregates["AVG"].count++
+				group.aggregates["SUM"].hasValue = true
+				group.aggregates["AVG"].hasValue = true
+			case types.TypeFloat:
+				group.aggregates["SUM"].sum += val.Float()
+				group.aggregates["AVG"].sum += val.Float()
+				group.aggregates["AVG"].count++
+				group.aggregates["SUM"].hasValue = true
+				group.aggregates["AVG"].hasValue = true
+			}
+
+			// MIN
+			if !val.IsNull() {
+				state := group.aggregates["MIN"]
+				if !state.hasValue || compareValuesForSort(val, state.min) < 0 {
+					state.min = val
+					state.hasValue = true
+				}
+			}
+
+			// MAX
+			if !val.IsNull() {
+				state := group.aggregates["MAX"]
+				if !state.hasValue || compareValuesForSort(val, state.max) > 0 {
+					state.max = val
+					state.hasValue = true
+				}
+			}
+		}
+	}
+}
+
+// buildOutputRow builds an output row for a group (key values + aggregate results)
+func (it *HashGroupByIterator) buildOutputRow(group *groupEntry) []types.Value {
+	// Build row with: [group key values...] + commonly computed aggregate
+	// Number of output columns = len(groupBy) + 1 (for COUNT* as placeholder)
+	result := make([]types.Value, len(group.keyValues)+1)
+	copy(result, group.keyValues)
+
+	// Add COUNT(*) as the default aggregate value
+	result[len(group.keyValues)] = types.NewInt(group.aggregates["COUNT*"].count)
+
+	return result
+}
+
+// buildHavingColMap builds a column map for HAVING evaluation
+func (it *HashGroupByIterator) buildHavingColMap(group *groupEntry) map[string]int {
+	// For HAVING, we need to map aggregate function names to column indices
+	m := make(map[string]int)
+
+	// Map group by column names
+	for i, expr := range it.groupBy {
+		if colRef, ok := expr.(*parser.ColumnRef); ok {
+			m[colRef.Name] = i
+		}
+	}
+
+	// Map COUNT(*) to the last column
+	m["COUNT(*)"] = len(group.keyValues)
+
+	return m
+}
+
+func (it *HashGroupByIterator) Value() []types.Value {
+	if it.idx > 0 && it.idx <= len(it.groups) {
+		group := &it.groups[it.idx-1]
+		return it.buildOutputRow(group)
+	}
+	return nil
+}
+
+func (it *HashGroupByIterator) Close() {
+	// Child already closed during prepare
+}
