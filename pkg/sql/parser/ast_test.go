@@ -312,3 +312,101 @@ func TestSetOperator(t *testing.T) {
 		})
 	}
 }
+
+// TestCreateTriggerStmt tests trigger creation AST node
+func TestCreateTriggerStmt(t *testing.T) {
+	trigger := &CreateTriggerStmt{
+		TriggerName: "update_timestamp",
+		Timing:      TriggerBefore,
+		Event:       TriggerEventUpdate,
+		TableName:   "users",
+		Actions: []Statement{
+			&InsertStmt{
+				TableName: "audit_log",
+				Values: [][]Expression{
+					{
+						&Literal{},
+					},
+				},
+			},
+		},
+	}
+
+	// Verify it implements Statement interface
+	var _ Statement = trigger
+
+	if trigger.TriggerName != "update_timestamp" {
+		t.Errorf("Expected trigger name update_timestamp, got %s", trigger.TriggerName)
+	}
+	if trigger.Timing != TriggerBefore {
+		t.Errorf("Expected BEFORE timing, got %v", trigger.Timing)
+	}
+	if trigger.Event != TriggerEventUpdate {
+		t.Errorf("Expected UPDATE event, got %v", trigger.Event)
+	}
+	if trigger.TableName != "users" {
+		t.Errorf("Expected table name users, got %s", trigger.TableName)
+	}
+	if len(trigger.Actions) != 1 {
+		t.Errorf("Expected 1 action, got %d", len(trigger.Actions))
+	}
+}
+
+// TestTriggerTiming tests trigger timing enum
+func TestTriggerTiming(t *testing.T) {
+	tests := []struct {
+		name   string
+		timing TriggerTiming
+	}{
+		{"BEFORE", TriggerBefore},
+		{"AFTER", TriggerAfter},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			switch tt.timing {
+			case TriggerBefore, TriggerAfter:
+				// Expected
+			default:
+				t.Errorf("Unexpected timing value: %v", tt.timing)
+			}
+		})
+	}
+}
+
+// TestTriggerEvent tests trigger event enum
+func TestTriggerEvent(t *testing.T) {
+	tests := []struct {
+		name  string
+		event TriggerEvent
+	}{
+		{"INSERT", TriggerEventInsert},
+		{"UPDATE", TriggerEventUpdate},
+		{"DELETE", TriggerEventDelete},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			switch tt.event {
+			case TriggerEventInsert, TriggerEventUpdate, TriggerEventDelete:
+				// Expected
+			default:
+				t.Errorf("Unexpected event value: %v", tt.event)
+			}
+		})
+	}
+}
+
+// TestDropTriggerStmt tests drop trigger AST node
+func TestDropTriggerStmt(t *testing.T) {
+	drop := &DropTriggerStmt{
+		TriggerName: "my_trigger",
+	}
+
+	// Verify it implements Statement interface
+	var _ Statement = drop
+
+	if drop.TriggerName != "my_trigger" {
+		t.Errorf("Expected trigger name my_trigger, got %s", drop.TriggerName)
+	}
+}

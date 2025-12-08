@@ -537,7 +537,7 @@
         },
         {
           "task": "Add AST nodes for trigger definitions",
-          "done": false
+          "done": true
         },
         {
           "task": "Add AST nodes for PRAGMA statements",

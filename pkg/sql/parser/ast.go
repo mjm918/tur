@@ -258,3 +258,38 @@ type SetOperation struct {
 }
 
 func (s *SetOperation) statementNode() {}
+
+// TriggerTiming represents when a trigger fires
+type TriggerTiming int
+
+const (
+	TriggerBefore TriggerTiming = iota
+	TriggerAfter
+)
+
+// TriggerEvent represents the event that activates a trigger
+type TriggerEvent int
+
+const (
+	TriggerEventInsert TriggerEvent = iota
+	TriggerEventUpdate
+	TriggerEventDelete
+)
+
+// CreateTriggerStmt represents a CREATE TRIGGER statement
+type CreateTriggerStmt struct {
+	TriggerName string        // Name of the trigger
+	Timing      TriggerTiming // BEFORE or AFTER
+	Event       TriggerEvent  // INSERT, UPDATE, or DELETE
+	TableName   string        // Table the trigger is on
+	Actions     []Statement   // Statements to execute when triggered
+}
+
+func (s *CreateTriggerStmt) statementNode() {}
+
+// DropTriggerStmt represents a DROP TRIGGER statement
+type DropTriggerStmt struct {
+	TriggerName string // Name of the trigger to drop
+}
+
+func (s *DropTriggerStmt) statementNode() {}
