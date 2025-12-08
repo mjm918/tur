@@ -751,35 +751,35 @@
     {
       "title": "SQL Statements - CREATE TABLE",
       "description": "Full CREATE TABLE implementation with all column types and constraints",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse all column types including VECTOR(n)",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse PRIMARY KEY constraint",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse UNIQUE, NOT NULL, CHECK, DEFAULT constraints",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse FOREIGN KEY references",
-          "done": false
+          "done": true
         },
         {
           "task": "Compile CREATE TABLE to schema update operations",
-          "done": false
+          "done": true
         },
         {
           "task": "Allocate root page for new table B-tree",
-          "done": false
+          "done": true
         },
         {
           "task": "Add table entry to schema catalog",
-          "done": false
+          "done": true
         }
       ]
     },
