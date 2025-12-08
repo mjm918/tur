@@ -87,6 +87,7 @@ func (e *Executor) executeCreateTable(stmt *parser.CreateTableStmt) (*Result, er
 			Type:       col.Type,
 			PrimaryKey: col.PrimaryKey,
 			NotNull:    col.NotNull,
+			VectorDim:  col.VectorDim,
 		}
 	}
 
@@ -148,6 +149,26 @@ func (e *Executor) executeInsert(stmt *parser.InsertStmt) (*Result, error) {
 				return nil, err
 			}
 			values[i] = val
+		}
+
+		// Validate constraint satisfaction
+		// (PK check handled by B-tree insert failing on duplicate key)
+
+		// Validate types (basic check for Vector)
+		// We iterate values assuming they align with table columns (current existing assumption in executor)
+		for idx, val := range values {
+			colDef := table.Columns[idx]
+			if colDef.Type == types.TypeVector && !val.IsNull() {
+				if val.Type() != types.TypeBlob {
+					return nil, fmt.Errorf("column %s expects VECTOR (blob), got %v", colDef.Name, val.Type())
+				}
+				blob := val.Blob()
+				expectedSize := 4 + colDef.VectorDim*4
+				if len(blob) != expectedSize {
+					return nil, fmt.Errorf("column %s expects VECTOR(%d) with size %d, got %d bytes", colDef.Name, colDef.VectorDim, expectedSize, len(blob))
+				}
+				// We could also check the dimension header in the blob, but size is a good first check.
+			}
 		}
 
 		// Encode row as record

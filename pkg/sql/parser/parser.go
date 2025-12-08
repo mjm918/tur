@@ -107,11 +107,12 @@ func (p *Parser) parseColumnDef() (ColumnDef, error) {
 
 	// Type
 	p.nextToken()
-	colType, err := p.parseColumnType()
+	colType, dim, err := p.parseColumnType()
 	if err != nil {
 		return col, err
 	}
 	col.Type = colType
+	col.VectorDim = dim
 
 	// Optional constraints
 	for {
@@ -135,21 +136,43 @@ func (p *Parser) parseColumnDef() (ColumnDef, error) {
 	return col, nil
 }
 
-// parseColumnType parses a column type
-func (p *Parser) parseColumnType() (types.ValueType, error) {
+// parseColumnType parses a column type and optional dimension
+func (p *Parser) parseColumnType() (types.ValueType, int, error) {
 	switch p.cur.Type {
 	case lexer.INT_TYPE, lexer.INTEGER:
-		return types.TypeInt, nil
+		return types.TypeInt, 0, nil
 	case lexer.TEXT_TYPE:
-		return types.TypeText, nil
+		return types.TypeText, 0, nil
 	case lexer.FLOAT_TYPE, lexer.REAL:
-		return types.TypeFloat, nil
+		return types.TypeFloat, 0, nil
 	case lexer.BLOB_TYPE:
-		return types.TypeBlob, nil
+		return types.TypeBlob, 0, nil
 	case lexer.VECTOR:
-		return types.TypeVector, nil
+		// Expect (dimension)
+		if !p.expectPeek(lexer.LPAREN) {
+			return types.TypeVector, 0, fmt.Errorf("expected '(' after VECTOR")
+		}
+
+		if !p.expectPeek(lexer.INT) {
+			return types.TypeVector, 0, fmt.Errorf("expected dimension integer, got %s", p.peek.Literal)
+		}
+
+		dim, err := strconv.Atoi(p.cur.Literal)
+		if err != nil {
+			return types.TypeVector, 0, fmt.Errorf("invalid dimension: %s", p.cur.Literal)
+		}
+
+		if dim <= 0 {
+			return types.TypeVector, 0, fmt.Errorf("dimension must be positive, got %d", dim)
+		}
+
+		if !p.expectPeek(lexer.RPAREN) {
+			return types.TypeVector, 0, fmt.Errorf("expected ')' after dimension")
+		}
+
+		return types.TypeVector, dim, nil
 	default:
-		return types.TypeNull, fmt.Errorf("expected type, got %s", p.cur.Literal)
+		return types.TypeNull, 0, fmt.Errorf("expected type, got %s", p.cur.Literal)
 	}
 }
 

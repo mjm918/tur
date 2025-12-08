@@ -305,3 +305,25 @@ func TestExecutor_Null(t *testing.T) {
 		t.Errorf("Row[0][1] = %v, want NULL", result.Rows[0][1])
 	}
 }
+
+func TestExecutor_VectorType_DimensionCheck(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create table with VECTOR(3)
+	_, err := exec.Execute("CREATE TABLE items (v VECTOR(3))")
+	if err != nil {
+		t.Fatalf("Create table: %v", err)
+	}
+
+	table := exec.catalog.GetTable("items")
+	if table == nil {
+		t.Fatal("Table not found")
+	}
+	if table.Columns[0].VectorDim != 3 {
+		t.Errorf("VectorDim = %d, want 3", table.Columns[0].VectorDim)
+	}
+
+	// Since we can't parse vector literals yet, we manually verify strict typing logic
+	// would go here if we could insert them. For now, we verified schema storage.
+}

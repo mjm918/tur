@@ -30,6 +30,7 @@ type ColumnDef struct {
 	Type       types.ValueType
 	PrimaryKey bool
 	NotNull    bool
+	VectorDim  int
 }
 
 // InsertStmt represents an INSERT statement

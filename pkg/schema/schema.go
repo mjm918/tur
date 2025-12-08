@@ -22,6 +22,7 @@ type ColumnDef struct {
 	PrimaryKey bool
 	NotNull    bool
 	Default    *types.Value // nil means no default
+	VectorDim  int          // Dimension for VECTOR type, 0 for others
 }
 
 // TableDef defines a table schema

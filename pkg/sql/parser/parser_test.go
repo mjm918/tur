@@ -59,7 +59,7 @@ func TestParser_CreateTable_WithConstraints(t *testing.T) {
 }
 
 func TestParser_CreateTable_AllTypes(t *testing.T) {
-	input := "CREATE TABLE data (a INT, b INTEGER, c TEXT, d FLOAT, e REAL, f BLOB, g VECTOR)"
+	input := "CREATE TABLE data (a INT, b INTEGER, c TEXT, d FLOAT, e REAL, f BLOB, g VECTOR(3))"
 	p := New(input)
 	stmt, err := p.Parse()
 	if err != nil {
@@ -361,6 +361,53 @@ func TestParser_Errors(t *testing.T) {
 		_, err := p.Parse()
 		if err == nil {
 			t.Errorf("Parse(%q): expected error, got nil", input)
+		}
+	}
+}
+
+func TestParser_CreateTable_VectorType(t *testing.T) {
+	tests := []struct {
+		input       string
+		wantErr     bool
+		expectedDim int
+	}{
+		{"CREATE TABLE t (v VECTOR(128))", false, 128},
+		{"CREATE TABLE t (v VECTOR(3))", false, 3},
+		{"CREATE TABLE t (v VECTOR(0))", true, 0},   // Invalid dim
+		{"CREATE TABLE t (v VECTOR(-1))", true, 0},  // Invalid dim
+		{"CREATE TABLE t (v VECTOR)", true, 0},      // Missing dim
+		{"CREATE TABLE t (v VECTOR())", true, 0},    // Empty dim
+		{"CREATE TABLE t (v VECTOR(abc))", true, 0}, // Non-int dim
+	}
+
+	for _, tt := range tests {
+		p := New(tt.input)
+		stmt, err := p.Parse()
+
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("Parse(%q): expected error, got nil", tt.input)
+			}
+			continue
+		}
+
+		if err != nil {
+			t.Errorf("Parse(%q): unexpected error: %v", tt.input, err)
+			continue
+		}
+
+		create := stmt.(*CreateTableStmt)
+		if len(create.Columns) != 1 {
+			t.Fatalf("Parse(%q): expected 1 column, got %d", tt.input, len(create.Columns))
+		}
+
+		col := create.Columns[0]
+		if col.Type != types.TypeVector {
+			t.Errorf("Parse(%q): expected TypeVector, got %v", tt.input, col.Type)
+		}
+
+		if col.VectorDim != tt.expectedDim {
+			t.Errorf("Parse(%q): expected dim %d, got %d", tt.input, tt.expectedDim, col.VectorDim)
 		}
 	}
 }

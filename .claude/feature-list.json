@@ -2,7 +2,6 @@
   "workflow": {
     "method": "TDD (Test-Driven Development)",
     "objective": "Achieve CONCRETE, WORKING implementation of TurDB features. No placeholders, no TODOs, no partial implementations.",
-
     "mandatorySteps": {
       "beforeStarting": [
         "Read this entire workflow section carefully",
@@ -11,7 +10,6 @@
         "Review PROJECT_CONTEXT.md and CLAUDE.md for context",
         "Review existing code in relevant pkg/ directories"
       ],
-
       "implementationCycle": [
         "STEP 1: Create feature worktree with dedicated directory",
         "  → Run: git worktree add ../tur-feature-<feature-title-kebab-case> -b feature/<feature-title-kebab-case>",
@@ -165,12 +163,30 @@
       "description": "Single-file database format specification with header, metadata pages, and page allocation",
       "isCompleted": true,
       "tasks": [
-        {"task": "Define database file header structure with magic bytes and version", "done": true},
-        {"task": "Design metadata page 1 layout for schema catalog", "done": true},
-        {"task": "Implement database file initialization logic", "done": true},
-        {"task": "Add file format validation on database open", "done": true},
-        {"task": "Write page 0 as database header with configuration", "done": true},
-        {"task": "Store schema version and change counter in header", "done": true}
+        {
+          "task": "Define database file header structure with magic bytes and version",
+          "done": true
+        },
+        {
+          "task": "Design metadata page 1 layout for schema catalog",
+          "done": true
+        },
+        {
+          "task": "Implement database file initialization logic",
+          "done": true
+        },
+        {
+          "task": "Add file format validation on database open",
+          "done": true
+        },
+        {
+          "task": "Write page 0 as database header with configuration",
+          "done": true
+        },
+        {
+          "task": "Store schema version and change counter in header",
+          "done": true
+        }
       ]
     },
     {
@@ -178,12 +194,30 @@
       "description": "Free page list management and page allocation/deallocation strategy",
       "isCompleted": true,
       "tasks": [
-        {"task": "Design free page list data structure (linked pages)", "done": true},
-        {"task": "Implement allocate page from free list", "done": true},
-        {"task": "Implement return page to free list", "done": true},
-        {"task": "Track free list head in database header", "done": true},
-        {"task": "Handle free list exhaustion by growing file", "done": true},
-        {"task": "Add free page coalescing for defragmentation", "done": true}
+        {
+          "task": "Design free page list data structure (linked pages)",
+          "done": true
+        },
+        {
+          "task": "Implement allocate page from free list",
+          "done": true
+        },
+        {
+          "task": "Implement return page to free list",
+          "done": true
+        },
+        {
+          "task": "Track free list head in database header",
+          "done": true
+        },
+        {
+          "task": "Handle free list exhaustion by growing file",
+          "done": true
+        },
+        {
+          "task": "Add free page coalescing for defragmentation",
+          "done": true
+        }
       ]
     },
     {
@@ -206,12 +240,30 @@
       "description": "B-tree node deletion with rebalancing and merging",
       "isCompleted": true,
       "tasks": [
-        {"task": "Implement delete key from leaf node", "done": true},
-        {"task": "Handle underflow by borrowing from siblings", "done": true},
-        {"task": "Implement node merging when borrowing fails", "done": true},
-        {"task": "Update parent pointers after merge", "done": true},
-        {"task": "Handle root node special cases", "done": true},
-        {"task": "Add integration tests for delete scenarios", "done": true}
+        {
+          "task": "Implement delete key from leaf node",
+          "done": true
+        },
+        {
+          "task": "Handle underflow by borrowing from siblings",
+          "done": true
+        },
+        {
+          "task": "Implement node merging when borrowing fails",
+          "done": true
+        },
+        {
+          "task": "Update parent pointers after merge",
+          "done": true
+        },
+        {
+          "task": "Handle root node special cases",
+          "done": true
+        },
+        {
+          "task": "Add integration tests for delete scenarios",
+          "done": true
+        }
       ]
     },
     {
@@ -249,11 +301,26 @@
       "description": "Efficient incremental updates without full index rebuild",
       "isCompleted": false,
       "tasks": [
-        {"task": "Design WAL-based change log for HNSW modifications", "done": false},
-        {"task": "Implement background merge of deltas into main index", "done": false},
-        {"task": "Add version tracking for index snapshots", "done": false},
-        {"task": "Optimize memory usage during incremental updates", "done": false},
-        {"task": "Test incremental update correctness vs full rebuild", "done": false}
+        {
+          "task": "Design WAL-based change log for HNSW modifications",
+          "done": false
+        },
+        {
+          "task": "Implement background merge of deltas into main index",
+          "done": false
+        },
+        {
+          "task": "Add version tracking for index snapshots",
+          "done": false
+        },
+        {
+          "task": "Optimize memory usage during incremental updates",
+          "done": false
+        },
+        {
+          "task": "Test incremental update correctness vs full rebuild",
+          "done": false
+        }
       ]
     },
     {
@@ -269,13 +336,28 @@
     {
       "title": "Data Types - Type Registration",
       "description": "VECTOR(n) column type registration and validation in schema system",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
-        {"task": "Add VECTOR type enum to schema type system", "done": false},
-        {"task": "Parse VECTOR(n) syntax in CREATE TABLE parser", "done": false},
-        {"task": "Validate dimension parameter is positive integer", "done": false},
-        {"task": "Store vector dimension in column metadata", "done": false},
-        {"task": "Implement type checking for vector column inserts", "done": false}
+        {
+          "task": "Add VECTOR type enum to schema type system",
+          "done": true
+        },
+        {
+          "task": "Parse VECTOR(n) syntax in CREATE TABLE parser",
+          "done": true
+        },
+        {
+          "task": "Validate dimension parameter is positive integer",
+          "done": true
+        },
+        {
+          "task": "Store vector dimension in column metadata",
+          "done": true
+        },
+        {
+          "task": "Implement type checking for vector column inserts",
+          "done": true
+        }
       ]
     },
     {
@@ -298,11 +380,26 @@
       "description": "Support for PRIMARY KEY, UNIQUE, NOT NULL, CHECK, and FOREIGN KEY constraints",
       "isCompleted": false,
       "tasks": [
-        {"task": "Add constraint metadata to schema column definition", "done": false},
-        {"task": "Parse constraint syntax in CREATE TABLE", "done": false},
-        {"task": "Store constraints in schema catalog", "done": false},
-        {"task": "Implement constraint validation hooks in executor", "done": false},
-        {"task": "Add constraint violation error types", "done": false}
+        {
+          "task": "Add constraint metadata to schema column definition",
+          "done": false
+        },
+        {
+          "task": "Parse constraint syntax in CREATE TABLE",
+          "done": false
+        },
+        {
+          "task": "Store constraints in schema catalog",
+          "done": false
+        },
+        {
+          "task": "Implement constraint validation hooks in executor",
+          "done": false
+        },
+        {
+          "task": "Add constraint violation error types",
+          "done": false
+        }
       ]
     },
     {
@@ -310,11 +407,26 @@
       "description": "Schema entries for B-tree and HNSW indexes with metadata",
       "isCompleted": false,
       "tasks": [
-        {"task": "Design index metadata structure (name, table, columns, type)", "done": false},
-        {"task": "Add index catalog storage in schema pages", "done": false},
-        {"task": "Implement index registration on CREATE INDEX", "done": false},
-        {"task": "Store HNSW parameters (M, efConstruction) in metadata", "done": false},
-        {"task": "Add index lookup by table and column names", "done": false}
+        {
+          "task": "Design index metadata structure (name, table, columns, type)",
+          "done": false
+        },
+        {
+          "task": "Add index catalog storage in schema pages",
+          "done": false
+        },
+        {
+          "task": "Implement index registration on CREATE INDEX",
+          "done": false
+        },
+        {
+          "task": "Store HNSW parameters (M, efConstruction) in metadata",
+          "done": false
+        },
+        {
+          "task": "Add index lookup by table and column names",
+          "done": false
+        }
       ]
     },
     {
@@ -347,11 +459,26 @@
       "description": "Nested transaction savepoints with rollback capability",
       "isCompleted": true,
       "tasks": [
-        {"task": "Add savepoint stack to transaction context", "done": true},
-        {"task": "Implement SAVEPOINT creation with unique name", "done": true},
-        {"task": "Implement ROLLBACK TO savepoint logic", "done": true},
-        {"task": "Track modified pages per savepoint level", "done": true},
-        {"task": "Handle nested savepoint cleanup on commit", "done": true}
+        {
+          "task": "Add savepoint stack to transaction context",
+          "done": true
+        },
+        {
+          "task": "Implement SAVEPOINT creation with unique name",
+          "done": true
+        },
+        {
+          "task": "Implement ROLLBACK TO savepoint logic",
+          "done": true
+        },
+        {
+          "task": "Track modified pages per savepoint level",
+          "done": true
+        },
+        {
+          "task": "Handle nested savepoint cleanup on commit",
+          "done": true
+        }
       ]
     },
     {
@@ -359,11 +486,26 @@
       "description": "Detect and resolve deadlocks between concurrent transactions",
       "isCompleted": true,
       "tasks": [
-        {"task": "Build wait-for graph of transaction dependencies", "done": true},
-        {"task": "Implement cycle detection in wait-for graph", "done": true},
-        {"task": "Select victim transaction to abort (youngest)", "done": true},
-        {"task": "Return deadlock error to victim transaction", "done": true},
-        {"task": "Add deadlock detection timeout configuration", "done": true}
+        {
+          "task": "Build wait-for graph of transaction dependencies",
+          "done": true
+        },
+        {
+          "task": "Implement cycle detection in wait-for graph",
+          "done": true
+        },
+        {
+          "task": "Select victim transaction to abort (youngest)",
+          "done": true
+        },
+        {
+          "task": "Return deadlock error to victim transaction",
+          "done": true
+        },
+        {
+          "task": "Add deadlock detection timeout configuration",
+          "done": true
+        }
       ]
     },
     {
@@ -381,11 +523,26 @@
       "description": "Complete AST node definitions for all SQL statement types",
       "isCompleted": false,
       "tasks": [
-        {"task": "Add AST nodes for window functions (OVER clause)", "done": false},
-        {"task": "Add AST nodes for CTEs (WITH clause)", "done": false},
-        {"task": "Add AST nodes for set operations (UNION, INTERSECT, EXCEPT)", "done": false},
-        {"task": "Add AST nodes for trigger definitions", "done": false},
-        {"task": "Add AST nodes for PRAGMA statements", "done": false}
+        {
+          "task": "Add AST nodes for window functions (OVER clause)",
+          "done": false
+        },
+        {
+          "task": "Add AST nodes for CTEs (WITH clause)",
+          "done": false
+        },
+        {
+          "task": "Add AST nodes for set operations (UNION, INTERSECT, EXCEPT)",
+          "done": false
+        },
+        {
+          "task": "Add AST nodes for trigger definitions",
+          "done": false
+        },
+        {
+          "task": "Add AST nodes for PRAGMA statements",
+          "done": false
+        }
       ]
     },
     {
@@ -398,12 +555,30 @@
       "description": "Optimize query execution plans for SELECT statements with JOIN reordering",
       "isCompleted": false,
       "tasks": [
-        {"task": "Design query plan tree structure", "done": false},
-        {"task": "Implement cost estimation for table scans", "done": false},
-        {"task": "Implement cost estimation for index scans", "done": false},
-        {"task": "Add JOIN order optimization using dynamic programming", "done": false},
-        {"task": "Implement predicate pushdown to reduce intermediate results", "done": false},
-        {"task": "Add projection pushdown to avoid reading unused columns", "done": false}
+        {
+          "task": "Design query plan tree structure",
+          "done": false
+        },
+        {
+          "task": "Implement cost estimation for table scans",
+          "done": false
+        },
+        {
+          "task": "Implement cost estimation for index scans",
+          "done": false
+        },
+        {
+          "task": "Add JOIN order optimization using dynamic programming",
+          "done": false
+        },
+        {
+          "task": "Implement predicate pushdown to reduce intermediate results",
+          "done": false
+        },
+        {
+          "task": "Add projection pushdown to avoid reading unused columns",
+          "done": false
+        }
       ]
     },
     {
@@ -411,11 +586,26 @@
       "description": "Automatic index selection in query optimizer for optimal performance",
       "isCompleted": false,
       "tasks": [
-        {"task": "Identify candidate indexes for WHERE clause predicates", "done": false},
-        {"task": "Estimate selectivity of index lookups", "done": false},
-        {"task": "Compare cost of index scan vs full table scan", "done": false},
-        {"task": "Choose index with lowest estimated cost", "done": false},
-        {"task": "Handle multi-column index prefix matching", "done": false}
+        {
+          "task": "Identify candidate indexes for WHERE clause predicates",
+          "done": false
+        },
+        {
+          "task": "Estimate selectivity of index lookups",
+          "done": false
+        },
+        {
+          "task": "Compare cost of index scan vs full table scan",
+          "done": false
+        },
+        {
+          "task": "Choose index with lowest estimated cost",
+          "done": false
+        },
+        {
+          "task": "Handle multi-column index prefix matching",
+          "done": false
+        }
       ]
     },
     {
@@ -423,12 +613,30 @@
       "description": "Collect table and index statistics for query planning (ANALYZE)",
       "isCompleted": false,
       "tasks": [
-        {"task": "Design statistics storage format (row count, distinct values)", "done": false},
-        {"task": "Implement ANALYZE statement parser", "done": false},
-        {"task": "Implement table sampling for large tables", "done": false},
-        {"task": "Compute histograms for column value distributions", "done": false},
-        {"task": "Store statistics in system catalog", "done": false},
-        {"task": "Update statistics incrementally on bulk inserts", "done": false}
+        {
+          "task": "Design statistics storage format (row count, distinct values)",
+          "done": false
+        },
+        {
+          "task": "Implement ANALYZE statement parser",
+          "done": false
+        },
+        {
+          "task": "Implement table sampling for large tables",
+          "done": false
+        },
+        {
+          "task": "Compute histograms for column value distributions",
+          "done": false
+        },
+        {
+          "task": "Store statistics in system catalog",
+          "done": false
+        },
+        {
+          "task": "Update statistics incrementally on bulk inserts",
+          "done": false
+        }
       ]
     },
     {
@@ -456,12 +664,30 @@
       "description": "Built-in aggregate functions (COUNT, SUM, AVG, MIN, MAX)",
       "isCompleted": true,
       "tasks": [
-        {"task": "Define aggregate function interface with init/step/finalize", "done": true},
-        {"task": "Implement COUNT aggregate", "done": true},
-        {"task": "Implement SUM aggregate", "done": true},
-        {"task": "Implement AVG aggregate", "done": true},
-        {"task": "Implement MIN/MAX aggregates", "done": true},
-        {"task": "Add opcodes for aggregate initialization and stepping", "done": true}
+        {
+          "task": "Define aggregate function interface with init/step/finalize",
+          "done": true
+        },
+        {
+          "task": "Implement COUNT aggregate",
+          "done": true
+        },
+        {
+          "task": "Implement SUM aggregate",
+          "done": true
+        },
+        {
+          "task": "Implement AVG aggregate",
+          "done": true
+        },
+        {
+          "task": "Implement MIN/MAX aggregates",
+          "done": true
+        },
+        {
+          "task": "Add opcodes for aggregate initialization and stepping",
+          "done": true
+        }
       ]
     },
     {
@@ -469,12 +695,30 @@
       "description": "Built-in scalar functions (SUBSTR, LENGTH, UPPER, LOWER, etc.)",
       "isCompleted": true,
       "tasks": [
-        {"task": "Define scalar function registry and lookup", "done": true},
-        {"task": "Implement SUBSTR function", "done": true},
-        {"task": "Implement LENGTH function", "done": true},
-        {"task": "Implement UPPER/LOWER functions", "done": true},
-        {"task": "Implement COALESCE function", "done": true},
-        {"task": "Implement ABS, ROUND math functions", "done": true}
+        {
+          "task": "Define scalar function registry and lookup",
+          "done": true
+        },
+        {
+          "task": "Implement SUBSTR function",
+          "done": true
+        },
+        {
+          "task": "Implement LENGTH function",
+          "done": true
+        },
+        {
+          "task": "Implement UPPER/LOWER functions",
+          "done": true
+        },
+        {
+          "task": "Implement COALESCE function",
+          "done": true
+        },
+        {
+          "task": "Implement ABS, ROUND math functions",
+          "done": true
+        }
       ]
     },
     {
@@ -482,11 +726,26 @@
       "description": "Vector-specific functions integrated into VDBE execution",
       "isCompleted": false,
       "tasks": [
-        {"task": "Add vector function opcodes to VDBE", "done": false},
-        {"task": "Implement vector distance computation in VM", "done": false},
-        {"task": "Add vector normalization function", "done": false},
-        {"task": "Integrate HNSW search with VDBE cursors", "done": false},
-        {"task": "Handle vector serialization for function parameters", "done": false}
+        {
+          "task": "Add vector function opcodes to VDBE",
+          "done": false
+        },
+        {
+          "task": "Implement vector distance computation in VM",
+          "done": false
+        },
+        {
+          "task": "Add vector normalization function",
+          "done": false
+        },
+        {
+          "task": "Integrate HNSW search with VDBE cursors",
+          "done": false
+        },
+        {
+          "task": "Handle vector serialization for function parameters",
+          "done": false
+        }
       ]
     },
     {
@@ -494,13 +753,34 @@
       "description": "Full CREATE TABLE implementation with all column types and constraints",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse all column types including VECTOR(n)", "done": false},
-        {"task": "Parse PRIMARY KEY constraint", "done": false},
-        {"task": "Parse UNIQUE, NOT NULL, CHECK, DEFAULT constraints", "done": false},
-        {"task": "Parse FOREIGN KEY references", "done": false},
-        {"task": "Compile CREATE TABLE to schema update operations", "done": false},
-        {"task": "Allocate root page for new table B-tree", "done": false},
-        {"task": "Add table entry to schema catalog", "done": false}
+        {
+          "task": "Parse all column types including VECTOR(n)",
+          "done": false
+        },
+        {
+          "task": "Parse PRIMARY KEY constraint",
+          "done": false
+        },
+        {
+          "task": "Parse UNIQUE, NOT NULL, CHECK, DEFAULT constraints",
+          "done": false
+        },
+        {
+          "task": "Parse FOREIGN KEY references",
+          "done": false
+        },
+        {
+          "task": "Compile CREATE TABLE to schema update operations",
+          "done": false
+        },
+        {
+          "task": "Allocate root page for new table B-tree",
+          "done": false
+        },
+        {
+          "task": "Add table entry to schema catalog",
+          "done": false
+        }
       ]
     },
     {
@@ -508,12 +788,30 @@
       "description": "DROP TABLE implementation with cascade option",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse DROP TABLE statement with optional IF EXISTS", "done": false},
-        {"task": "Check for dependent views and triggers", "done": false},
-        {"task": "Remove table entry from schema catalog", "done": false},
-        {"task": "Add table's B-tree pages to free list", "done": false},
-        {"task": "Drop associated indexes", "done": false},
-        {"task": "Handle CASCADE option for foreign keys", "done": false}
+        {
+          "task": "Parse DROP TABLE statement with optional IF EXISTS",
+          "done": false
+        },
+        {
+          "task": "Check for dependent views and triggers",
+          "done": false
+        },
+        {
+          "task": "Remove table entry from schema catalog",
+          "done": false
+        },
+        {
+          "task": "Add table's B-tree pages to free list",
+          "done": false
+        },
+        {
+          "task": "Drop associated indexes",
+          "done": false
+        },
+        {
+          "task": "Handle CASCADE option for foreign keys",
+          "done": false
+        }
       ]
     },
     {
@@ -521,12 +819,30 @@
       "description": "ALTER TABLE for adding/dropping columns and constraints",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse ALTER TABLE ADD COLUMN", "done": false},
-        {"task": "Parse ALTER TABLE DROP COLUMN", "done": false},
-        {"task": "Parse ALTER TABLE RENAME TO", "done": false},
-        {"task": "Validate new column doesn't conflict with existing", "done": false},
-        {"task": "Update schema catalog with new table definition", "done": false},
-        {"task": "Handle default values for existing rows on ADD COLUMN", "done": false}
+        {
+          "task": "Parse ALTER TABLE ADD COLUMN",
+          "done": false
+        },
+        {
+          "task": "Parse ALTER TABLE DROP COLUMN",
+          "done": false
+        },
+        {
+          "task": "Parse ALTER TABLE RENAME TO",
+          "done": false
+        },
+        {
+          "task": "Validate new column doesn't conflict with existing",
+          "done": false
+        },
+        {
+          "task": "Update schema catalog with new table definition",
+          "done": false
+        },
+        {
+          "task": "Handle default values for existing rows on ADD COLUMN",
+          "done": false
+        }
       ]
     },
     {
@@ -534,13 +850,34 @@
       "description": "INSERT INTO with VALUES and SELECT subquery support",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse INSERT INTO table (columns) VALUES (...)", "done": false},
-        {"task": "Parse INSERT INTO table SELECT ...", "done": false},
-        {"task": "Compile INSERT to VDBE bytecode", "done": false},
-        {"task": "Generate rowid for INTEGER PRIMARY KEY if not provided", "done": false},
-        {"task": "Validate constraint satisfaction before insert", "done": false},
-        {"task": "Update indexes after row insertion", "done": false},
-        {"task": "Handle vector column normalization on insert", "done": false}
+        {
+          "task": "Parse INSERT INTO table (columns) VALUES (...)",
+          "done": false
+        },
+        {
+          "task": "Parse INSERT INTO table SELECT ...",
+          "done": false
+        },
+        {
+          "task": "Compile INSERT to VDBE bytecode",
+          "done": false
+        },
+        {
+          "task": "Generate rowid for INTEGER PRIMARY KEY if not provided",
+          "done": false
+        },
+        {
+          "task": "Validate constraint satisfaction before insert",
+          "done": false
+        },
+        {
+          "task": "Update indexes after row insertion",
+          "done": false
+        },
+        {
+          "task": "Handle vector column normalization on insert",
+          "done": false
+        }
       ]
     },
     {
@@ -548,12 +885,30 @@
       "description": "UPDATE with WHERE clause and multi-column assignments",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse UPDATE table SET col1=val1, col2=val2 WHERE ...", "done": false},
-        {"task": "Compile UPDATE to VDBE bytecode", "done": false},
-        {"task": "Open cursor on table for WHERE clause evaluation", "done": false},
-        {"task": "Create new row version with updated values (MVCC)", "done": false},
-        {"task": "Validate constraints after update", "done": false},
-        {"task": "Update affected indexes", "done": false}
+        {
+          "task": "Parse UPDATE table SET col1=val1, col2=val2 WHERE ...",
+          "done": false
+        },
+        {
+          "task": "Compile UPDATE to VDBE bytecode",
+          "done": false
+        },
+        {
+          "task": "Open cursor on table for WHERE clause evaluation",
+          "done": false
+        },
+        {
+          "task": "Create new row version with updated values (MVCC)",
+          "done": false
+        },
+        {
+          "task": "Validate constraints after update",
+          "done": false
+        },
+        {
+          "task": "Update affected indexes",
+          "done": false
+        }
       ]
     },
     {
@@ -561,12 +916,30 @@
       "description": "DELETE with WHERE clause support",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse DELETE FROM table WHERE ...", "done": false},
-        {"task": "Compile DELETE to VDBE bytecode", "done": false},
-        {"task": "Open cursor on table for WHERE clause evaluation", "done": false},
-        {"task": "Mark rows as deleted in MVCC version chain", "done": false},
-        {"task": "Update indexes to remove deleted entries", "done": false},
-        {"task": "Check foreign key constraints before deletion", "done": false}
+        {
+          "task": "Parse DELETE FROM table WHERE ...",
+          "done": false
+        },
+        {
+          "task": "Compile DELETE to VDBE bytecode",
+          "done": false
+        },
+        {
+          "task": "Open cursor on table for WHERE clause evaluation",
+          "done": false
+        },
+        {
+          "task": "Mark rows as deleted in MVCC version chain",
+          "done": false
+        },
+        {
+          "task": "Update indexes to remove deleted entries",
+          "done": false
+        },
+        {
+          "task": "Check foreign key constraints before deletion",
+          "done": false
+        }
       ]
     },
     {
@@ -574,13 +947,34 @@
       "description": "SELECT with WHERE, ORDER BY, LIMIT, OFFSET",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse SELECT column_list FROM table", "done": false},
-        {"task": "Parse WHERE clause with boolean expressions", "done": false},
-        {"task": "Parse ORDER BY with ASC/DESC", "done": false},
-        {"task": "Parse LIMIT and OFFSET", "done": false},
-        {"task": "Compile SELECT to VDBE bytecode", "done": false},
-        {"task": "Implement result row construction and output", "done": false},
-        {"task": "Implement sorting for ORDER BY", "done": false}
+        {
+          "task": "Parse SELECT column_list FROM table",
+          "done": false
+        },
+        {
+          "task": "Parse WHERE clause with boolean expressions",
+          "done": false
+        },
+        {
+          "task": "Parse ORDER BY with ASC/DESC",
+          "done": false
+        },
+        {
+          "task": "Parse LIMIT and OFFSET",
+          "done": false
+        },
+        {
+          "task": "Compile SELECT to VDBE bytecode",
+          "done": false
+        },
+        {
+          "task": "Implement result row construction and output",
+          "done": false
+        },
+        {
+          "task": "Implement sorting for ORDER BY",
+          "done": false
+        }
       ]
     },
     {
@@ -588,12 +982,30 @@
       "description": "INNER, LEFT, RIGHT, FULL OUTER JOIN support",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse JOIN syntax with ON clause", "done": false},
-        {"task": "Parse LEFT/RIGHT/FULL OUTER JOIN variants", "done": false},
-        {"task": "Implement nested loop join algorithm", "done": false},
-        {"task": "Implement hash join for equi-joins", "done": false},
-        {"task": "Handle NULL padding for outer joins", "done": false},
-        {"task": "Optimize join order based on cardinality estimates", "done": false}
+        {
+          "task": "Parse JOIN syntax with ON clause",
+          "done": false
+        },
+        {
+          "task": "Parse LEFT/RIGHT/FULL OUTER JOIN variants",
+          "done": false
+        },
+        {
+          "task": "Implement nested loop join algorithm",
+          "done": false
+        },
+        {
+          "task": "Implement hash join for equi-joins",
+          "done": false
+        },
+        {
+          "task": "Handle NULL padding for outer joins",
+          "done": false
+        },
+        {
+          "task": "Optimize join order based on cardinality estimates",
+          "done": false
+        }
       ]
     },
     {
@@ -601,11 +1013,26 @@
       "description": "GROUP BY with HAVING clause for aggregations",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse GROUP BY column_list", "done": false},
-        {"task": "Parse HAVING clause with aggregate conditions", "done": false},
-        {"task": "Compile GROUP BY to sorting + aggregation bytecode", "done": false},
-        {"task": "Implement hash-based grouping for efficiency", "done": false},
-        {"task": "Evaluate HAVING clause on grouped results", "done": false}
+        {
+          "task": "Parse GROUP BY column_list",
+          "done": false
+        },
+        {
+          "task": "Parse HAVING clause with aggregate conditions",
+          "done": false
+        },
+        {
+          "task": "Compile GROUP BY to sorting + aggregation bytecode",
+          "done": false
+        },
+        {
+          "task": "Implement hash-based grouping for efficiency",
+          "done": false
+        },
+        {
+          "task": "Evaluate HAVING clause on grouped results",
+          "done": false
+        }
       ]
     },
     {
@@ -613,12 +1040,30 @@
       "description": "Correlated and non-correlated subqueries in WHERE and FROM",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse scalar subqueries in WHERE clause", "done": false},
-        {"task": "Parse IN (SELECT ...) subqueries", "done": false},
-        {"task": "Parse EXISTS (SELECT ...) subqueries", "done": false},
-        {"task": "Parse subqueries in FROM clause (derived tables)", "done": false},
-        {"task": "Implement correlated subquery re-execution per outer row", "done": false},
-        {"task": "Optimize non-correlated subqueries with materialization", "done": false}
+        {
+          "task": "Parse scalar subqueries in WHERE clause",
+          "done": false
+        },
+        {
+          "task": "Parse IN (SELECT ...) subqueries",
+          "done": false
+        },
+        {
+          "task": "Parse EXISTS (SELECT ...) subqueries",
+          "done": false
+        },
+        {
+          "task": "Parse subqueries in FROM clause (derived tables)",
+          "done": false
+        },
+        {
+          "task": "Implement correlated subquery re-execution per outer row",
+          "done": false
+        },
+        {
+          "task": "Optimize non-correlated subqueries with materialization",
+          "done": false
+        }
       ]
     },
     {
@@ -626,11 +1071,26 @@
       "description": "Common Table Expressions (WITH clause) including recursive CTEs",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse WITH cte_name AS (SELECT ...) syntax", "done": false},
-        {"task": "Parse RECURSIVE keyword for recursive CTEs", "done": false},
-        {"task": "Materialize non-recursive CTE results", "done": false},
-        {"task": "Implement fixpoint iteration for recursive CTEs", "done": false},
-        {"task": "Handle multiple CTEs in single query", "done": false}
+        {
+          "task": "Parse WITH cte_name AS (SELECT ...) syntax",
+          "done": false
+        },
+        {
+          "task": "Parse RECURSIVE keyword for recursive CTEs",
+          "done": false
+        },
+        {
+          "task": "Materialize non-recursive CTE results",
+          "done": false
+        },
+        {
+          "task": "Implement fixpoint iteration for recursive CTEs",
+          "done": false
+        },
+        {
+          "task": "Handle multiple CTEs in single query",
+          "done": false
+        }
       ]
     },
     {
@@ -638,12 +1098,30 @@
       "description": "Set operations for combining query results",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse UNION [ALL] syntax", "done": false},
-        {"task": "Parse INTERSECT and EXCEPT operators", "done": false},
-        {"task": "Validate compatible result schemas", "done": false},
-        {"task": "Implement UNION with duplicate elimination (sorting/hashing)", "done": false},
-        {"task": "Implement UNION ALL without deduplication", "done": false},
-        {"task": "Implement INTERSECT and EXCEPT set logic", "done": false}
+        {
+          "task": "Parse UNION [ALL] syntax",
+          "done": false
+        },
+        {
+          "task": "Parse INTERSECT and EXCEPT operators",
+          "done": false
+        },
+        {
+          "task": "Validate compatible result schemas",
+          "done": false
+        },
+        {
+          "task": "Implement UNION with duplicate elimination (sorting/hashing)",
+          "done": false
+        },
+        {
+          "task": "Implement UNION ALL without deduplication",
+          "done": false
+        },
+        {
+          "task": "Implement INTERSECT and EXCEPT set logic",
+          "done": false
+        }
       ]
     },
     {
@@ -651,12 +1129,30 @@
       "description": "CREATE INDEX for B-tree indexes on table columns",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse CREATE INDEX index_name ON table (columns)", "done": false},
-        {"task": "Parse UNIQUE keyword for unique indexes", "done": false},
-        {"task": "Allocate root page for new index B-tree", "done": false},
-        {"task": "Scan table and build index entries", "done": false},
-        {"task": "Add index entry to schema catalog", "done": false},
-        {"task": "Handle index creation on non-empty tables", "done": false}
+        {
+          "task": "Parse CREATE INDEX index_name ON table (columns)",
+          "done": false
+        },
+        {
+          "task": "Parse UNIQUE keyword for unique indexes",
+          "done": false
+        },
+        {
+          "task": "Allocate root page for new index B-tree",
+          "done": false
+        },
+        {
+          "task": "Scan table and build index entries",
+          "done": false
+        },
+        {
+          "task": "Add index entry to schema catalog",
+          "done": false
+        },
+        {
+          "task": "Handle index creation on non-empty tables",
+          "done": false
+        }
       ]
     },
     {
@@ -664,10 +1160,22 @@
       "description": "DROP INDEX to remove B-tree indexes",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse DROP INDEX index_name", "done": false},
-        {"task": "Remove index entry from schema catalog", "done": false},
-        {"task": "Add index B-tree pages to free list", "done": false},
-        {"task": "Handle IF EXISTS clause", "done": false}
+        {
+          "task": "Parse DROP INDEX index_name",
+          "done": false
+        },
+        {
+          "task": "Remove index entry from schema catalog",
+          "done": false
+        },
+        {
+          "task": "Add index B-tree pages to free list",
+          "done": false
+        },
+        {
+          "task": "Handle IF EXISTS clause",
+          "done": false
+        }
       ]
     },
     {
@@ -675,10 +1183,22 @@
       "description": "CREATE VIEW for virtual tables based on SELECT queries",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse CREATE VIEW view_name AS SELECT ...", "done": false},
-        {"task": "Store view definition (SQL text) in schema catalog", "done": false},
-        {"task": "Expand view references during query compilation", "done": false},
-        {"task": "Validate view definition is valid SELECT", "done": false}
+        {
+          "task": "Parse CREATE VIEW view_name AS SELECT ...",
+          "done": false
+        },
+        {
+          "task": "Store view definition (SQL text) in schema catalog",
+          "done": false
+        },
+        {
+          "task": "Expand view references during query compilation",
+          "done": false
+        },
+        {
+          "task": "Validate view definition is valid SELECT",
+          "done": false
+        }
       ]
     },
     {
@@ -686,9 +1206,18 @@
       "description": "DROP VIEW to remove views",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse DROP VIEW view_name", "done": false},
-        {"task": "Remove view entry from schema catalog", "done": false},
-        {"task": "Check for dependent views", "done": false}
+        {
+          "task": "Parse DROP VIEW view_name",
+          "done": false
+        },
+        {
+          "task": "Remove view entry from schema catalog",
+          "done": false
+        },
+        {
+          "task": "Check for dependent views",
+          "done": false
+        }
       ]
     },
     {
@@ -696,13 +1225,34 @@
       "description": "Transaction control statements integrated with MVCC",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse BEGIN [TRANSACTION]", "done": false},
-        {"task": "Parse COMMIT [TRANSACTION]", "done": false},
-        {"task": "Parse ROLLBACK [TRANSACTION]", "done": false},
-        {"task": "Wire BEGIN to MVCC transaction start", "done": false},
-        {"task": "Wire COMMIT to MVCC transaction commit", "done": false},
-        {"task": "Wire ROLLBACK to MVCC transaction abort", "done": false},
-        {"task": "Handle nested transactions (error or savepoint)", "done": false}
+        {
+          "task": "Parse BEGIN [TRANSACTION]",
+          "done": false
+        },
+        {
+          "task": "Parse COMMIT [TRANSACTION]",
+          "done": false
+        },
+        {
+          "task": "Parse ROLLBACK [TRANSACTION]",
+          "done": false
+        },
+        {
+          "task": "Wire BEGIN to MVCC transaction start",
+          "done": false
+        },
+        {
+          "task": "Wire COMMIT to MVCC transaction commit",
+          "done": false
+        },
+        {
+          "task": "Wire ROLLBACK to MVCC transaction abort",
+          "done": false
+        },
+        {
+          "task": "Handle nested transactions (error or savepoint)",
+          "done": false
+        }
       ]
     },
     {
@@ -710,10 +1260,22 @@
       "description": "Savepoint creation and rollback within transactions",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse SAVEPOINT savepoint_name", "done": false},
-        {"task": "Parse ROLLBACK TO savepoint_name", "done": false},
-        {"task": "Parse RELEASE savepoint_name", "done": false},
-        {"task": "Wire to MVCC savepoint implementation", "done": false}
+        {
+          "task": "Parse SAVEPOINT savepoint_name",
+          "done": false
+        },
+        {
+          "task": "Parse ROLLBACK TO savepoint_name",
+          "done": false
+        },
+        {
+          "task": "Parse RELEASE savepoint_name",
+          "done": false
+        },
+        {
+          "task": "Wire to MVCC savepoint implementation",
+          "done": false
+        }
       ]
     },
     {
@@ -721,11 +1283,26 @@
       "description": "EXPLAIN and EXPLAIN QUERY PLAN for query analysis",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse EXPLAIN statement_to_explain", "done": false},
-        {"task": "Parse EXPLAIN QUERY PLAN statement", "done": false},
-        {"task": "Output VDBE bytecode for EXPLAIN", "done": false},
-        {"task": "Output query plan tree for EXPLAIN QUERY PLAN", "done": false},
-        {"task": "Show cost estimates in query plan output", "done": false}
+        {
+          "task": "Parse EXPLAIN statement_to_explain",
+          "done": false
+        },
+        {
+          "task": "Parse EXPLAIN QUERY PLAN statement",
+          "done": false
+        },
+        {
+          "task": "Output VDBE bytecode for EXPLAIN",
+          "done": false
+        },
+        {
+          "task": "Output query plan tree for EXPLAIN QUERY PLAN",
+          "done": false
+        },
+        {
+          "task": "Show cost estimates in query plan output",
+          "done": false
+        }
       ]
     },
     {
@@ -733,12 +1310,30 @@
       "description": "Function to build HNSW index on a VECTOR column",
       "isCompleted": false,
       "tasks": [
-        {"task": "Register vector_quantize as scalar function", "done": false},
-        {"task": "Parse table and column name parameters", "done": false},
-        {"task": "Scan table to collect all vectors from column", "done": false},
-        {"task": "Build HNSW index with vectors", "done": false},
-        {"task": "Store index metadata in schema catalog", "done": false},
-        {"task": "Return number of vectors indexed", "done": false}
+        {
+          "task": "Register vector_quantize as scalar function",
+          "done": false
+        },
+        {
+          "task": "Parse table and column name parameters",
+          "done": false
+        },
+        {
+          "task": "Scan table to collect all vectors from column",
+          "done": false
+        },
+        {
+          "task": "Build HNSW index with vectors",
+          "done": false
+        },
+        {
+          "task": "Store index metadata in schema catalog",
+          "done": false
+        },
+        {
+          "task": "Return number of vectors indexed",
+          "done": false
+        }
       ]
     },
     {
@@ -746,12 +1341,30 @@
       "description": "Table-valued function for KNN search returning (rowid, distance)",
       "isCompleted": false,
       "tasks": [
-        {"task": "Register vector_quantize_scan as table-valued function", "done": false},
-        {"task": "Parse table name, column name, query vector, k parameters", "done": false},
-        {"task": "Load HNSW index for specified column", "done": false},
-        {"task": "Execute KNN search with query vector", "done": false},
-        {"task": "Return result set with (rowid, distance) columns", "done": false},
-        {"task": "Implement VDBE cursor for scan results", "done": false}
+        {
+          "task": "Register vector_quantize_scan as table-valued function",
+          "done": false
+        },
+        {
+          "task": "Parse table name, column name, query vector, k parameters",
+          "done": false
+        },
+        {
+          "task": "Load HNSW index for specified column",
+          "done": false
+        },
+        {
+          "task": "Execute KNN search with query vector",
+          "done": false
+        },
+        {
+          "task": "Return result set with (rowid, distance) columns",
+          "done": false
+        },
+        {
+          "task": "Implement VDBE cursor for scan results",
+          "done": false
+        }
       ]
     },
     {
@@ -759,11 +1372,26 @@
       "description": "Scalar function to compute distance between two vectors",
       "isCompleted": false,
       "tasks": [
-        {"task": "Register vector_distance as scalar function", "done": false},
-        {"task": "Parse two vector blob parameters", "done": false},
-        {"task": "Deserialize vectors from blobs", "done": false},
-        {"task": "Compute cosine distance (1 - cosine similarity)", "done": false},
-        {"task": "Return distance as REAL value", "done": false}
+        {
+          "task": "Register vector_distance as scalar function",
+          "done": false
+        },
+        {
+          "task": "Parse two vector blob parameters",
+          "done": false
+        },
+        {
+          "task": "Deserialize vectors from blobs",
+          "done": false
+        },
+        {
+          "task": "Compute cosine distance (1 - cosine similarity)",
+          "done": false
+        },
+        {
+          "task": "Return distance as REAL value",
+          "done": false
+        }
       ]
     },
     {
@@ -771,9 +1399,18 @@
       "description": "Default distance metric using normalized vectors",
       "isCompleted": false,
       "tasks": [
-        {"task": "Implement dot product for normalized vectors", "done": false},
-        {"task": "Convert similarity to distance (1 - similarity)", "done": false},
-        {"task": "Use cosine distance in HNSW search by default", "done": false}
+        {
+          "task": "Implement dot product for normalized vectors",
+          "done": false
+        },
+        {
+          "task": "Convert similarity to distance (1 - similarity)",
+          "done": false
+        },
+        {
+          "task": "Use cosine distance in HNSW search by default",
+          "done": false
+        }
       ]
     },
     {
@@ -781,11 +1418,26 @@
       "description": "Support for Euclidean, Manhattan, and other distance metrics",
       "isCompleted": false,
       "tasks": [
-        {"task": "Add distance metric enum (Cosine, Euclidean, Manhattan)", "done": false},
-        {"task": "Implement Euclidean distance (L2) function", "done": false},
-        {"task": "Implement Manhattan distance (L1) function", "done": false},
-        {"task": "Allow metric selection in vector_quantize parameters", "done": false},
-        {"task": "Store distance metric in HNSW index metadata", "done": false}
+        {
+          "task": "Add distance metric enum (Cosine, Euclidean, Manhattan)",
+          "done": false
+        },
+        {
+          "task": "Implement Euclidean distance (L2) function",
+          "done": false
+        },
+        {
+          "task": "Implement Manhattan distance (L1) function",
+          "done": false
+        },
+        {
+          "task": "Allow metric selection in vector_quantize parameters",
+          "done": false
+        },
+        {
+          "task": "Store distance metric in HNSW index metadata",
+          "done": false
+        }
       ]
     },
     {
@@ -793,11 +1445,26 @@
       "description": "Automatic vector normalization on insert for cosine similarity",
       "isCompleted": false,
       "tasks": [
-        {"task": "Detect VECTOR column inserts", "done": false},
-        {"task": "Compute L2 norm of vector", "done": false},
-        {"task": "Divide vector by norm to normalize", "done": false},
-        {"task": "Store normalized vector in table", "done": false},
-        {"task": "Add configuration option to disable auto-normalization", "done": false}
+        {
+          "task": "Detect VECTOR column inserts",
+          "done": false
+        },
+        {
+          "task": "Compute L2 norm of vector",
+          "done": false
+        },
+        {
+          "task": "Divide vector by norm to normalize",
+          "done": false
+        },
+        {
+          "task": "Store normalized vector in table",
+          "done": false
+        },
+        {
+          "task": "Add configuration option to disable auto-normalization",
+          "done": false
+        }
       ]
     },
     {
@@ -805,10 +1472,22 @@
       "description": "Support composite indexes on multiple columns",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse multi-column index definition", "done": false},
-        {"task": "Construct composite key from multiple columns", "done": false},
-        {"task": "Implement prefix matching for index scans", "done": false},
-        {"task": "Optimize queries using index prefixes", "done": false}
+        {
+          "task": "Parse multi-column index definition",
+          "done": false
+        },
+        {
+          "task": "Construct composite key from multiple columns",
+          "done": false
+        },
+        {
+          "task": "Implement prefix matching for index scans",
+          "done": false
+        },
+        {
+          "task": "Optimize queries using index prefixes",
+          "done": false
+        }
       ]
     },
     {
@@ -816,10 +1495,22 @@
       "description": "Unique constraint enforcement via indexes",
       "isCompleted": false,
       "tasks": [
-        {"task": "Mark index as unique in metadata", "done": false},
-        {"task": "Check for duplicates before index insertion", "done": false},
-        {"task": "Return unique constraint violation error", "done": false},
-        {"task": "Handle NULL values in unique indexes (allow multiple NULLs)", "done": false}
+        {
+          "task": "Mark index as unique in metadata",
+          "done": false
+        },
+        {
+          "task": "Check for duplicates before index insertion",
+          "done": false
+        },
+        {
+          "task": "Return unique constraint violation error",
+          "done": false
+        },
+        {
+          "task": "Handle NULL values in unique indexes (allow multiple NULLs)",
+          "done": false
+        }
       ]
     },
     {
@@ -827,11 +1518,26 @@
       "description": "Indexes with WHERE clause for selective indexing",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse WHERE clause in CREATE INDEX", "done": false},
-        {"task": "Store filter predicate in index metadata", "done": false},
-        {"task": "Evaluate predicate on row insert/update", "done": false},
-        {"task": "Only add to index if predicate is true", "done": false},
-        {"task": "Consider partial index in query optimization", "done": false}
+        {
+          "task": "Parse WHERE clause in CREATE INDEX",
+          "done": false
+        },
+        {
+          "task": "Store filter predicate in index metadata",
+          "done": false
+        },
+        {
+          "task": "Evaluate predicate on row insert/update",
+          "done": false
+        },
+        {
+          "task": "Only add to index if predicate is true",
+          "done": false
+        },
+        {
+          "task": "Consider partial index in query optimization",
+          "done": false
+        }
       ]
     },
     {
@@ -839,11 +1545,26 @@
       "description": "Indexes on computed expressions",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse expression in CREATE INDEX", "done": false},
-        {"task": "Store expression AST in index metadata", "done": false},
-        {"task": "Evaluate expression on row insert/update", "done": false},
-        {"task": "Index computed expression result", "done": false},
-        {"task": "Match expressions in queries for index usage", "done": false}
+        {
+          "task": "Parse expression in CREATE INDEX",
+          "done": false
+        },
+        {
+          "task": "Store expression AST in index metadata",
+          "done": false
+        },
+        {
+          "task": "Evaluate expression on row insert/update",
+          "done": false
+        },
+        {
+          "task": "Index computed expression result",
+          "done": false
+        },
+        {
+          "task": "Match expressions in queries for index usage",
+          "done": false
+        }
       ]
     },
     {
@@ -851,11 +1572,26 @@
       "description": "Primary key constraint with auto-increment support",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse PRIMARY KEY in column definition", "done": false},
-        {"task": "Create unique index on primary key column", "done": false},
-        {"task": "Implement AUTOINCREMENT for INTEGER PRIMARY KEY", "done": false},
-        {"task": "Track max rowid in table metadata", "done": false},
-        {"task": "Validate primary key uniqueness on insert", "done": false}
+        {
+          "task": "Parse PRIMARY KEY in column definition",
+          "done": false
+        },
+        {
+          "task": "Create unique index on primary key column",
+          "done": false
+        },
+        {
+          "task": "Implement AUTOINCREMENT for INTEGER PRIMARY KEY",
+          "done": false
+        },
+        {
+          "task": "Track max rowid in table metadata",
+          "done": false
+        },
+        {
+          "task": "Validate primary key uniqueness on insert",
+          "done": false
+        }
       ]
     },
     {
@@ -863,13 +1599,34 @@
       "description": "Foreign key constraints with CASCADE, SET NULL, RESTRICT actions",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse FOREIGN KEY REFERENCES syntax", "done": false},
-        {"task": "Parse ON DELETE/UPDATE actions (CASCADE, SET NULL, RESTRICT)", "done": false},
-        {"task": "Store foreign key metadata in schema", "done": false},
-        {"task": "Validate referenced table and column exist", "done": false},
-        {"task": "Check foreign key on insert/update", "done": false},
-        {"task": "Implement CASCADE delete/update propagation", "done": false},
-        {"task": "Implement SET NULL on parent delete/update", "done": false}
+        {
+          "task": "Parse FOREIGN KEY REFERENCES syntax",
+          "done": false
+        },
+        {
+          "task": "Parse ON DELETE/UPDATE actions (CASCADE, SET NULL, RESTRICT)",
+          "done": false
+        },
+        {
+          "task": "Store foreign key metadata in schema",
+          "done": false
+        },
+        {
+          "task": "Validate referenced table and column exist",
+          "done": false
+        },
+        {
+          "task": "Check foreign key on insert/update",
+          "done": false
+        },
+        {
+          "task": "Implement CASCADE delete/update propagation",
+          "done": false
+        },
+        {
+          "task": "Implement SET NULL on parent delete/update",
+          "done": false
+        }
       ]
     },
     {
@@ -877,9 +1634,18 @@
       "description": "Unique constraint enforcement on columns",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse UNIQUE constraint in CREATE TABLE", "done": false},
-        {"task": "Create unique index for constraint", "done": false},
-        {"task": "Validate uniqueness on insert/update", "done": false}
+        {
+          "task": "Parse UNIQUE constraint in CREATE TABLE",
+          "done": false
+        },
+        {
+          "task": "Create unique index for constraint",
+          "done": false
+        },
+        {
+          "task": "Validate uniqueness on insert/update",
+          "done": false
+        }
       ]
     },
     {
@@ -887,11 +1653,26 @@
       "description": "NOT NULL constraint validation on insert/update",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse NOT NULL constraint", "done": false},
-        {"task": "Store NOT NULL flag in column metadata", "done": false},
-        {"task": "Check for NULL values on insert", "done": false},
-        {"task": "Check for NULL values on update", "done": false},
-        {"task": "Return constraint violation error", "done": false}
+        {
+          "task": "Parse NOT NULL constraint",
+          "done": false
+        },
+        {
+          "task": "Store NOT NULL flag in column metadata",
+          "done": false
+        },
+        {
+          "task": "Check for NULL values on insert",
+          "done": false
+        },
+        {
+          "task": "Check for NULL values on update",
+          "done": false
+        },
+        {
+          "task": "Return constraint violation error",
+          "done": false
+        }
       ]
     },
     {
@@ -899,10 +1680,22 @@
       "description": "CHECK constraint evaluation with arbitrary expressions",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse CHECK (expression) constraint", "done": false},
-        {"task": "Store check expression AST in metadata", "done": false},
-        {"task": "Evaluate check expression on insert/update", "done": false},
-        {"task": "Return constraint violation if expression is false", "done": false}
+        {
+          "task": "Parse CHECK (expression) constraint",
+          "done": false
+        },
+        {
+          "task": "Store check expression AST in metadata",
+          "done": false
+        },
+        {
+          "task": "Evaluate check expression on insert/update",
+          "done": false
+        },
+        {
+          "task": "Return constraint violation if expression is false",
+          "done": false
+        }
       ]
     },
     {
@@ -910,10 +1703,22 @@
       "description": "DEFAULT value handling for columns",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse DEFAULT expression in column definition", "done": false},
-        {"task": "Store default expression in column metadata", "done": false},
-        {"task": "Evaluate default expression on insert if value not provided", "done": false},
-        {"task": "Handle DEFAULT keyword in INSERT statements", "done": false}
+        {
+          "task": "Parse DEFAULT expression in column definition",
+          "done": false
+        },
+        {
+          "task": "Store default expression in column metadata",
+          "done": false
+        },
+        {
+          "task": "Evaluate default expression on insert if value not provided",
+          "done": false
+        },
+        {
+          "task": "Handle DEFAULT keyword in INSERT statements",
+          "done": false
+        }
       ]
     },
     {
@@ -921,11 +1726,26 @@
       "description": "Create BEFORE/AFTER triggers on INSERT/UPDATE/DELETE",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse CREATE TRIGGER syntax", "done": false},
-        {"task": "Parse BEFORE/AFTER timing", "done": false},
-        {"task": "Parse INSERT/UPDATE/DELETE events", "done": false},
-        {"task": "Parse trigger action statements", "done": false},
-        {"task": "Store trigger definition in schema catalog", "done": false}
+        {
+          "task": "Parse CREATE TRIGGER syntax",
+          "done": false
+        },
+        {
+          "task": "Parse BEFORE/AFTER timing",
+          "done": false
+        },
+        {
+          "task": "Parse INSERT/UPDATE/DELETE events",
+          "done": false
+        },
+        {
+          "task": "Parse trigger action statements",
+          "done": false
+        },
+        {
+          "task": "Store trigger definition in schema catalog",
+          "done": false
+        }
       ]
     },
     {
@@ -933,8 +1753,14 @@
       "description": "Remove triggers from tables",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse DROP TRIGGER trigger_name", "done": false},
-        {"task": "Remove trigger from schema catalog", "done": false}
+        {
+          "task": "Parse DROP TRIGGER trigger_name",
+          "done": false
+        },
+        {
+          "task": "Remove trigger from schema catalog",
+          "done": false
+        }
       ]
     },
     {
@@ -942,11 +1768,26 @@
       "description": "Execute trigger logic during data modifications",
       "isCompleted": false,
       "tasks": [
-        {"task": "Look up triggers for table and event type", "done": false},
-        {"task": "Execute BEFORE triggers before operation", "done": false},
-        {"task": "Execute AFTER triggers after operation", "done": false},
-        {"task": "Provide OLD and NEW row contexts to trigger", "done": false},
-        {"task": "Handle trigger errors and rollback", "done": false}
+        {
+          "task": "Look up triggers for table and event type",
+          "done": false
+        },
+        {
+          "task": "Execute BEFORE triggers before operation",
+          "done": false
+        },
+        {
+          "task": "Execute AFTER triggers after operation",
+          "done": false
+        },
+        {
+          "task": "Provide OLD and NEW row contexts to trigger",
+          "done": false
+        },
+        {
+          "task": "Handle trigger errors and rollback",
+          "done": false
+        }
       ]
     },
     {
@@ -954,11 +1795,26 @@
       "description": "Go API for opening/closing database connections",
       "isCompleted": false,
       "tasks": [
-        {"task": "Design DB struct with pager and schema fields", "done": false},
-        {"task": "Implement Open(path string) function", "done": false},
-        {"task": "Initialize pager and load schema on open", "done": false},
-        {"task": "Implement Close() method", "done": false},
-        {"task": "Handle concurrent connections to same file", "done": false}
+        {
+          "task": "Design DB struct with pager and schema fields",
+          "done": false
+        },
+        {
+          "task": "Implement Open(path string) function",
+          "done": false
+        },
+        {
+          "task": "Initialize pager and load schema on open",
+          "done": false
+        },
+        {
+          "task": "Implement Close() method",
+          "done": false
+        },
+        {
+          "task": "Handle concurrent connections to same file",
+          "done": false
+        }
       ]
     },
     {
@@ -966,12 +1822,30 @@
       "description": "Prepare, bind parameters, and execute statements efficiently",
       "isCompleted": false,
       "tasks": [
-        {"task": "Design Stmt struct with compiled bytecode", "done": false},
-        {"task": "Implement Prepare(sql string) method", "done": false},
-        {"task": "Implement parameter binding (Bind methods)", "done": false},
-        {"task": "Implement Exec() for statements without results", "done": false},
-        {"task": "Implement Query() for statements with results", "done": false},
-        {"task": "Cache prepared statements for reuse", "done": false}
+        {
+          "task": "Design Stmt struct with compiled bytecode",
+          "done": false
+        },
+        {
+          "task": "Implement Prepare(sql string) method",
+          "done": false
+        },
+        {
+          "task": "Implement parameter binding (Bind methods)",
+          "done": false
+        },
+        {
+          "task": "Implement Exec() for statements without results",
+          "done": false
+        },
+        {
+          "task": "Implement Query() for statements with results",
+          "done": false
+        },
+        {
+          "task": "Cache prepared statements for reuse",
+          "done": false
+        }
       ]
     },
     {
@@ -979,11 +1853,26 @@
       "description": "Iterate over query results with typed column access",
       "isCompleted": false,
       "tasks": [
-        {"task": "Design Rows struct with VDBE cursor", "done": false},
-        {"task": "Implement Next() bool method", "done": false},
-        {"task": "Implement Scan(...interface{}) method", "done": false},
-        {"task": "Implement typed column access (ColumnInt, ColumnText, etc.)", "done": false},
-        {"task": "Implement Close() for early result cleanup", "done": false}
+        {
+          "task": "Design Rows struct with VDBE cursor",
+          "done": false
+        },
+        {
+          "task": "Implement Next() bool method",
+          "done": false
+        },
+        {
+          "task": "Implement Scan(...interface{}) method",
+          "done": false
+        },
+        {
+          "task": "Implement typed column access (ColumnInt, ColumnText, etc.)",
+          "done": false
+        },
+        {
+          "task": "Implement Close() for early result cleanup",
+          "done": false
+        }
       ]
     },
     {
@@ -991,11 +1880,26 @@
       "description": "Begin, commit, rollback transactions from Go API",
       "isCompleted": false,
       "tasks": [
-        {"task": "Implement Begin() method returning Tx", "done": false},
-        {"task": "Implement Tx.Commit() method", "done": false},
-        {"task": "Implement Tx.Rollback() method", "done": false},
-        {"task": "Associate statements with transaction context", "done": false},
-        {"task": "Auto-rollback on Tx object finalization", "done": false}
+        {
+          "task": "Implement Begin() method returning Tx",
+          "done": false
+        },
+        {
+          "task": "Implement Tx.Commit() method",
+          "done": false
+        },
+        {
+          "task": "Implement Tx.Rollback() method",
+          "done": false
+        },
+        {
+          "task": "Associate statements with transaction context",
+          "done": false
+        },
+        {
+          "task": "Auto-rollback on Tx object finalization",
+          "done": false
+        }
       ]
     },
     {
@@ -1003,11 +1907,26 @@
       "description": "Connection pool for managing concurrent database access",
       "isCompleted": false,
       "tasks": [
-        {"task": "Design Pool struct with connection queue", "done": false},
-        {"task": "Implement OpenPool(path string, maxConns int)", "done": false},
-        {"task": "Implement connection checkout/checkin", "done": false},
-        {"task": "Handle connection expiry and cleanup", "done": false},
-        {"task": "Add connection pool metrics", "done": false}
+        {
+          "task": "Design Pool struct with connection queue",
+          "done": false
+        },
+        {
+          "task": "Implement OpenPool(path string, maxConns int)",
+          "done": false
+        },
+        {
+          "task": "Implement connection checkout/checkin",
+          "done": false
+        },
+        {
+          "task": "Handle connection expiry and cleanup",
+          "done": false
+        },
+        {
+          "task": "Add connection pool metrics",
+          "done": false
+        }
       ]
     },
     {
@@ -1015,10 +1934,22 @@
       "description": "Integration with context.Context for cancellation and timeouts",
       "isCompleted": false,
       "tasks": [
-        {"task": "Add context.Context parameter to API methods", "done": false},
-        {"task": "Check context cancellation in VDBE execution loop", "done": false},
-        {"task": "Implement query timeout using context deadline", "done": false},
-        {"task": "Clean up resources on context cancellation", "done": false}
+        {
+          "task": "Add context.Context parameter to API methods",
+          "done": false
+        },
+        {
+          "task": "Check context cancellation in VDBE execution loop",
+          "done": false
+        },
+        {
+          "task": "Implement query timeout using context deadline",
+          "done": false
+        },
+        {
+          "task": "Clean up resources on context cancellation",
+          "done": false
+        }
       ]
     },
     {
@@ -1026,11 +1957,26 @@
       "description": "Command-line interface for executing SQL interactively",
       "isCompleted": false,
       "tasks": [
-        {"task": "Implement REPL with readline support", "done": false},
-        {"task": "Parse SQL statements with multi-line input", "done": false},
-        {"task": "Execute statements and display results", "done": false},
-        {"task": "Handle errors gracefully with clear messages", "done": false},
-        {"task": "Add command history and editing", "done": false}
+        {
+          "task": "Implement REPL with readline support",
+          "done": false
+        },
+        {
+          "task": "Parse SQL statements with multi-line input",
+          "done": false
+        },
+        {
+          "task": "Execute statements and display results",
+          "done": false
+        },
+        {
+          "task": "Handle errors gracefully with clear messages",
+          "done": false
+        },
+        {
+          "task": "Add command history and editing",
+          "done": false
+        }
       ]
     },
     {
@@ -1038,11 +1984,26 @@
       "description": "Execute SQL scripts from files",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse command-line arguments for script file", "done": false},
-        {"task": "Read SQL script from file", "done": false},
-        {"task": "Split script into individual statements", "done": false},
-        {"task": "Execute statements in order", "done": false},
-        {"task": "Stop on error or continue based on flag", "done": false}
+        {
+          "task": "Parse command-line arguments for script file",
+          "done": false
+        },
+        {
+          "task": "Read SQL script from file",
+          "done": false
+        },
+        {
+          "task": "Split script into individual statements",
+          "done": false
+        },
+        {
+          "task": "Execute statements in order",
+          "done": false
+        },
+        {
+          "task": "Stop on error or continue based on flag",
+          "done": false
+        }
       ]
     },
     {
@@ -1050,10 +2011,22 @@
       "description": "Format query results as tables, CSV, JSON",
       "isCompleted": false,
       "tasks": [
-        {"task": "Implement table formatter with column alignment", "done": false},
-        {"task": "Implement CSV output formatter", "done": false},
-        {"task": "Implement JSON output formatter", "done": false},
-        {"task": "Add mode selection flag (.mode command)", "done": false}
+        {
+          "task": "Implement table formatter with column alignment",
+          "done": false
+        },
+        {
+          "task": "Implement CSV output formatter",
+          "done": false
+        },
+        {
+          "task": "Implement JSON output formatter",
+          "done": false
+        },
+        {
+          "task": "Add mode selection flag (.mode command)",
+          "done": false
+        }
       ]
     },
     {
@@ -1061,11 +2034,26 @@
       "description": "Special commands like .tables, .schema, .indices",
       "isCompleted": false,
       "tasks": [
-        {"task": "Implement .tables command to list tables", "done": false},
-        {"task": "Implement .schema [table] to show CREATE TABLE", "done": false},
-        {"task": "Implement .indices [table] to list indexes", "done": false},
-        {"task": "Implement .help command", "done": false},
-        {"task": "Implement .exit/.quit commands", "done": false}
+        {
+          "task": "Implement .tables command to list tables",
+          "done": false
+        },
+        {
+          "task": "Implement .schema [table] to show CREATE TABLE",
+          "done": false
+        },
+        {
+          "task": "Implement .indices [table] to list indexes",
+          "done": false
+        },
+        {
+          "task": "Implement .help command",
+          "done": false
+        },
+        {
+          "task": "Implement .exit/.quit commands",
+          "done": false
+        }
       ]
     },
     {
@@ -1073,10 +2061,22 @@
       "description": "Cache frequently executed query results",
       "isCompleted": false,
       "tasks": [
-        {"task": "Design cache key from SQL and parameters", "done": false},
-        {"task": "Implement LRU cache for query results", "done": false},
-        {"task": "Invalidate cache on data modifications", "done": false},
-        {"task": "Add cache hit/miss metrics", "done": false}
+        {
+          "task": "Design cache key from SQL and parameters",
+          "done": false
+        },
+        {
+          "task": "Implement LRU cache for query results",
+          "done": false
+        },
+        {
+          "task": "Invalidate cache on data modifications",
+          "done": false
+        },
+        {
+          "task": "Add cache hit/miss metrics",
+          "done": false
+        }
       ]
     },
     {
@@ -1084,11 +2084,26 @@
       "description": "Compress database pages to reduce file size",
       "isCompleted": false,
       "tasks": [
-        {"task": "Choose compression algorithm (zstd, lz4)", "done": false},
-        {"task": "Compress pages before writing to disk", "done": false},
-        {"task": "Decompress pages on read", "done": false},
-        {"task": "Store compression metadata in page header", "done": false},
-        {"task": "Benchmark compression ratio vs CPU overhead", "done": false}
+        {
+          "task": "Choose compression algorithm (zstd, lz4)",
+          "done": false
+        },
+        {
+          "task": "Compress pages before writing to disk",
+          "done": false
+        },
+        {
+          "task": "Decompress pages on read",
+          "done": false
+        },
+        {
+          "task": "Store compression metadata in page header",
+          "done": false
+        },
+        {
+          "task": "Benchmark compression ratio vs CPU overhead",
+          "done": false
+        }
       ]
     },
     {
@@ -1096,11 +2111,26 @@
       "description": "Product quantization for compressed vector storage",
       "isCompleted": false,
       "tasks": [
-        {"task": "Implement product quantization algorithm", "done": false},
-        {"task": "Train codebooks on vector dataset", "done": false},
-        {"task": "Encode vectors using codebook indices", "done": false},
-        {"task": "Decode vectors for distance computation", "done": false},
-        {"task": "Measure recall degradation with compression", "done": false}
+        {
+          "task": "Implement product quantization algorithm",
+          "done": false
+        },
+        {
+          "task": "Train codebooks on vector dataset",
+          "done": false
+        },
+        {
+          "task": "Encode vectors using codebook indices",
+          "done": false
+        },
+        {
+          "task": "Decode vectors for distance computation",
+          "done": false
+        },
+        {
+          "task": "Measure recall degradation with compression",
+          "done": false
+        }
       ]
     },
     {
@@ -1108,10 +2138,22 @@
       "description": "Automatically adjust ef parameter based on query patterns",
       "isCompleted": false,
       "tasks": [
-        {"task": "Track query latency and recall statistics", "done": false},
-        {"task": "Implement ef adjustment algorithm", "done": false},
-        {"task": "Increase ef if recall is too low", "done": false},
-        {"task": "Decrease ef if latency is too high", "done": false}
+        {
+          "task": "Track query latency and recall statistics",
+          "done": false
+        },
+        {
+          "task": "Implement ef adjustment algorithm",
+          "done": false
+        },
+        {
+          "task": "Increase ef if recall is too low",
+          "done": false
+        },
+        {
+          "task": "Decrease ef if latency is too high",
+          "done": false
+        }
       ]
     },
     {
@@ -1119,10 +2161,22 @@
       "description": "Control memory usage with configurable limits",
       "isCompleted": false,
       "tasks": [
-        {"task": "Track memory usage across caches", "done": false},
-        {"task": "Implement memory limit configuration", "done": false},
-        {"task": "Evict cache entries when limit exceeded", "done": false},
-        {"task": "Prioritize hot data for cache retention", "done": false}
+        {
+          "task": "Track memory usage across caches",
+          "done": false
+        },
+        {
+          "task": "Implement memory limit configuration",
+          "done": false
+        },
+        {
+          "task": "Evict cache entries when limit exceeded",
+          "done": false
+        },
+        {
+          "task": "Prioritize hot data for cache retention",
+          "done": false
+        }
       ]
     },
     {
@@ -1130,10 +2184,22 @@
       "description": "Background process to optimize indexes without blocking queries",
       "isCompleted": false,
       "tasks": [
-        {"task": "Implement background goroutine for optimization", "done": false},
-        {"task": "Rebalance B-tree indexes during idle time", "done": false},
-        {"task": "Rebuild fragmented HNSW indexes", "done": false},
-        {"task": "Use low-priority I/O to avoid query interference", "done": false}
+        {
+          "task": "Implement background goroutine for optimization",
+          "done": false
+        },
+        {
+          "task": "Rebalance B-tree indexes during idle time",
+          "done": false
+        },
+        {
+          "task": "Rebuild fragmented HNSW indexes",
+          "done": false
+        },
+        {
+          "task": "Use low-priority I/O to avoid query interference",
+          "done": false
+        }
       ]
     },
     {
@@ -1141,10 +2207,22 @@
       "description": "Distribute large vector datasets across multiple index files",
       "isCompleted": false,
       "tasks": [
-        {"task": "Design sharding key (hash-based or range-based)", "done": false},
-        {"task": "Partition vectors across N HNSW indexes", "done": false},
-        {"task": "Query all shards and merge results", "done": false},
-        {"task": "Handle shard rebalancing as data grows", "done": false}
+        {
+          "task": "Design sharding key (hash-based or range-based)",
+          "done": false
+        },
+        {
+          "task": "Partition vectors across N HNSW indexes",
+          "done": false
+        },
+        {
+          "task": "Query all shards and merge results",
+          "done": false
+        },
+        {
+          "task": "Handle shard rebalancing as data grows",
+          "done": false
+        }
       ]
     },
     {
@@ -1152,10 +2230,22 @@
       "description": "Execute queries in parallel across multiple CPU cores",
       "isCompleted": false,
       "tasks": [
-        {"task": "Identify parallelizable query operations (scans, joins)", "done": false},
-        {"task": "Partition data into chunks for parallel processing", "done": false},
-        {"task": "Execute chunks in parallel goroutines", "done": false},
-        {"task": "Merge results from parallel workers", "done": false}
+        {
+          "task": "Identify parallelizable query operations (scans, joins)",
+          "done": false
+        },
+        {
+          "task": "Partition data into chunks for parallel processing",
+          "done": false
+        },
+        {
+          "task": "Execute chunks in parallel goroutines",
+          "done": false
+        },
+        {
+          "task": "Merge results from parallel workers",
+          "done": false
+        }
       ]
     },
     {
@@ -1163,10 +2253,22 @@
       "description": "Table partitioning for managing very large tables",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse PARTITION BY clause in CREATE TABLE", "done": false},
-        {"task": "Create separate B-trees for each partition", "done": false},
-        {"task": "Route inserts to appropriate partition", "done": false},
-        {"task": "Prune partitions during query execution", "done": false}
+        {
+          "task": "Parse PARTITION BY clause in CREATE TABLE",
+          "done": false
+        },
+        {
+          "task": "Create separate B-trees for each partition",
+          "done": false
+        },
+        {
+          "task": "Route inserts to appropriate partition",
+          "done": false
+        },
+        {
+          "task": "Prune partitions during query execution",
+          "done": false
+        }
       ]
     },
     {
@@ -1174,10 +2276,22 @@
       "description": "Create backups without stopping database operations",
       "isCompleted": false,
       "tasks": [
-        {"task": "Start read transaction to freeze consistent snapshot", "done": false},
-        {"task": "Copy database file while snapshot is active", "done": false},
-        {"task": "Copy WAL entries since snapshot started", "done": false},
-        {"task": "Create backup metadata file with timestamp", "done": false}
+        {
+          "task": "Start read transaction to freeze consistent snapshot",
+          "done": false
+        },
+        {
+          "task": "Copy database file while snapshot is active",
+          "done": false
+        },
+        {
+          "task": "Copy WAL entries since snapshot started",
+          "done": false
+        },
+        {
+          "task": "Create backup metadata file with timestamp",
+          "done": false
+        }
       ]
     },
     {
@@ -1185,10 +2299,22 @@
       "description": "Restore database to specific point in time using WAL",
       "isCompleted": false,
       "tasks": [
-        {"task": "Copy base backup to restore location", "done": false},
-        {"task": "Replay WAL entries up to target timestamp", "done": false},
-        {"task": "Stop replay at target point in time", "done": false},
-        {"task": "Validate restored database integrity", "done": false}
+        {
+          "task": "Copy base backup to restore location",
+          "done": false
+        },
+        {
+          "task": "Replay WAL entries up to target timestamp",
+          "done": false
+        },
+        {
+          "task": "Stop replay at target point in time",
+          "done": false
+        },
+        {
+          "task": "Validate restored database integrity",
+          "done": false
+        }
       ]
     },
     {
@@ -1196,10 +2322,22 @@
       "description": "Back up only changed pages since last backup",
       "isCompleted": false,
       "tasks": [
-        {"task": "Track modified pages since last backup", "done": false},
-        {"task": "Copy only modified pages to backup", "done": false},
-        {"task": "Store page map in backup metadata", "done": false},
-        {"task": "Implement restore from incremental backups", "done": false}
+        {
+          "task": "Track modified pages since last backup",
+          "done": false
+        },
+        {
+          "task": "Copy only modified pages to backup",
+          "done": false
+        },
+        {
+          "task": "Store page map in backup metadata",
+          "done": false
+        },
+        {
+          "task": "Implement restore from incremental backups",
+          "done": false
+        }
       ]
     },
     {
@@ -1207,11 +2345,26 @@
       "description": "Automatic recovery from crashes using WAL replay",
       "isCompleted": false,
       "tasks": [
-        {"task": "Detect incomplete checkpoint on database open", "done": false},
-        {"task": "Replay WAL entries since last checkpoint", "done": false},
-        {"task": "Apply committed transactions to database file", "done": false},
-        {"task": "Discard uncommitted transactions", "done": false},
-        {"task": "Checkpoint and truncate WAL after recovery", "done": false}
+        {
+          "task": "Detect incomplete checkpoint on database open",
+          "done": false
+        },
+        {
+          "task": "Replay WAL entries since last checkpoint",
+          "done": false
+        },
+        {
+          "task": "Apply committed transactions to database file",
+          "done": false
+        },
+        {
+          "task": "Discard uncommitted transactions",
+          "done": false
+        },
+        {
+          "task": "Checkpoint and truncate WAL after recovery",
+          "done": false
+        }
       ]
     },
     {
@@ -1219,11 +2372,26 @@
       "description": "PRAGMA integrity_check equivalent for database validation",
       "isCompleted": false,
       "tasks": [
-        {"task": "Verify page checksums", "done": false},
-        {"task": "Validate B-tree structure (no cycles, proper ordering)", "done": false},
-        {"task": "Check foreign key referential integrity", "done": false},
-        {"task": "Verify index consistency with table data", "done": false},
-        {"task": "Report all integrity errors found", "done": false}
+        {
+          "task": "Verify page checksums",
+          "done": false
+        },
+        {
+          "task": "Validate B-tree structure (no cycles, proper ordering)",
+          "done": false
+        },
+        {
+          "task": "Check foreign key referential integrity",
+          "done": false
+        },
+        {
+          "task": "Verify index consistency with table data",
+          "done": false
+        },
+        {
+          "task": "Report all integrity errors found",
+          "done": false
+        }
       ]
     },
     {
@@ -1231,10 +2399,22 @@
       "description": "Detect and report corrupted pages and indexes",
       "isCompleted": false,
       "tasks": [
-        {"task": "Add checksums to page headers", "done": false},
-        {"task": "Verify checksums on page read", "done": false},
-        {"task": "Detect torn page writes", "done": false},
-        {"task": "Report corruption with page number and type", "done": false}
+        {
+          "task": "Add checksums to page headers",
+          "done": false
+        },
+        {
+          "task": "Verify checksums on page read",
+          "done": false
+        },
+        {
+          "task": "Detect torn page writes",
+          "done": false
+        },
+        {
+          "task": "Report corruption with page number and type",
+          "done": false
+        }
       ]
     },
     {
@@ -1242,10 +2422,22 @@
       "description": "Track query counts, cache hits, page reads/writes",
       "isCompleted": false,
       "tasks": [
-        {"task": "Add counters to pager for page reads/writes", "done": false},
-        {"task": "Add counters for cache hits/misses", "done": false},
-        {"task": "Track query execution counts and timing", "done": false},
-        {"task": "Expose counters via PRAGMA or API", "done": false}
+        {
+          "task": "Add counters to pager for page reads/writes",
+          "done": false
+        },
+        {
+          "task": "Add counters for cache hits/misses",
+          "done": false
+        },
+        {
+          "task": "Track query execution counts and timing",
+          "done": false
+        },
+        {
+          "task": "Expose counters via PRAGMA or API",
+          "done": false
+        }
       ]
     },
     {
@@ -1253,10 +2445,22 @@
       "description": "Profile query execution time and resource usage",
       "isCompleted": false,
       "tasks": [
-        {"task": "Add timing instrumentation to VDBE opcodes", "done": false},
-        {"task": "Track time spent in each query phase", "done": false},
-        {"task": "Collect memory allocation statistics", "done": false},
-        {"task": "Output profiling report after query execution", "done": false}
+        {
+          "task": "Add timing instrumentation to VDBE opcodes",
+          "done": false
+        },
+        {
+          "task": "Track time spent in each query phase",
+          "done": false
+        },
+        {
+          "task": "Collect memory allocation statistics",
+          "done": false
+        },
+        {
+          "task": "Output profiling report after query execution",
+          "done": false
+        }
       ]
     },
     {
@@ -1264,9 +2468,18 @@
       "description": "Track lock wait times and contention points",
       "isCompleted": false,
       "tasks": [
-        {"task": "Measure time spent waiting for locks", "done": false},
-        {"task": "Track which locks have highest contention", "done": false},
-        {"task": "Expose lock metrics via monitoring API", "done": false}
+        {
+          "task": "Measure time spent waiting for locks",
+          "done": false
+        },
+        {
+          "task": "Track which locks have highest contention",
+          "done": false
+        },
+        {
+          "task": "Expose lock metrics via monitoring API",
+          "done": false
+        }
       ]
     },
     {
@@ -1274,10 +2487,22 @@
       "description": "Monitor WAL size, checkpoint frequency, sync times",
       "isCompleted": false,
       "tasks": [
-        {"task": "Track WAL file size growth", "done": false},
-        {"task": "Measure time spent in WAL sync operations", "done": false},
-        {"task": "Count checkpoint operations and duration", "done": false},
-        {"task": "Alert on WAL growth beyond threshold", "done": false}
+        {
+          "task": "Track WAL file size growth",
+          "done": false
+        },
+        {
+          "task": "Measure time spent in WAL sync operations",
+          "done": false
+        },
+        {
+          "task": "Count checkpoint operations and duration",
+          "done": false
+        },
+        {
+          "task": "Alert on WAL growth beyond threshold",
+          "done": false
+        }
       ]
     },
     {
@@ -1285,10 +2510,22 @@
       "description": "Window function for assigning sequential numbers",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse OVER clause in SELECT", "done": false},
-        {"task": "Parse PARTITION BY in window specification", "done": false},
-        {"task": "Implement row numbering within partitions", "done": false},
-        {"task": "Reset row number on partition boundary", "done": false}
+        {
+          "task": "Parse OVER clause in SELECT",
+          "done": false
+        },
+        {
+          "task": "Parse PARTITION BY in window specification",
+          "done": false
+        },
+        {
+          "task": "Implement row numbering within partitions",
+          "done": false
+        },
+        {
+          "task": "Reset row number on partition boundary",
+          "done": false
+        }
       ]
     },
     {
@@ -1296,10 +2533,22 @@
       "description": "Ranking functions with gap/no-gap semantics",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse ORDER BY in window specification", "done": false},
-        {"task": "Implement RANK with gaps for ties", "done": false},
-        {"task": "Implement DENSE_RANK without gaps", "done": false},
-        {"task": "Handle peer rows (same ORDER BY value)", "done": false}
+        {
+          "task": "Parse ORDER BY in window specification",
+          "done": false
+        },
+        {
+          "task": "Implement RANK with gaps for ties",
+          "done": false
+        },
+        {
+          "task": "Implement DENSE_RANK without gaps",
+          "done": false
+        },
+        {
+          "task": "Handle peer rows (same ORDER BY value)",
+          "done": false
+        }
       ]
     },
     {
@@ -1307,10 +2556,22 @@
       "description": "Access previous/next rows in result set",
       "isCompleted": false,
       "tasks": [
-        {"task": "Implement LAG to access previous row", "done": false},
-        {"task": "Implement LEAD to access next row", "done": false},
-        {"task": "Handle offset parameter (default 1)", "done": false},
-        {"task": "Handle default value for out-of-bounds access", "done": false}
+        {
+          "task": "Implement LAG to access previous row",
+          "done": false
+        },
+        {
+          "task": "Implement LEAD to access next row",
+          "done": false
+        },
+        {
+          "task": "Handle offset parameter (default 1)",
+          "done": false
+        },
+        {
+          "task": "Handle default value for out-of-bounds access",
+          "done": false
+        }
       ]
     },
     {
@@ -1318,10 +2579,22 @@
       "description": "SUM, AVG, etc. over window frames",
       "isCompleted": false,
       "tasks": [
-        {"task": "Parse window frame specification (ROWS, RANGE)", "done": false},
-        {"task": "Implement sliding window aggregation", "done": false},
-        {"task": "Support UNBOUNDED PRECEDING/FOLLOWING", "done": false},
-        {"task": "Optimize frame computation with incremental updates", "done": false}
+        {
+          "task": "Parse window frame specification (ROWS, RANGE)",
+          "done": false
+        },
+        {
+          "task": "Implement sliding window aggregation",
+          "done": false
+        },
+        {
+          "task": "Support UNBOUNDED PRECEDING/FOLLOWING",
+          "done": false
+        },
+        {
+          "task": "Optimize frame computation with incremental updates",
+          "done": false
+        }
       ]
     },
     {
@@ -1329,13 +2602,34 @@
       "description": "Comprehensive unit tests for all components (target: >80% coverage)",
       "isCompleted": false,
       "tasks": [
-        {"task": "Add unit tests for pager operations", "done": false},
-        {"task": "Add unit tests for B-tree operations", "done": false},
-        {"task": "Add unit tests for HNSW operations", "done": false},
-        {"task": "Add unit tests for MVCC logic", "done": false},
-        {"task": "Add unit tests for SQL parser", "done": false},
-        {"task": "Add unit tests for VDBE execution", "done": false},
-        {"task": "Measure test coverage with go test -cover", "done": false}
+        {
+          "task": "Add unit tests for pager operations",
+          "done": false
+        },
+        {
+          "task": "Add unit tests for B-tree operations",
+          "done": false
+        },
+        {
+          "task": "Add unit tests for HNSW operations",
+          "done": false
+        },
+        {
+          "task": "Add unit tests for MVCC logic",
+          "done": false
+        },
+        {
+          "task": "Add unit tests for SQL parser",
+          "done": false
+        },
+        {
+          "task": "Add unit tests for VDBE execution",
+          "done": false
+        },
+        {
+          "task": "Measure test coverage with go test -cover",
+          "done": false
+        }
       ]
     },
     {
@@ -1343,10 +2637,22 @@
       "description": "Pass core subset of SQLite test suite for compatibility",
       "isCompleted": false,
       "tasks": [
-        {"task": "Import SQLite test cases for SELECT/INSERT/UPDATE/DELETE", "done": false},
-        {"task": "Run tests and identify failures", "done": false},
-        {"task": "Fix compatibility issues", "done": false},
-        {"task": "Achieve >90% pass rate on core test suite", "done": false}
+        {
+          "task": "Import SQLite test cases for SELECT/INSERT/UPDATE/DELETE",
+          "done": false
+        },
+        {
+          "task": "Run tests and identify failures",
+          "done": false
+        },
+        {
+          "task": "Fix compatibility issues",
+          "done": false
+        },
+        {
+          "task": "Achieve >90% pass rate on core test suite",
+          "done": false
+        }
       ]
     },
     {
@@ -1354,11 +2660,26 @@
       "description": "Benchmark recall/latency for 10M vectors (target: >95% recall <50ms)",
       "isCompleted": false,
       "tasks": [
-        {"task": "Generate synthetic vector dataset (10M vectors)", "done": false},
-        {"task": "Build HNSW index with various parameters", "done": false},
-        {"task": "Measure recall at different k values", "done": false},
-        {"task": "Measure query latency (p50, p95, p99)", "done": false},
-        {"task": "Tune M and efConstruction for target metrics", "done": false}
+        {
+          "task": "Generate synthetic vector dataset (10M vectors)",
+          "done": false
+        },
+        {
+          "task": "Build HNSW index with various parameters",
+          "done": false
+        },
+        {
+          "task": "Measure recall at different k values",
+          "done": false
+        },
+        {
+          "task": "Measure query latency (p50, p95, p99)",
+          "done": false
+        },
+        {
+          "task": "Tune M and efConstruction for target metrics",
+          "done": false
+        }
       ]
     },
     {
@@ -1366,11 +2687,26 @@
       "description": "Test 100 concurrent readers and 10 concurrent writers",
       "isCompleted": false,
       "tasks": [
-        {"task": "Create test harness for concurrent goroutines", "done": false},
-        {"task": "Spawn 100 reader goroutines", "done": false},
-        {"task": "Spawn 10 writer goroutines", "done": false},
-        {"task": "Verify no data corruption or deadlocks", "done": false},
-        {"task": "Measure throughput under concurrent load", "done": false}
+        {
+          "task": "Create test harness for concurrent goroutines",
+          "done": false
+        },
+        {
+          "task": "Spawn 100 reader goroutines",
+          "done": false
+        },
+        {
+          "task": "Spawn 10 writer goroutines",
+          "done": false
+        },
+        {
+          "task": "Verify no data corruption or deadlocks",
+          "done": false
+        },
+        {
+          "task": "Measure throughput under concurrent load",
+          "done": false
+        }
       ]
     },
     {
@@ -1378,11 +2714,26 @@
       "description": "Verify database integrity after simulated crashes",
       "isCompleted": false,
       "tasks": [
-        {"task": "Inject crash at random point during transaction", "done": false},
-        {"task": "Reopen database and verify recovery succeeds", "done": false},
-        {"task": "Validate committed transactions are preserved", "done": false},
-        {"task": "Validate uncommitted transactions are rolled back", "done": false},
-        {"task": "Run integrity check after recovery", "done": false}
+        {
+          "task": "Inject crash at random point during transaction",
+          "done": false
+        },
+        {
+          "task": "Reopen database and verify recovery succeeds",
+          "done": false
+        },
+        {
+          "task": "Validate committed transactions are preserved",
+          "done": false
+        },
+        {
+          "task": "Validate uncommitted transactions are rolled back",
+          "done": false
+        },
+        {
+          "task": "Run integrity check after recovery",
+          "done": false
+        }
       ]
     },
     {
@@ -1390,11 +2741,26 @@
       "description": "Fuzz testing for SQL parser and storage engine",
       "isCompleted": false,
       "tasks": [
-        {"task": "Set up go-fuzz for SQL parser", "done": false},
-        {"task": "Generate random SQL inputs", "done": false},
-        {"task": "Detect parser crashes and hangs", "done": false},
-        {"task": "Fuzz VDBE bytecode execution", "done": false},
-        {"task": "Fix bugs discovered by fuzzing", "done": false}
+        {
+          "task": "Set up go-fuzz for SQL parser",
+          "done": false
+        },
+        {
+          "task": "Generate random SQL inputs",
+          "done": false
+        },
+        {
+          "task": "Detect parser crashes and hangs",
+          "done": false
+        },
+        {
+          "task": "Fuzz VDBE bytecode execution",
+          "done": false
+        },
+        {
+          "task": "Fix bugs discovered by fuzzing",
+          "done": false
+        }
       ]
     },
     {
@@ -1402,11 +2768,26 @@
       "description": "Complete godoc documentation for all public APIs",
       "isCompleted": false,
       "tasks": [
-        {"task": "Write package-level documentation", "done": false},
-        {"task": "Document all exported types", "done": false},
-        {"task": "Document all exported functions", "done": false},
-        {"task": "Add code examples in documentation", "done": false},
-        {"task": "Generate documentation website", "done": false}
+        {
+          "task": "Write package-level documentation",
+          "done": false
+        },
+        {
+          "task": "Document all exported types",
+          "done": false
+        },
+        {
+          "task": "Document all exported functions",
+          "done": false
+        },
+        {
+          "task": "Add code examples in documentation",
+          "done": false
+        },
+        {
+          "task": "Generate documentation website",
+          "done": false
+        }
       ]
     },
     {
@@ -1414,11 +2795,26 @@
       "description": "Document vector SQL extensions with examples",
       "isCompleted": false,
       "tasks": [
-        {"task": "Write VECTOR type documentation", "done": false},
-        {"task": "Document vector_quantize function with examples", "done": false},
-        {"task": "Document vector_quantize_scan with examples", "done": false},
-        {"task": "Document vector_distance with examples", "done": false},
-        {"task": "Provide end-to-end tutorial for vector search", "done": false}
+        {
+          "task": "Write VECTOR type documentation",
+          "done": false
+        },
+        {
+          "task": "Document vector_quantize function with examples",
+          "done": false
+        },
+        {
+          "task": "Document vector_quantize_scan with examples",
+          "done": false
+        },
+        {
+          "task": "Document vector_distance with examples",
+          "done": false
+        },
+        {
+          "task": "Provide end-to-end tutorial for vector search",
+          "done": false
+        }
       ]
     },
     {
@@ -1426,11 +2822,26 @@
       "description": "Detailed architecture documentation explaining design decisions",
       "isCompleted": false,
       "tasks": [
-        {"task": "Document overall system architecture with diagrams", "done": false},
-        {"task": "Explain storage layer design", "done": false},
-        {"task": "Explain MVCC implementation", "done": false},
-        {"task": "Explain query processing pipeline", "done": false},
-        {"task": "Document HNSW integration approach", "done": false}
+        {
+          "task": "Document overall system architecture with diagrams",
+          "done": false
+        },
+        {
+          "task": "Explain storage layer design",
+          "done": false
+        },
+        {
+          "task": "Explain MVCC implementation",
+          "done": false
+        },
+        {
+          "task": "Explain query processing pipeline",
+          "done": false
+        },
+        {
+          "task": "Document HNSW integration approach",
+          "done": false
+        }
       ]
     },
     {
@@ -1438,10 +2849,22 @@
       "description": "Guide for optimizing query performance and index configuration",
       "isCompleted": false,
       "tasks": [
-        {"task": "Document HNSW parameter tuning (M, efConstruction, ef)", "done": false},
-        {"task": "Explain when to create indexes", "done": false},
-        {"task": "Document query optimization techniques", "done": false},
-        {"task": "Provide benchmarking methodology", "done": false}
+        {
+          "task": "Document HNSW parameter tuning (M, efConstruction, ef)",
+          "done": false
+        },
+        {
+          "task": "Explain when to create indexes",
+          "done": false
+        },
+        {
+          "task": "Document query optimization techniques",
+          "done": false
+        },
+        {
+          "task": "Provide benchmarking methodology",
+          "done": false
+        }
       ]
     },
     {
@@ -1449,10 +2872,22 @@
       "description": "Guide for migrating from SQLite or other databases",
       "isCompleted": false,
       "tasks": [
-        {"task": "Document SQLite compatibility and differences", "done": false},
-        {"task": "Provide schema migration scripts", "done": false},
-        {"task": "Explain data migration process", "done": false},
-        {"task": "Document vector data conversion from other formats", "done": false}
+        {
+          "task": "Document SQLite compatibility and differences",
+          "done": false
+        },
+        {
+          "task": "Provide schema migration scripts",
+          "done": false
+        },
+        {
+          "task": "Explain data migration process",
+          "done": false
+        },
+        {
+          "task": "Document vector data conversion from other formats",
+          "done": false
+        }
       ]
     },
     {
@@ -1460,10 +2895,22 @@
       "description": "User authentication for database connections",
       "isCompleted": false,
       "tasks": [
-        {"task": "Design user credential storage", "done": false},
-        {"task": "Implement password hashing (bcrypt)", "done": false},
-        {"task": "Add authentication check on database open", "done": false},
-        {"task": "Support username/password authentication", "done": false}
+        {
+          "task": "Design user credential storage",
+          "done": false
+        },
+        {
+          "task": "Implement password hashing (bcrypt)",
+          "done": false
+        },
+        {
+          "task": "Add authentication check on database open",
+          "done": false
+        },
+        {
+          "task": "Support username/password authentication",
+          "done": false
+        }
       ]
     },
     {
@@ -1471,10 +2918,22 @@
       "description": "Role-based access control for tables and operations",
       "isCompleted": false,
       "tasks": [
-        {"task": "Design role and permission system", "done": false},
-        {"task": "Store roles and permissions in system tables", "done": false},
-        {"task": "Check permissions before table operations", "done": false},
-        {"task": "Implement GRANT and REVOKE statements", "done": false}
+        {
+          "task": "Design role and permission system",
+          "done": false
+        },
+        {
+          "task": "Store roles and permissions in system tables",
+          "done": false
+        },
+        {
+          "task": "Check permissions before table operations",
+          "done": false
+        },
+        {
+          "task": "Implement GRANT and REVOKE statements",
+          "done": false
+        }
       ]
     },
     {
@@ -1482,11 +2941,26 @@
       "description": "Encrypt database file with AES-256",
       "isCompleted": false,
       "tasks": [
-        {"task": "Implement page-level encryption with AES-256", "done": false},
-        {"task": "Derive encryption key from user password (PBKDF2)", "done": false},
-        {"task": "Encrypt pages before writing to disk", "done": false},
-        {"task": "Decrypt pages on read", "done": false},
-        {"task": "Store encryption metadata in file header", "done": false}
+        {
+          "task": "Implement page-level encryption with AES-256",
+          "done": false
+        },
+        {
+          "task": "Derive encryption key from user password (PBKDF2)",
+          "done": false
+        },
+        {
+          "task": "Encrypt pages before writing to disk",
+          "done": false
+        },
+        {
+          "task": "Decrypt pages on read",
+          "done": false
+        },
+        {
+          "task": "Store encryption metadata in file header",
+          "done": false
+        }
       ]
     },
     {
@@ -1494,10 +2968,22 @@
       "description": "Parameterized queries and input validation",
       "isCompleted": false,
       "tasks": [
-        {"task": "Enforce parameterized query usage in API", "done": false},
-        {"task": "Validate parameter types before binding", "done": false},
-        {"task": "Escape special characters in string literals", "done": false},
-        {"task": "Add SQL injection detection heuristics", "done": false}
+        {
+          "task": "Enforce parameterized query usage in API",
+          "done": false
+        },
+        {
+          "task": "Validate parameter types before binding",
+          "done": false
+        },
+        {
+          "task": "Escape special characters in string literals",
+          "done": false
+        },
+        {
+          "task": "Add SQL injection detection heuristics",
+          "done": false
+        }
       ]
     },
     {
@@ -1505,10 +2991,22 @@
       "description": "Stream WAL entries to replica databases",
       "isCompleted": false,
       "tasks": [
-        {"task": "Design WAL streaming protocol", "done": false},
-        {"task": "Implement WAL sender on primary", "done": false},
-        {"task": "Implement WAL receiver on replica", "done": false},
-        {"task": "Handle connection failures and reconnection", "done": false}
+        {
+          "task": "Design WAL streaming protocol",
+          "done": false
+        },
+        {
+          "task": "Implement WAL sender on primary",
+          "done": false
+        },
+        {
+          "task": "Implement WAL receiver on replica",
+          "done": false
+        },
+        {
+          "task": "Handle connection failures and reconnection",
+          "done": false
+        }
       ]
     },
     {
@@ -1516,10 +3014,22 @@
       "description": "Support for read-only replica databases",
       "isCompleted": false,
       "tasks": [
-        {"task": "Apply WAL entries to replica database", "done": false},
-        {"task": "Reject write operations on replicas", "done": false},
-        {"task": "Track replication lag", "done": false},
-        {"task": "Support multiple replicas per primary", "done": false}
+        {
+          "task": "Apply WAL entries to replica database",
+          "done": false
+        },
+        {
+          "task": "Reject write operations on replicas",
+          "done": false
+        },
+        {
+          "task": "Track replication lag",
+          "done": false
+        },
+        {
+          "task": "Support multiple replicas per primary",
+          "done": false
+        }
       ]
     },
     {
@@ -1527,10 +3037,22 @@
       "description": "Handle conflicts in multi-master replication",
       "isCompleted": false,
       "tasks": [
-        {"task": "Detect write conflicts across masters", "done": false},
-        {"task": "Implement last-write-wins conflict resolution", "done": false},
-        {"task": "Support custom conflict resolution callbacks", "done": false},
-        {"task": "Log conflicts for manual resolution", "done": false}
+        {
+          "task": "Detect write conflicts across masters",
+          "done": false
+        },
+        {
+          "task": "Implement last-write-wins conflict resolution",
+          "done": false
+        },
+        {
+          "task": "Support custom conflict resolution callbacks",
+          "done": false
+        },
+        {
+          "task": "Log conflicts for manual resolution",
+          "done": false
+        }
       ]
     }
   ]
