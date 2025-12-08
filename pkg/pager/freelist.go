@@ -3,6 +3,36 @@ package pager
 
 import "encoding/binary"
 
+// Database header offsets for freelist fields
+// Following the pattern from pager.go where:
+//   Offset 0-16: Magic string
+//   Offset 16-20: Page size
+//   Offset 20-24: Page count
+const (
+	offsetFreelistHead  = 24 // First freelist trunk page number
+	offsetFreePageCount = 28 // Total number of free pages
+)
+
+// GetFreelistHead reads the freelist head page number from a header.
+func GetFreelistHead(header []byte) uint32 {
+	return binary.LittleEndian.Uint32(header[offsetFreelistHead : offsetFreelistHead+4])
+}
+
+// PutFreelistHead writes the freelist head page number to a header.
+func PutFreelistHead(header []byte, pageNo uint32) {
+	binary.LittleEndian.PutUint32(header[offsetFreelistHead:offsetFreelistHead+4], pageNo)
+}
+
+// GetFreePageCount reads the free page count from a header.
+func GetFreePageCount(header []byte) uint32 {
+	return binary.LittleEndian.Uint32(header[offsetFreePageCount : offsetFreePageCount+4])
+}
+
+// PutFreePageCount writes the free page count to a header.
+func PutFreePageCount(header []byte, count uint32) {
+	binary.LittleEndian.PutUint32(header[offsetFreePageCount:offsetFreePageCount+4], count)
+}
+
 // FreelistTrunkPage represents a trunk page in the freelist.
 // The freelist uses a linked list of trunk pages, where each trunk page
 // contains pointers to leaf pages (free pages that can be allocated).

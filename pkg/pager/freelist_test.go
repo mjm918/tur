@@ -259,3 +259,51 @@ func TestFreelist_MultipleTrunks(t *testing.T) {
 		seen[p] = true
 	}
 }
+
+// Database header freelist tests
+
+func TestDatabaseHeader_FreelistFields(t *testing.T) {
+	// Test that the database header can encode/decode freelist info
+	// Header format:
+	//   Offset 0-16: Magic string
+	//   Offset 16-20: Page size
+	//   Offset 20-24: Page count
+	//   Offset 24-28: Free list head page (NEW)
+	//   Offset 28-32: Free page count (NEW)
+
+	header := make([]byte, 100)
+
+	// Write freelist head at offset 24
+	PutFreelistHead(header, 42)
+
+	// Write free page count at offset 28
+	PutFreePageCount(header, 100)
+
+	// Read back
+	headPage := GetFreelistHead(header)
+	freeCount := GetFreePageCount(header)
+
+	if headPage != 42 {
+		t.Errorf("FreelistHead: expected 42, got %d", headPage)
+	}
+
+	if freeCount != 100 {
+		t.Errorf("FreePageCount: expected 100, got %d", freeCount)
+	}
+}
+
+func TestDatabaseHeader_FreelistZero(t *testing.T) {
+	// Zero values mean empty freelist
+	header := make([]byte, 100)
+
+	headPage := GetFreelistHead(header)
+	freeCount := GetFreePageCount(header)
+
+	if headPage != 0 {
+		t.Errorf("Empty header FreelistHead: expected 0, got %d", headPage)
+	}
+
+	if freeCount != 0 {
+		t.Errorf("Empty header FreePageCount: expected 0, got %d", freeCount)
+	}
+}
