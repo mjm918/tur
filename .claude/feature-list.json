@@ -736,7 +736,7 @@
         },
         {
           "task": "Add vector normalization function",
-          "done": false
+          "done": true
         },
         {
           "task": "Integrate HNSW search with VDBE cursors",

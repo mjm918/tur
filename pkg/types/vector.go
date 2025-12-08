@@ -45,6 +45,25 @@ func (v *Vector) Normalize() {
 	}
 }
 
+// NormalizedCopy returns a new normalized copy of the vector
+func (v *Vector) NormalizedCopy() *Vector {
+	copied := make([]float32, len(v.data))
+	copy(copied, v.data)
+
+	var sum float32
+	for _, val := range copied {
+		sum += val * val
+	}
+	if sum == 0 {
+		return &Vector{data: copied}
+	}
+	mag := float32(math.Sqrt(float64(sum)))
+	for i := range copied {
+		copied[i] /= mag
+	}
+	return &Vector{data: copied}
+}
+
 // CosineDistance returns 1 - dot_product (assumes normalized vectors)
 func (v *Vector) CosineDistance(other *Vector) float32 {
 	if len(v.data) != len(other.data) {

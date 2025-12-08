@@ -467,3 +467,76 @@ func TestVMRunVectorDistance_ViaProgram(t *testing.T) {
 		t.Errorf("expected distance ~1 for orthogonal vectors, got %f", dist)
 	}
 }
+
+func TestVMRunVectorNormalize(t *testing.T) {
+	// Create an unnormalized vector [3, 4, 0] - magnitude = 5
+	v := types.NewVector([]float32{3.0, 4.0, 0.0})
+
+	prog := NewProgram()
+	prog.AddOp(OpVectorNormalize, 1, 2, 0) // r[2] = normalize(r[1])
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	vm.SetNumRegisters(5)
+	vm.SetRegister(1, types.NewVectorValue(v))
+
+	err := vm.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val := vm.Register(2)
+	if val.Type() != types.TypeVector {
+		t.Errorf("expected TypeVector, got %v", val.Type())
+	}
+
+	normalized := val.Vector()
+	if normalized == nil {
+		t.Fatal("expected non-nil vector")
+	}
+
+	// After normalization: [0.6, 0.8, 0.0]
+	data := normalized.Data()
+	if len(data) != 3 {
+		t.Errorf("expected 3 dimensions, got %d", len(data))
+	}
+
+	// Check normalized values (3/5 = 0.6, 4/5 = 0.8)
+	epsilon := float32(0.001)
+	if data[0] < 0.6-epsilon || data[0] > 0.6+epsilon {
+		t.Errorf("expected data[0] ~0.6, got %f", data[0])
+	}
+	if data[1] < 0.8-epsilon || data[1] > 0.8+epsilon {
+		t.Errorf("expected data[1] ~0.8, got %f", data[1])
+	}
+	if data[2] < -epsilon || data[2] > epsilon {
+		t.Errorf("expected data[2] ~0, got %f", data[2])
+	}
+}
+
+func TestVMRunVectorNormalize_AlreadyNormalized(t *testing.T) {
+	// Already normalized vector
+	v := types.NewVector([]float32{1.0, 0.0, 0.0})
+
+	prog := NewProgram()
+	prog.AddOp(OpVectorNormalize, 1, 2, 0)
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	vm.SetNumRegisters(5)
+	vm.SetRegister(1, types.NewVectorValue(v))
+
+	err := vm.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val := vm.Register(2)
+	normalized := val.Vector()
+	data := normalized.Data()
+
+	epsilon := float32(0.001)
+	if data[0] < 1.0-epsilon || data[0] > 1.0+epsilon {
+		t.Errorf("expected data[0] ~1.0, got %f", data[0])
+	}
+}

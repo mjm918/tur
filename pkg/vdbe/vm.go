@@ -272,6 +272,10 @@ func (vm *VM) step(instr *Instruction) error {
 		// r[P3] = cosine_distance(r[P1], r[P2])
 		return vm.ExecuteVectorDistance(instr)
 
+	case OpVectorNormalize:
+		// r[P2] = normalize(r[P1])
+		return vm.executeVectorNormalize(instr)
+
 	default:
 		return fmt.Errorf("unimplemented opcode: %s", instr.Op)
 	}
@@ -644,6 +648,35 @@ func (vm *VM) execAggFinal(instr *Instruction) error {
 
 	result := vm.aggregates[aggIdx].Finalize()
 	vm.registers[destReg] = result
+
+	vm.pc++
+	return nil
+}
+
+// executeVectorNormalize normalizes a vector to unit length
+// r[P2] = normalize(r[P1])
+func (vm *VM) executeVectorNormalize(instr *Instruction) error {
+	srcReg := instr.P1
+	destReg := instr.P2
+
+	srcVal := vm.registers[srcReg]
+
+	if srcVal.Type() != types.TypeVector {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	srcVec := srcVal.Vector()
+	if srcVec == nil {
+		vm.registers[destReg] = types.NewNull()
+		vm.pc++
+		return nil
+	}
+
+	// Create a copy and normalize it
+	normalized := srcVec.NormalizedCopy()
+	vm.registers[destReg] = types.NewVectorValue(normalized)
 
 	vm.pc++
 	return nil
