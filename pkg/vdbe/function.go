@@ -4,6 +4,7 @@ package vdbe
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"tur/pkg/types"
@@ -92,6 +93,20 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Name:     "COALESCE",
 		NumArgs:  -1,
 		Function: builtinCoalesce,
+	})
+
+	// Register ABS function
+	r.Register(&ScalarFunction{
+		Name:     "ABS",
+		NumArgs:  1,
+		Function: builtinAbs,
+	})
+
+	// Register ROUND function
+	r.Register(&ScalarFunction{
+		Name:     "ROUND",
+		NumArgs:  -1, // 1 or 2 arguments
+		Function: builtinRound,
 	})
 
 	return r
@@ -272,4 +287,80 @@ func builtinCoalesce(args []types.Value) types.Value {
 		}
 	}
 	return types.NewNull()
+}
+
+// builtinAbs implements ABS(value)
+// Returns the absolute value of a number.
+func builtinAbs(args []types.Value) types.Value {
+	if len(args) != 1 {
+		return types.NewNull()
+	}
+
+	val := args[0]
+	if val.IsNull() {
+		return types.NewNull()
+	}
+
+	switch val.Type() {
+	case types.TypeInt:
+		i := val.Int()
+		if i < 0 {
+			i = -i
+		}
+		return types.NewInt(i)
+
+	case types.TypeFloat:
+		return types.NewFloat(math.Abs(val.Float()))
+
+	default:
+		return types.NewNull()
+	}
+}
+
+// builtinRound implements ROUND(value[, decimals])
+// Rounds a number to the specified number of decimal places.
+// Uses banker's rounding (round half away from zero for SQLite compatibility).
+func builtinRound(args []types.Value) types.Value {
+	if len(args) < 1 || len(args) > 2 {
+		return types.NewNull()
+	}
+
+	// Check for NULL in any argument
+	for _, arg := range args {
+		if arg.IsNull() {
+			return types.NewNull()
+		}
+	}
+
+	// Get the value to round
+	var val float64
+	switch args[0].Type() {
+	case types.TypeInt:
+		val = float64(args[0].Int())
+	case types.TypeFloat:
+		val = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+
+	// Get number of decimal places (default 0)
+	decimals := int64(0)
+	if len(args) == 2 {
+		switch args[1].Type() {
+		case types.TypeInt:
+			decimals = args[1].Int()
+		case types.TypeFloat:
+			decimals = int64(args[1].Float())
+		default:
+			return types.NewNull()
+		}
+	}
+
+	// Calculate multiplier
+	multiplier := math.Pow(10, float64(decimals))
+
+	// Round using SQLite-style rounding (away from zero for .5)
+	rounded := math.Round(val * multiplier) / multiplier
+
+	return types.NewFloat(rounded)
 }

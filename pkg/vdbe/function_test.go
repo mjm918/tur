@@ -464,3 +464,175 @@ func TestCoalesce_NoArgs(t *testing.T) {
 		t.Error("COALESCE() with no args should return NULL")
 	}
 }
+
+func TestAbs_Integer(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	abs := registry.Lookup("ABS")
+	if abs == nil {
+		t.Fatal("ABS function not found in default registry")
+	}
+
+	tests := []struct {
+		input  int64
+		expect int64
+	}{
+		{5, 5},
+		{-5, 5},
+		{0, 0},
+		{-100, 100},
+		{-9223372036854775807, 9223372036854775807}, // Large negative
+	}
+
+	for _, tc := range tests {
+		args := []types.Value{types.NewInt(tc.input)}
+		result := abs.Call(args)
+
+		if result.Type() != types.TypeInt {
+			t.Errorf("ABS(%d): expected int, got %v", tc.input, result.Type())
+			continue
+		}
+		if result.Int() != tc.expect {
+			t.Errorf("ABS(%d): expected %d, got %d", tc.input, tc.expect, result.Int())
+		}
+	}
+}
+
+func TestAbs_Float(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	abs := registry.Lookup("ABS")
+
+	tests := []struct {
+		input  float64
+		expect float64
+	}{
+		{5.5, 5.5},
+		{-5.5, 5.5},
+		{0.0, 0.0},
+		{-3.14159, 3.14159},
+	}
+
+	for _, tc := range tests {
+		args := []types.Value{types.NewFloat(tc.input)}
+		result := abs.Call(args)
+
+		if result.Type() != types.TypeFloat {
+			t.Errorf("ABS(%f): expected float, got %v", tc.input, result.Type())
+			continue
+		}
+		if result.Float() != tc.expect {
+			t.Errorf("ABS(%f): expected %f, got %f", tc.input, tc.expect, result.Float())
+		}
+	}
+}
+
+func TestAbs_Null(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	abs := registry.Lookup("ABS")
+
+	args := []types.Value{types.NewNull()}
+	result := abs.Call(args)
+
+	if !result.IsNull() {
+		t.Error("ABS(NULL) should return NULL")
+	}
+}
+
+func TestRound_OneArg(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	round := registry.Lookup("ROUND")
+	if round == nil {
+		t.Fatal("ROUND function not found in default registry")
+	}
+
+	tests := []struct {
+		input  float64
+		expect float64
+	}{
+		{3.14159, 3.0},
+		{3.5, 4.0},
+		{3.4, 3.0},
+		{-2.5, -3.0}, // SQLite rounds away from zero
+		{-2.4, -2.0},
+		{0.0, 0.0},
+	}
+
+	for _, tc := range tests {
+		args := []types.Value{types.NewFloat(tc.input)}
+		result := round.Call(args)
+
+		if result.Type() != types.TypeFloat {
+			t.Errorf("ROUND(%f): expected float, got %v", tc.input, result.Type())
+			continue
+		}
+		if result.Float() != tc.expect {
+			t.Errorf("ROUND(%f): expected %f, got %f", tc.input, tc.expect, result.Float())
+		}
+	}
+}
+
+func TestRound_TwoArgs(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	round := registry.Lookup("ROUND")
+
+	tests := []struct {
+		input    float64
+		decimals int64
+		expect   float64
+	}{
+		{3.14159, 2, 3.14},
+		{3.14159, 3, 3.142},
+		{3.145, 2, 3.15}, // Rounding
+		{1234.5678, 1, 1234.6},
+		{1234.5678, 0, 1235.0},
+		{1234.5678, -1, 1230.0}, // Negative decimals
+		{1234.5678, -2, 1200.0},
+	}
+
+	for _, tc := range tests {
+		args := []types.Value{types.NewFloat(tc.input), types.NewInt(tc.decimals)}
+		result := round.Call(args)
+
+		if result.Type() != types.TypeFloat {
+			t.Errorf("ROUND(%f, %d): expected float, got %v", tc.input, tc.decimals, result.Type())
+			continue
+		}
+		if result.Float() != tc.expect {
+			t.Errorf("ROUND(%f, %d): expected %f, got %f", tc.input, tc.decimals, tc.expect, result.Float())
+		}
+	}
+}
+
+func TestRound_Integer(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	round := registry.Lookup("ROUND")
+
+	// Integers should work too
+	args := []types.Value{types.NewInt(42)}
+	result := round.Call(args)
+
+	if result.Type() != types.TypeFloat {
+		t.Errorf("ROUND(42): expected float, got %v", result.Type())
+	}
+	if result.Float() != 42.0 {
+		t.Errorf("ROUND(42): expected 42.0, got %f", result.Float())
+	}
+}
+
+func TestRound_Null(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	round := registry.Lookup("ROUND")
+
+	// NULL input
+	args := []types.Value{types.NewNull()}
+	result := round.Call(args)
+	if !result.IsNull() {
+		t.Error("ROUND(NULL) should return NULL")
+	}
+
+	// NULL decimals
+	args = []types.Value{types.NewFloat(3.14), types.NewNull()}
+	result = round.Call(args)
+	if !result.IsNull() {
+		t.Error("ROUND(3.14, NULL) should return NULL")
+	}
+}
