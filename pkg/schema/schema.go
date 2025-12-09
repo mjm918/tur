@@ -10,14 +10,16 @@ import (
 )
 
 var (
-	ErrTableExists    = errors.New("table already exists")
-	ErrTableNotFound  = errors.New("table not found")
-	ErrColumnNotFound = errors.New("column not found")
-	ErrColumnExists   = errors.New("column already exists")
-	ErrIndexExists    = errors.New("index already exists")
-	ErrIndexNotFound  = errors.New("index not found")
-	ErrViewExists     = errors.New("view already exists")
-	ErrViewNotFound   = errors.New("view not found")
+	ErrTableExists      = errors.New("table already exists")
+	ErrTableNotFound    = errors.New("table not found")
+	ErrColumnNotFound   = errors.New("column not found")
+	ErrColumnExists     = errors.New("column already exists")
+	ErrIndexExists      = errors.New("index already exists")
+	ErrIndexNotFound    = errors.New("index not found")
+	ErrViewExists       = errors.New("view already exists")
+	ErrViewNotFound     = errors.New("view not found")
+	ErrTriggerExists    = errors.New("trigger already exists")
+	ErrTriggerNotFound  = errors.New("trigger not found")
 )
 
 // Constraint violation errors
@@ -254,12 +256,39 @@ type ViewDef struct {
 	Columns []string // Optional explicit column names
 }
 
+// TriggerTiming represents when a trigger fires
+type TriggerTiming int
+
+const (
+	TriggerBefore TriggerTiming = iota
+	TriggerAfter
+)
+
+// TriggerEvent represents what event activates a trigger
+type TriggerEvent int
+
+const (
+	TriggerInsert TriggerEvent = iota
+	TriggerUpdate
+	TriggerDelete
+)
+
+// TriggerDef defines a trigger schema
+type TriggerDef struct {
+	Name      string        // Trigger name
+	TableName string        // Table this trigger is attached to
+	Timing    TriggerTiming // BEFORE or AFTER
+	Event     TriggerEvent  // INSERT, UPDATE, or DELETE
+	SQL       string        // Original CREATE TRIGGER SQL for persistence
+}
+
 // Catalog holds all schema definitions
 type Catalog struct {
 	mu         sync.RWMutex
 	tables     map[string]*TableDef
 	indexes    map[string]*IndexDef
 	views      map[string]*ViewDef
+	triggers   map[string]*TriggerDef
 	statistics map[string]*TableStatistics
 }
 
@@ -269,6 +298,7 @@ func NewCatalog() *Catalog {
 		tables:     make(map[string]*TableDef),
 		indexes:    make(map[string]*IndexDef),
 		views:      make(map[string]*ViewDef),
+		triggers:   make(map[string]*TriggerDef),
 		statistics: make(map[string]*TableStatistics),
 	}
 }
@@ -648,4 +678,79 @@ func (c *Catalog) GetForeignKeyReferences(tableName, columnName string) []Foreig
 	}
 
 	return refs
+}
+
+// CreateTrigger adds a trigger to the catalog
+func (c *Catalog) CreateTrigger(trigger *TriggerDef) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if _, exists := c.triggers[trigger.Name]; exists {
+		return ErrTriggerExists
+	}
+
+	c.triggers[trigger.Name] = trigger
+	return nil
+}
+
+// DropTrigger removes a trigger from the catalog
+func (c *Catalog) DropTrigger(name string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if _, exists := c.triggers[name]; !exists {
+		return ErrTriggerNotFound
+	}
+
+	delete(c.triggers, name)
+	return nil
+}
+
+// GetTrigger returns a trigger definition by name
+func (c *Catalog) GetTrigger(name string) *TriggerDef {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.triggers[name]
+}
+
+// GetTriggersForTable returns all triggers for a specific table, timing, and event
+func (c *Catalog) GetTriggersForTable(tableName string, timing TriggerTiming, event TriggerEvent) []*TriggerDef {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var triggers []*TriggerDef
+	for _, trigger := range c.triggers {
+		if trigger.TableName == tableName && trigger.Timing == timing && trigger.Event == event {
+			triggers = append(triggers, trigger)
+		}
+	}
+
+	// Sort by name for consistent ordering
+	sort.Slice(triggers, func(i, j int) bool {
+		return triggers[i].Name < triggers[j].Name
+	})
+
+	return triggers
+}
+
+// ListTriggers returns all trigger names in sorted order
+func (c *Catalog) ListTriggers() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	names := make([]string, 0, len(c.triggers))
+	for name := range c.triggers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// TriggerCount returns the number of triggers
+func (c *Catalog) TriggerCount() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return len(c.triggers)
 }

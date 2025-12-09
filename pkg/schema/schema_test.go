@@ -1249,3 +1249,166 @@ func TestCatalog_CreatePartialIndex(t *testing.T) {
 		t.Error("IsPartial(): expected true")
 	}
 }
+
+// =============================================================================
+// TRIGGER TESTS
+// =============================================================================
+
+func TestTriggerDef_Basic(t *testing.T) {
+	trigger := TriggerDef{
+		Name:      "audit_insert",
+		TableName: "users",
+		Timing:    TriggerBefore,
+		Event:     TriggerInsert,
+		SQL:       "CREATE TRIGGER audit_insert BEFORE INSERT ON users BEGIN INSERT INTO log VALUES (1); END",
+	}
+
+	if trigger.Name != "audit_insert" {
+		t.Errorf("Name: got %q, want 'audit_insert'", trigger.Name)
+	}
+	if trigger.TableName != "users" {
+		t.Errorf("TableName: got %q, want 'users'", trigger.TableName)
+	}
+	if trigger.Timing != TriggerBefore {
+		t.Errorf("Timing: got %v, want TriggerBefore", trigger.Timing)
+	}
+	if trigger.Event != TriggerInsert {
+		t.Errorf("Event: got %v, want TriggerInsert", trigger.Event)
+	}
+}
+
+func TestCatalog_CreateTrigger(t *testing.T) {
+	catalog := NewCatalog()
+
+	trigger := &TriggerDef{
+		Name:      "audit_insert",
+		TableName: "users",
+		Timing:    TriggerBefore,
+		Event:     TriggerInsert,
+		SQL:       "CREATE TRIGGER audit_insert BEFORE INSERT ON users BEGIN INSERT INTO log VALUES (1); END",
+	}
+
+	err := catalog.CreateTrigger(trigger)
+	if err != nil {
+		t.Fatalf("CreateTrigger error: %v", err)
+	}
+
+	// Duplicate should fail
+	err = catalog.CreateTrigger(trigger)
+	if err != ErrTriggerExists {
+		t.Errorf("CreateTrigger duplicate: got %v, want ErrTriggerExists", err)
+	}
+}
+
+func TestCatalog_GetTrigger(t *testing.T) {
+	catalog := NewCatalog()
+
+	trigger := &TriggerDef{
+		Name:      "audit_insert",
+		TableName: "users",
+		Timing:    TriggerBefore,
+		Event:     TriggerInsert,
+	}
+	_ = catalog.CreateTrigger(trigger)
+
+	retrieved := catalog.GetTrigger("audit_insert")
+	if retrieved == nil {
+		t.Fatal("GetTrigger returned nil")
+	}
+	if retrieved.Name != "audit_insert" {
+		t.Errorf("Name: got %q, want 'audit_insert'", retrieved.Name)
+	}
+
+	// Non-existent trigger
+	if catalog.GetTrigger("nonexistent") != nil {
+		t.Error("GetTrigger for nonexistent should return nil")
+	}
+}
+
+func TestCatalog_DropTrigger(t *testing.T) {
+	catalog := NewCatalog()
+
+	trigger := &TriggerDef{
+		Name:      "audit_insert",
+		TableName: "users",
+	}
+	_ = catalog.CreateTrigger(trigger)
+
+	err := catalog.DropTrigger("audit_insert")
+	if err != nil {
+		t.Fatalf("DropTrigger error: %v", err)
+	}
+
+	// Should be gone
+	if catalog.GetTrigger("audit_insert") != nil {
+		t.Error("Trigger should be deleted")
+	}
+
+	// Drop non-existent trigger
+	err = catalog.DropTrigger("nonexistent")
+	if err != ErrTriggerNotFound {
+		t.Errorf("DropTrigger nonexistent: got %v, want ErrTriggerNotFound", err)
+	}
+}
+
+func TestCatalog_GetTriggersForTable(t *testing.T) {
+	catalog := NewCatalog()
+
+	// Create multiple triggers for same table
+	_ = catalog.CreateTrigger(&TriggerDef{Name: "before_insert", TableName: "users", Timing: TriggerBefore, Event: TriggerInsert})
+	_ = catalog.CreateTrigger(&TriggerDef{Name: "after_insert", TableName: "users", Timing: TriggerAfter, Event: TriggerInsert})
+	_ = catalog.CreateTrigger(&TriggerDef{Name: "before_update", TableName: "users", Timing: TriggerBefore, Event: TriggerUpdate})
+	_ = catalog.CreateTrigger(&TriggerDef{Name: "other_trigger", TableName: "orders", Timing: TriggerAfter, Event: TriggerDelete})
+
+	// Get all triggers for users table, BEFORE INSERT
+	triggers := catalog.GetTriggersForTable("users", TriggerBefore, TriggerInsert)
+	if len(triggers) != 1 {
+		t.Fatalf("GetTriggersForTable BEFORE INSERT: got %d, want 1", len(triggers))
+	}
+	if triggers[0].Name != "before_insert" {
+		t.Errorf("Trigger name: got %q, want 'before_insert'", triggers[0].Name)
+	}
+
+	// Get AFTER INSERT triggers
+	triggers = catalog.GetTriggersForTable("users", TriggerAfter, TriggerInsert)
+	if len(triggers) != 1 {
+		t.Fatalf("GetTriggersForTable AFTER INSERT: got %d, want 1", len(triggers))
+	}
+
+	// No matching triggers
+	triggers = catalog.GetTriggersForTable("users", TriggerAfter, TriggerDelete)
+	if len(triggers) != 0 {
+		t.Errorf("GetTriggersForTable AFTER DELETE: got %d, want 0", len(triggers))
+	}
+}
+
+func TestCatalog_ListTriggers(t *testing.T) {
+	catalog := NewCatalog()
+
+	_ = catalog.CreateTrigger(&TriggerDef{Name: "zebra_trigger", TableName: "t1"})
+	_ = catalog.CreateTrigger(&TriggerDef{Name: "alpha_trigger", TableName: "t2"})
+
+	names := catalog.ListTriggers()
+	if len(names) != 2 {
+		t.Fatalf("ListTriggers: got %d, want 2", len(names))
+	}
+	// Should be sorted
+	if names[0] != "alpha_trigger" || names[1] != "zebra_trigger" {
+		t.Errorf("ListTriggers: got %v, want [alpha_trigger, zebra_trigger]", names)
+	}
+}
+
+func TestCatalog_TriggerCount(t *testing.T) {
+	catalog := NewCatalog()
+
+	if catalog.TriggerCount() != 0 {
+		t.Errorf("TriggerCount empty: got %d, want 0", catalog.TriggerCount())
+	}
+
+	_ = catalog.CreateTrigger(&TriggerDef{Name: "trigger1", TableName: "t1"})
+	_ = catalog.CreateTrigger(&TriggerDef{Name: "trigger2", TableName: "t2"})
+
+	if catalog.TriggerCount() != 2 {
+		t.Errorf("TriggerCount: got %d, want 2", catalog.TriggerCount())
+	}
+}
