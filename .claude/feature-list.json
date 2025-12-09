@@ -1594,11 +1594,11 @@
         },
         {
           "task": "Evaluate predicate on row insert/update",
-          "done": false
+          "done": true
         },
         {
           "task": "Only add to index if predicate is true",
-          "done": false
+          "done": true
         },
         {
           "task": "Consider partial index in query optimization",

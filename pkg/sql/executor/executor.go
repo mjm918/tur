@@ -529,6 +529,18 @@ func (e *Executor) executeCreateIndex(stmt *parser.CreateIndexStmt) (*Result, er
 		e.trees[stmt.TableName] = tableTree
 	}
 
+	// Prepare predicate evaluation for partial indexes
+	var whereExpr parser.Expression
+	if stmt.Where != nil {
+		whereExpr = stmt.Where
+	}
+
+	// Build column index map for predicate evaluation
+	colMap := make(map[string]int)
+	for i, col := range table.Columns {
+		colMap[col.Name] = i
+	}
+
 	// Populate index from existing table data
 	if tableTree != nil {
 		cursor := tableTree.Cursor()
@@ -546,6 +558,17 @@ func (e *Executor) executeCreateIndex(stmt *parser.CreateIndexStmt) (*Result, er
 
 			// Decode row values
 			values := record.Decode(value)
+
+			// For partial indexes, check if row matches predicate
+			if whereExpr != nil {
+				matches, err := e.evaluateCondition(whereExpr, values, colMap)
+				if err != nil {
+					return nil, fmt.Errorf("failed to evaluate partial index predicate: %w", err)
+				}
+				if !matches {
+					continue // Skip rows that don't match the predicate
+				}
+			}
 
 			// Build index key from the indexed column values
 			var keyValues []types.Value

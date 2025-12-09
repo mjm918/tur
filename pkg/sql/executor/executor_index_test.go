@@ -427,3 +427,137 @@ func TestCreateUniquePartialIndex(t *testing.T) {
 		t.Errorf("WhereClause = %q, want 'deleted = 0'", idx.WhereClause)
 	}
 }
+
+// TestPartialIndex_InsertMatchingRows tests that rows matching the predicate are indexed
+func TestPartialIndex_InsertMatchingRows(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create table
+	_, err := exec.Execute("CREATE TABLE users (id INT, email TEXT, active INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Create partial index for active users only
+	_, err = exec.Execute("CREATE INDEX idx_active ON users (email) WHERE active = 1")
+	if err != nil {
+		t.Fatalf("CREATE INDEX: %v", err)
+	}
+
+	// Insert row that matches predicate (active = 1)
+	_, err = exec.Execute("INSERT INTO users VALUES (1, 'alice@test.com', 1)")
+	if err != nil {
+		t.Fatalf("INSERT: %v", err)
+	}
+
+	// Insert row that does NOT match predicate (active = 0)
+	_, err = exec.Execute("INSERT INTO users VALUES (2, 'bob@test.com', 0)")
+	if err != nil {
+		t.Fatalf("INSERT: %v", err)
+	}
+
+	// Check the index tree - should only have 1 entry (Alice)
+	tree := exec.trees["index:idx_active"]
+	if tree == nil {
+		t.Fatal("Index tree not found")
+	}
+
+	// Count entries in the index
+	count := 0
+	cursor := tree.Cursor()
+	defer cursor.Close()
+	for cursor.First(); cursor.Valid(); cursor.Next() {
+		count++
+	}
+
+	if count != 1 {
+		t.Errorf("Index entries = %d, want 1 (only matching row)", count)
+	}
+}
+
+// TestPartialIndex_InsertNonMatchingRows tests that non-matching rows are not indexed
+func TestPartialIndex_InsertNonMatchingRows(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE products (id INT, name TEXT, price INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Create partial index for products with price > 100
+	_, err = exec.Execute("CREATE INDEX idx_expensive ON products (name) WHERE price > 100")
+	if err != nil {
+		t.Fatalf("CREATE INDEX: %v", err)
+	}
+
+	// Insert cheap products (price <= 100) - should NOT be indexed
+	_, err = exec.Execute("INSERT INTO products VALUES (1, 'Widget', 50)")
+	if err != nil {
+		t.Fatalf("INSERT 1: %v", err)
+	}
+	_, err = exec.Execute("INSERT INTO products VALUES (2, 'Gadget', 100)")
+	if err != nil {
+		t.Fatalf("INSERT 2: %v", err)
+	}
+
+	// Insert expensive product (price > 100) - should be indexed
+	_, err = exec.Execute("INSERT INTO products VALUES (3, 'Luxury', 200)")
+	if err != nil {
+		t.Fatalf("INSERT 3: %v", err)
+	}
+
+	// Check index - should have only 1 entry
+	tree := exec.trees["index:idx_expensive"]
+	if tree == nil {
+		t.Fatal("Index tree not found")
+	}
+
+	count := 0
+	cursor := tree.Cursor()
+	defer cursor.Close()
+	for cursor.First(); cursor.Valid(); cursor.Next() {
+		count++
+	}
+
+	if count != 1 {
+		t.Errorf("Index entries = %d, want 1 (only expensive product)", count)
+	}
+}
+
+// TestPartialIndex_UniqueEnforcementOnlyForMatching tests unique constraint
+// is only enforced for rows matching the partial index predicate
+func TestPartialIndex_UniqueEnforcementOnlyForMatching(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE accounts (id INT, email TEXT, deleted INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Create unique partial index - unique only for non-deleted accounts
+	_, err = exec.Execute("CREATE UNIQUE INDEX idx_email ON accounts (email) WHERE deleted = 0")
+	if err != nil {
+		t.Fatalf("CREATE INDEX: %v", err)
+	}
+
+	// Insert first active account
+	_, err = exec.Execute("INSERT INTO accounts VALUES (1, 'test@test.com', 0)")
+	if err != nil {
+		t.Fatalf("INSERT 1: %v", err)
+	}
+
+	// Insert deleted account with same email - should succeed (not in index)
+	_, err = exec.Execute("INSERT INTO accounts VALUES (2, 'test@test.com', 1)")
+	if err != nil {
+		t.Errorf("INSERT duplicate email for deleted account should succeed, got: %v", err)
+	}
+
+	// Insert another active account with same email - should fail (unique violation)
+	_, err = exec.Execute("INSERT INTO accounts VALUES (3, 'test@test.com', 0)")
+	if err == nil {
+		t.Error("INSERT duplicate email for active account should fail")
+	}
+}
