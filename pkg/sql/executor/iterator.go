@@ -970,3 +970,25 @@ func (it *HashGroupByIterator) Value() []types.Value {
 func (it *HashGroupByIterator) Close() {
 	// Child already closed during prepare
 }
+
+// CTEScanIterator iterates over materialized CTE results
+type CTEScanIterator struct {
+	rows  [][]types.Value
+	index int
+}
+
+func (it *CTEScanIterator) Next() bool {
+	it.index++
+	return it.index < len(it.rows)
+}
+
+func (it *CTEScanIterator) Value() []types.Value {
+	if it.index >= 0 && it.index < len(it.rows) {
+		return it.rows[it.index]
+	}
+	return nil
+}
+
+func (it *CTEScanIterator) Close() {
+	// Nothing to clean up - rows are just references to in-memory data
+}

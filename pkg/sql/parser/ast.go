@@ -124,6 +124,7 @@ func (j *Join) tableRefNode() {}
 
 // SelectStmt represents a SELECT statement
 type SelectStmt struct {
+	With    *WithClause    // optional WITH clause for CTEs
 	Columns []SelectColumn // * or column list
 	From    TableReference
 	Where   Expression    // optional WHERE clause (nil if none)

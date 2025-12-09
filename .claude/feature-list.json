@@ -1135,23 +1135,24 @@
       "tasks": [
         {
           "task": "Parse WITH cte_name AS (SELECT ...) syntax",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse RECURSIVE keyword for recursive CTEs",
-          "done": false
+          "done": true
         },
         {
           "task": "Materialize non-recursive CTE results",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement fixpoint iteration for recursive CTEs",
-          "done": false
+          "done": false,
+          "note": "Recursive CTEs require UNION ALL parsing inside CTE and fixpoint iteration which is a complex feature"
         },
         {
           "task": "Handle multiple CTEs in single query",
-          "done": false
+          "done": true
         }
       ]
     },

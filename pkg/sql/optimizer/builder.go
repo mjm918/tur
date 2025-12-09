@@ -6,11 +6,23 @@ import (
 	"tur/pkg/sql/parser"
 )
 
+// CTEInfo holds information about a materialized CTE
+type CTEInfo struct {
+	Name    string   // CTE name
+	Columns []string // Column names
+	Rows    int64    // Number of rows (set after materialization)
+}
+
 // BuildPlan converts AST to a PlanNode tree
 func BuildPlan(stmt *parser.SelectStmt, catalog *schema.Catalog) (PlanNode, error) {
+	return BuildPlanWithCTEs(stmt, catalog, nil)
+}
+
+// BuildPlanWithCTEs converts AST to a PlanNode tree, with CTE support
+func BuildPlanWithCTEs(stmt *parser.SelectStmt, catalog *schema.Catalog, ctes map[string]*CTEInfo) (PlanNode, error) {
 	// 1. Build FROM clause (TableScan or Join)
 	// stmt.From is a TableReference interface
-	node, err := buildTableReference(stmt.From, catalog)
+	node, err := buildTableReferenceWithCTEs(stmt.From, catalog, ctes)
 	if err != nil {
 		return nil, err
 	}
@@ -109,8 +121,25 @@ func extractAggregates(columns []parser.SelectColumn) []AggregateExpr {
 }
 
 func buildTableReference(ref parser.TableReference, catalog *schema.Catalog) (PlanNode, error) {
+	return buildTableReferenceWithCTEs(ref, catalog, nil)
+}
+
+func buildTableReferenceWithCTEs(ref parser.TableReference, catalog *schema.Catalog, ctes map[string]*CTEInfo) (PlanNode, error) {
 	switch t := ref.(type) {
 	case *parser.Table:
+		// First check if this is a CTE reference
+		if ctes != nil {
+			if cteInfo, ok := ctes[t.Name]; ok {
+				return &CTEScanNode{
+					CTEName: cteInfo.Name,
+					Alias:   t.Alias,
+					Columns: cteInfo.Columns,
+					Rows:    cteInfo.Rows,
+				}, nil
+			}
+		}
+
+		// Otherwise look up in catalog
 		tableDef := catalog.GetTable(t.Name)
 		if tableDef == nil {
 			return nil, fmt.Errorf("table %s not found", t.Name)
@@ -127,7 +156,7 @@ func buildTableReference(ref parser.TableReference, catalog *schema.Catalog) (Pl
 		}, nil
 
 	case *parser.DerivedTable:
-		subPlan, err := BuildPlan(t.Subquery, catalog)
+		subPlan, err := BuildPlanWithCTEs(t.Subquery, catalog, ctes)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build plan for derived table: %w", err)
 		}
@@ -138,11 +167,11 @@ func buildTableReference(ref parser.TableReference, catalog *schema.Catalog) (Pl
 		}, nil
 
 	case *parser.Join:
-		left, err := buildTableReference(t.Left, catalog)
+		left, err := buildTableReferenceWithCTEs(t.Left, catalog, ctes)
 		if err != nil {
 			return nil, err
 		}
-		right, err := buildTableReference(t.Right, catalog)
+		right, err := buildTableReferenceWithCTEs(t.Right, catalog, ctes)
 		if err != nil {
 			return nil, err
 		}

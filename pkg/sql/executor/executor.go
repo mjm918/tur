@@ -1041,8 +1041,45 @@ func (e *Executor) validateCheckConstraint(checkExpr string, values []types.Valu
 
 // executeSelect handles SELECT using the new optimizer and plan-based execution
 func (e *Executor) executeSelect(stmt *parser.SelectStmt) (*Result, error) {
+	return e.executeSelectWithCTEs(stmt, nil)
+}
+
+// executeSelectWithCTEs handles SELECT with optional CTE context
+func (e *Executor) executeSelectWithCTEs(stmt *parser.SelectStmt, cteData map[string]*cteResult) (*Result, error) {
+	// Handle WITH clause (CTEs)
+	if stmt.With != nil {
+		// Materialize each CTE
+		cteData = make(map[string]*cteResult)
+		for _, cte := range stmt.With.CTEs {
+			// Execute the CTE query
+			result, err := e.executeSelectWithCTEs(cte.Query, cteData)
+			if err != nil {
+				return nil, fmt.Errorf("error executing CTE %s: %w", cte.Name, err)
+			}
+
+			// Store materialized results
+			cteData[cte.Name] = &cteResult{
+				columns: result.Columns,
+				rows:    result.Rows,
+			}
+		}
+	}
+
+	// Build CTE info for the optimizer
+	var cteInfo map[string]*optimizer.CTEInfo
+	if cteData != nil {
+		cteInfo = make(map[string]*optimizer.CTEInfo)
+		for name, data := range cteData {
+			cteInfo[name] = &optimizer.CTEInfo{
+				Name:    name,
+				Columns: data.columns,
+				Rows:    int64(len(data.rows)),
+			}
+		}
+	}
+
 	// 1. Build Logical Plan
-	plan, err := optimizer.BuildPlan(stmt, e.catalog)
+	plan, err := optimizer.BuildPlanWithCTEs(stmt, e.catalog, cteInfo)
 	if err != nil {
 		return nil, fmt.Errorf("build plan error: %w", err)
 	}
@@ -1051,8 +1088,8 @@ func (e *Executor) executeSelect(stmt *parser.SelectStmt) (*Result, error) {
 	opt := optimizer.NewOptimizer()
 	plan = opt.Optimize(plan)
 
-	// 3. Execute Plan
-	iterator, columns, err := e.executePlan(plan)
+	// 3. Execute Plan (with CTE data context)
+	iterator, columns, err := e.executePlanWithCTEs(plan, cteData)
 	if err != nil {
 		return nil, fmt.Errorf("execution error: %w", err)
 	}
@@ -1074,9 +1111,42 @@ func (e *Executor) executeSelect(stmt *parser.SelectStmt) (*Result, error) {
 	}, nil
 }
 
+// cteResult holds materialized CTE results
+type cteResult struct {
+	columns []string
+	rows    [][]types.Value
+}
+
 // executePlan executes a plan node and returns an iterator and column names
 func (e *Executor) executePlan(plan optimizer.PlanNode) (RowIterator, []string, error) {
+	return e.executePlanWithCTEs(plan, nil)
+}
+
+// executePlanWithCTEs executes a plan node with CTE context
+func (e *Executor) executePlanWithCTEs(plan optimizer.PlanNode, cteData map[string]*cteResult) (RowIterator, []string, error) {
 	switch node := plan.(type) {
+	case *optimizer.CTEScanNode:
+		// Return an iterator over materialized CTE data
+		cte, ok := cteData[node.CTEName]
+		if !ok {
+			return nil, nil, fmt.Errorf("CTE %s not found", node.CTEName)
+		}
+
+		// Build column names with alias prefix
+		var cols []string
+		prefix := node.CTEName
+		if node.Alias != "" {
+			prefix = node.Alias
+		}
+		for _, col := range cte.columns {
+			cols = append(cols, prefix+"."+col)
+		}
+
+		return &CTEScanIterator{
+			rows:  cte.rows,
+			index: -1,
+		}, cols, nil
+
 	case *optimizer.TableScanNode:
 		// Get B-tree
 		tree := e.trees[node.Table.Name]
@@ -1109,29 +1179,12 @@ func (e *Executor) executePlan(plan optimizer.PlanNode) (RowIterator, []string, 
 		return iterator, cols, nil
 
 	case *optimizer.FilterNode:
-		inputIter, inputCols, err := e.executePlan(node.Input)
+		inputIter, inputCols, err := e.executePlanWithCTEs(node.Input, cteData)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		colMap := make(map[string]int)
-		for i, name := range inputCols {
-			colMap[name] = i
-			// Also map short names if unique?
-			// Simple heuristic: if name has dot, add suffix too
-			// parser.ColumnRef usually is simple "name" unless "table.name".
-			// But my parser modification merged them.
-			// So "users.id" is exact match.
-			// But "id" should also work.
-			// Split by dot?
-			// For now, strict mapping to inputCols (which are "table.col").
-			// But queries like "SELECT * FROM users WHERE id=1" use "id".
-			// So "id" must be in map.
-			// Let's add suffix logic here.
-			// (See below helper buildColMap)
-		}
-		// Refine colMap construction logic reuse
-		colMap = e.buildColMap(inputCols)
+		colMap := e.buildColMap(inputCols)
 
 		return &FilterIterator{
 			child:     inputIter,
@@ -1141,7 +1194,7 @@ func (e *Executor) executePlan(plan optimizer.PlanNode) (RowIterator, []string, 
 		}, inputCols, nil
 
 	case *optimizer.ProjectionNode:
-		inputIter, inputCols, err := e.executePlan(node.Input)
+		inputIter, inputCols, err := e.executePlanWithCTEs(node.Input, cteData)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1169,7 +1222,7 @@ func (e *Executor) executePlan(plan optimizer.PlanNode) (RowIterator, []string, 
 		}, outputCols, nil
 
 	case *optimizer.NestedLoopJoinNode:
-		leftIter, leftCols, err := e.executePlan(node.Left)
+		leftIter, leftCols, err := e.executePlanWithCTEs(node.Left, cteData)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1177,7 +1230,7 @@ func (e *Executor) executePlan(plan optimizer.PlanNode) (RowIterator, []string, 
 		// Right side needs to be iterate-able repeatedly.
 		// My NestedLoopJoinIterator handles materialization of Right.
 		// So we just get the iterator once.
-		rightIter, rightCols, err := e.executePlan(node.Right)
+		rightIter, rightCols, err := e.executePlanWithCTEs(node.Right, cteData)
 		if err != nil {
 			leftIter.Close()
 			return nil, nil, err
@@ -1198,12 +1251,12 @@ func (e *Executor) executePlan(plan optimizer.PlanNode) (RowIterator, []string, 
 		}, combinedCols, nil
 
 	case *optimizer.HashJoinNode:
-		leftIter, leftCols, err := e.executePlan(node.Left)
+		leftIter, leftCols, err := e.executePlanWithCTEs(node.Left, cteData)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		rightIter, rightCols, err := e.executePlan(node.Right)
+		rightIter, rightCols, err := e.executePlanWithCTEs(node.Right, cteData)
 		if err != nil {
 			leftIter.Close()
 			return nil, nil, err
@@ -1249,7 +1302,7 @@ func (e *Executor) executePlan(plan optimizer.PlanNode) (RowIterator, []string, 
 		}, combinedCols, nil
 
 	case *optimizer.SortNode:
-		inputIter, inputCols, err := e.executePlan(node.Input)
+		inputIter, inputCols, err := e.executePlanWithCTEs(node.Input, cteData)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1264,7 +1317,7 @@ func (e *Executor) executePlan(plan optimizer.PlanNode) (RowIterator, []string, 
 		}, inputCols, nil
 
 	case *optimizer.LimitNode:
-		inputIter, inputCols, err := e.executePlan(node.Input)
+		inputIter, inputCols, err := e.executePlanWithCTEs(node.Input, cteData)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1298,7 +1351,7 @@ func (e *Executor) executePlan(plan optimizer.PlanNode) (RowIterator, []string, 
 		}, inputCols, nil
 
 	case *optimizer.AggregateNode:
-		inputIter, inputCols, err := e.executePlan(node.Input)
+		inputIter, inputCols, err := e.executePlanWithCTEs(node.Input, cteData)
 		if err != nil {
 			return nil, nil, err
 		}

@@ -2051,3 +2051,127 @@ func TestParser_ExceptAll(t *testing.T) {
 		t.Error("All = false, want true")
 	}
 }
+
+// ============================================================================
+// CTE (Common Table Expression) Tests
+// ============================================================================
+
+func TestParser_CTE_Simple(t *testing.T) {
+	// WITH temp AS (SELECT 1) SELECT * FROM temp
+	input := "WITH temp AS (SELECT 1 FROM dual) SELECT * FROM temp"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel, ok := stmt.(*SelectStmt)
+	if !ok {
+		t.Fatalf("Expected *SelectStmt, got %T", stmt)
+	}
+
+	if sel.With == nil {
+		t.Fatal("With = nil, want non-nil WithClause")
+	}
+
+	if sel.With.Recursive {
+		t.Error("With.Recursive = true, want false")
+	}
+
+	if len(sel.With.CTEs) != 1 {
+		t.Fatalf("CTEs count = %d, want 1", len(sel.With.CTEs))
+	}
+
+	cte := sel.With.CTEs[0]
+	if cte.Name != "temp" {
+		t.Errorf("CTE name = %q, want 'temp'", cte.Name)
+	}
+
+	if cte.Query == nil {
+		t.Fatal("CTE.Query = nil, want non-nil")
+	}
+
+	// Verify the main SELECT uses the CTE
+	fromTable, ok := sel.From.(*Table)
+	if !ok {
+		t.Fatalf("From type = %T, want *Table", sel.From)
+	}
+	if fromTable.Name != "temp" {
+		t.Errorf("From table = %q, want 'temp'", fromTable.Name)
+	}
+}
+
+func TestParser_CTE_Recursive(t *testing.T) {
+	// WITH RECURSIVE cnt(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM cnt WHERE x<10) SELECT x FROM cnt
+	input := "WITH RECURSIVE cnt(x) AS (SELECT 1 FROM dual) SELECT x FROM cnt"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel, ok := stmt.(*SelectStmt)
+	if !ok {
+		t.Fatalf("Expected *SelectStmt, got %T", stmt)
+	}
+
+	if sel.With == nil {
+		t.Fatal("With = nil, want non-nil WithClause")
+	}
+
+	if !sel.With.Recursive {
+		t.Error("With.Recursive = false, want true")
+	}
+
+	if len(sel.With.CTEs) != 1 {
+		t.Fatalf("CTEs count = %d, want 1", len(sel.With.CTEs))
+	}
+
+	cte := sel.With.CTEs[0]
+	if cte.Name != "cnt" {
+		t.Errorf("CTE name = %q, want 'cnt'", cte.Name)
+	}
+
+	// Check column list
+	if len(cte.Columns) != 1 {
+		t.Fatalf("CTE columns count = %d, want 1", len(cte.Columns))
+	}
+	if cte.Columns[0] != "x" {
+		t.Errorf("CTE column[0] = %q, want 'x'", cte.Columns[0])
+	}
+}
+
+func TestParser_CTE_MultipleCTEs(t *testing.T) {
+	// WITH cte1 AS (...), cte2 AS (...) SELECT ...
+	input := "WITH cte1 AS (SELECT 1 FROM t1), cte2 AS (SELECT 2 FROM t2) SELECT * FROM cte1, cte2"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel, ok := stmt.(*SelectStmt)
+	if !ok {
+		t.Fatalf("Expected *SelectStmt, got %T", stmt)
+	}
+
+	if sel.With == nil {
+		t.Fatal("With = nil, want non-nil WithClause")
+	}
+
+	if len(sel.With.CTEs) != 2 {
+		t.Fatalf("CTEs count = %d, want 2", len(sel.With.CTEs))
+	}
+
+	// Verify first CTE
+	cte1 := sel.With.CTEs[0]
+	if cte1.Name != "cte1" {
+		t.Errorf("CTE[0] name = %q, want 'cte1'", cte1.Name)
+	}
+
+	// Verify second CTE
+	cte2 := sel.With.CTEs[1]
+	if cte2.Name != "cte2" {
+		t.Errorf("CTE[1] name = %q, want 'cte2'", cte2.Name)
+	}
+}
