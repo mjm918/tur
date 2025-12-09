@@ -1636,27 +1636,27 @@
     {
       "title": "Constraints - PRIMARY KEY",
       "description": "Primary key constraint with auto-increment support",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse PRIMARY KEY in column definition",
-          "done": false
+          "done": true
         },
         {
           "task": "Create unique index on primary key column",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement AUTOINCREMENT for INTEGER PRIMARY KEY",
-          "done": false
+          "done": true
         },
         {
           "task": "Track max rowid in table metadata",
-          "done": false
+          "done": true
         },
         {
           "task": "Validate primary key uniqueness on insert",
-          "done": false
+          "done": true
         }
       ]
     },
