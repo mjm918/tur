@@ -690,12 +690,65 @@ func (p *Parser) parseDelete() (*DeleteStmt, error) {
 	return stmt, nil
 }
 
-// parseSelect parses: SELECT columns FROM table [WHERE expr]
-func (p *Parser) parseSelect() (*SelectStmt, error) {
+// parseSelect parses: SELECT columns FROM table [WHERE expr] [UNION|INTERSECT|EXCEPT ...]
+func (p *Parser) parseSelect() (Statement, error) {
 	// SELECT
 	p.nextToken()
 
-	return p.parseSelectBody()
+	left, err := p.parseSelectBody()
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for set operations (UNION, INTERSECT, EXCEPT)
+	return p.parseSetOperations(left)
+}
+
+// parseSetOperations checks for and parses set operations after a SELECT
+func (p *Parser) parseSetOperations(left *SelectStmt) (Statement, error) {
+	// Check for set operation keywords
+	if !p.peekIs(lexer.UNION) && !p.peekIs(lexer.INTERSECT) && !p.peekIs(lexer.EXCEPT) {
+		return left, nil
+	}
+
+	p.nextToken() // consume set operator
+
+	var op SetOperator
+	switch p.cur.Type {
+	case lexer.UNION:
+		op = SetOpUnion
+	case lexer.INTERSECT:
+		op = SetOpIntersect
+	case lexer.EXCEPT:
+		op = SetOpExcept
+	}
+
+	// Check for ALL modifier
+	all := false
+	if p.peekIs(lexer.ALL) {
+		p.nextToken() // consume ALL
+		all = true
+	}
+
+	// Parse the right SELECT statement
+	if !p.expectPeek(lexer.SELECT) {
+		return nil, fmt.Errorf("expected SELECT after %s, got %s", p.cur.Literal, p.peek.Literal)
+	}
+	p.nextToken() // consume SELECT, move to columns
+
+	right, err := p.parseSelectBody()
+	if err != nil {
+		return nil, err
+	}
+
+	setOp := &SetOperation{
+		Left:     left,
+		Operator: op,
+		All:      all,
+		Right:    right,
+	}
+
+	return setOp, nil
 }
 
 // parseSelectBody parses the body of a SELECT statement (after SELECT keyword)

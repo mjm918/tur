@@ -1834,3 +1834,194 @@ func TestParser_RollbackTransaction(t *testing.T) {
 		t.Fatalf("Expected *RollbackStmt, got %T", stmt)
 	}
 }
+
+// ========== UNION/INTERSECT/EXCEPT Tests ==========
+
+func TestParser_Union_Simple(t *testing.T) {
+	input := "SELECT id FROM users UNION SELECT id FROM admins"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	setOp, ok := stmt.(*SetOperation)
+	if !ok {
+		t.Fatalf("Expected *SetOperation, got %T", stmt)
+	}
+
+	if setOp.Operator != SetOpUnion {
+		t.Errorf("Operator = %v, want SetOpUnion", setOp.Operator)
+	}
+
+	if setOp.All {
+		t.Error("All = true, want false (UNION without ALL should deduplicate)")
+	}
+
+	// Check left SELECT
+	if setOp.Left == nil {
+		t.Fatal("Left = nil, want non-nil")
+	}
+	leftTable, ok := setOp.Left.From.(*Table)
+	if !ok {
+		t.Fatalf("Left.From type = %T, want *Table", setOp.Left.From)
+	}
+	if leftTable.Name != "users" {
+		t.Errorf("Left.From.Name = %q, want 'users'", leftTable.Name)
+	}
+
+	// Check right SELECT
+	if setOp.Right == nil {
+		t.Fatal("Right = nil, want non-nil")
+	}
+	rightTable, ok := setOp.Right.From.(*Table)
+	if !ok {
+		t.Fatalf("Right.From type = %T, want *Table", setOp.Right.From)
+	}
+	if rightTable.Name != "admins" {
+		t.Errorf("Right.From.Name = %q, want 'admins'", rightTable.Name)
+	}
+}
+
+func TestParser_UnionAll(t *testing.T) {
+	input := "SELECT id FROM users UNION ALL SELECT id FROM admins"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	setOp, ok := stmt.(*SetOperation)
+	if !ok {
+		t.Fatalf("Expected *SetOperation, got %T", stmt)
+	}
+
+	if setOp.Operator != SetOpUnion {
+		t.Errorf("Operator = %v, want SetOpUnion", setOp.Operator)
+	}
+
+	if !setOp.All {
+		t.Error("All = false, want true (UNION ALL should preserve duplicates)")
+	}
+}
+
+func TestParser_Intersect(t *testing.T) {
+	input := "SELECT id FROM users INTERSECT SELECT id FROM admins"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	setOp, ok := stmt.(*SetOperation)
+	if !ok {
+		t.Fatalf("Expected *SetOperation, got %T", stmt)
+	}
+
+	if setOp.Operator != SetOpIntersect {
+		t.Errorf("Operator = %v, want SetOpIntersect", setOp.Operator)
+	}
+
+	if setOp.All {
+		t.Error("All = true, want false")
+	}
+
+	// Check left SELECT
+	if setOp.Left == nil {
+		t.Fatal("Left = nil, want non-nil")
+	}
+	leftTable, ok := setOp.Left.From.(*Table)
+	if !ok {
+		t.Fatalf("Left.From type = %T, want *Table", setOp.Left.From)
+	}
+	if leftTable.Name != "users" {
+		t.Errorf("Left.From.Name = %q, want 'users'", leftTable.Name)
+	}
+
+	// Check right SELECT
+	if setOp.Right == nil {
+		t.Fatal("Right = nil, want non-nil")
+	}
+	rightTable, ok := setOp.Right.From.(*Table)
+	if !ok {
+		t.Fatalf("Right.From type = %T, want *Table", setOp.Right.From)
+	}
+	if rightTable.Name != "admins" {
+		t.Errorf("Right.From.Name = %q, want 'admins'", rightTable.Name)
+	}
+}
+
+func TestParser_IntersectAll(t *testing.T) {
+	input := "SELECT id FROM users INTERSECT ALL SELECT id FROM admins"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	setOp, ok := stmt.(*SetOperation)
+	if !ok {
+		t.Fatalf("Expected *SetOperation, got %T", stmt)
+	}
+
+	if setOp.Operator != SetOpIntersect {
+		t.Errorf("Operator = %v, want SetOpIntersect", setOp.Operator)
+	}
+
+	if !setOp.All {
+		t.Error("All = false, want true")
+	}
+}
+
+func TestParser_Except(t *testing.T) {
+	input := "SELECT id FROM users EXCEPT SELECT id FROM banned"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	setOp, ok := stmt.(*SetOperation)
+	if !ok {
+		t.Fatalf("Expected *SetOperation, got %T", stmt)
+	}
+
+	if setOp.Operator != SetOpExcept {
+		t.Errorf("Operator = %v, want SetOpExcept", setOp.Operator)
+	}
+
+	if setOp.All {
+		t.Error("All = true, want false")
+	}
+
+	// Check right SELECT
+	rightTable, ok := setOp.Right.From.(*Table)
+	if !ok {
+		t.Fatalf("Right.From type = %T, want *Table", setOp.Right.From)
+	}
+	if rightTable.Name != "banned" {
+		t.Errorf("Right.From.Name = %q, want 'banned'", rightTable.Name)
+	}
+}
+
+func TestParser_ExceptAll(t *testing.T) {
+	input := "SELECT id FROM users EXCEPT ALL SELECT id FROM banned"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	setOp, ok := stmt.(*SetOperation)
+	if !ok {
+		t.Fatalf("Expected *SetOperation, got %T", stmt)
+	}
+
+	if setOp.Operator != SetOpExcept {
+		t.Errorf("Operator = %v, want SetOpExcept", setOp.Operator)
+	}
+
+	if !setOp.All {
+		t.Error("All = false, want true")
+	}
+}

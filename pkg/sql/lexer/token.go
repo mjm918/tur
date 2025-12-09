@@ -121,6 +121,12 @@ const (
 	COMMIT
 	ROLLBACK
 	TRANSACTION
+
+	// Set operation keywords
+	UNION
+	INTERSECT
+	EXCEPT
+	ALL
 )
 
 // Token represents a lexical token
@@ -309,6 +315,14 @@ func (t TokenType) String() string {
 		return "ROLLBACK"
 	case TRANSACTION:
 		return "TRANSACTION"
+	case UNION:
+		return "UNION"
+	case INTERSECT:
+		return "INTERSECT"
+	case EXCEPT:
+		return "EXCEPT"
+	case ALL:
+		return "ALL"
 	default:
 		return "UNKNOWN"
 	}
@@ -316,65 +330,69 @@ func (t TokenType) String() string {
 
 // keywords maps SQL keywords to their token types
 var keywords = map[string]TokenType{
-	"SELECT":     SELECT,
-	"FROM":       FROM,
-	"WHERE":      WHERE,
-	"INSERT":     INSERT,
-	"INTO":       INTO,
-	"VALUES":     VALUES,
-	"CREATE":     CREATE,
-	"TABLE":      TABLE,
-	"DROP":       DROP,
-	"DELETE":     DELETE,
-	"UPDATE":     UPDATE,
-	"SET":        SET,
-	"INT":        INT_TYPE,
-	"INTEGER":    INTEGER,
-	"TEXT":       TEXT_TYPE,
-	"FLOAT":      FLOAT_TYPE,
-	"REAL":       REAL,
-	"BLOB":       BLOB_TYPE,
-	"VECTOR":     VECTOR,
-	"PRIMARY":    PRIMARY,
-	"KEY":        KEY,
-	"NOT":        NOT,
-	"NULL":       NULL_KW,
-	"AND":        AND,
-	"OR":         OR,
-	"TRUE":       TRUE_KW,
-	"FALSE":      FALSE_KW,
-	"ASC":        ASC,
-	"DESC":       DESC,
-	"ORDER":      ORDER,
-	"BY":         BY,
-	"LIMIT":      LIMIT,
-	"OFFSET":     OFFSET,
-	"UNIQUE":     UNIQUE,
-	"CHECK":      CHECK,
-	"DEFAULT":    DEFAULT,
-	"FOREIGN":    FOREIGN,
-	"REFERENCES": REFERENCES,
-	"ON":         ON,
-	"CASCADE":    CASCADE,
-	"RESTRICT":   RESTRICT,
-	"ACTION":     ACTION,
-	"CONSTRAINT": CONSTRAINT,
-	"INDEX":      INDEX,
-	"IF":         IF,
-	"EXISTS":     EXISTS,
-	"JOIN":       JOIN,
-	"INNER":      INNER,
-	"LEFT":       LEFT,
-	"RIGHT":      RIGHT,
-	"FULL":       FULL,
-	"OUTER":      OUTER,
-	"ANALYZE":    ANALYZE,
-	"ALTER":      ALTER,
-	"ADD":        ADD,
-	"COLUMN":     COLUMN,
-	"RENAME":     RENAME,
-	"TO":         TO,
-	"GROUP":      GROUP,
+	"SELECT":      SELECT,
+	"FROM":        FROM,
+	"WHERE":       WHERE,
+	"INSERT":      INSERT,
+	"INTO":        INTO,
+	"VALUES":      VALUES,
+	"CREATE":      CREATE,
+	"TABLE":       TABLE,
+	"DROP":        DROP,
+	"DELETE":      DELETE,
+	"UPDATE":      UPDATE,
+	"SET":         SET,
+	"INT":         INT_TYPE,
+	"INTEGER":     INTEGER,
+	"TEXT":        TEXT_TYPE,
+	"FLOAT":       FLOAT_TYPE,
+	"REAL":        REAL,
+	"BLOB":        BLOB_TYPE,
+	"VECTOR":      VECTOR,
+	"PRIMARY":     PRIMARY,
+	"KEY":         KEY,
+	"NOT":         NOT,
+	"NULL":        NULL_KW,
+	"AND":         AND,
+	"OR":          OR,
+	"TRUE":        TRUE_KW,
+	"FALSE":       FALSE_KW,
+	"ASC":         ASC,
+	"DESC":        DESC,
+	"ORDER":       ORDER,
+	"BY":          BY,
+	"LIMIT":       LIMIT,
+	"OFFSET":      OFFSET,
+	"UNIQUE":      UNIQUE,
+	"CHECK":       CHECK,
+	"DEFAULT":     DEFAULT,
+	"FOREIGN":     FOREIGN,
+	"REFERENCES":  REFERENCES,
+	"ON":          ON,
+	"CASCADE":     CASCADE,
+	"RESTRICT":    RESTRICT,
+	"ACTION":      ACTION,
+	"CONSTRAINT":  CONSTRAINT,
+	"INDEX":       INDEX,
+	"IF":          IF,
+	"EXISTS":      EXISTS,
+	"JOIN":        JOIN,
+	"INNER":       INNER,
+	"LEFT":        LEFT,
+	"RIGHT":       RIGHT,
+	"FULL":        FULL,
+	"OUTER":       OUTER,
+	"ANALYZE":     ANALYZE,
+	"ALTER":       ALTER,
+	"ADD":         ADD,
+	"COLUMN":      COLUMN,
+	"RENAME":      RENAME,
+	"TO":          TO,
+	"GROUP":       GROUP,
+	"UNION":       UNION,
+	"INTERSECT":   INTERSECT,
+	"EXCEPT":      EXCEPT,
+	"ALL":         ALL,
 	"HAVING":      HAVING,
 	"IN":          IN_KW,
 	"AS":          AS_KW,
