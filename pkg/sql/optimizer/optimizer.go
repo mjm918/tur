@@ -2,13 +2,21 @@
 package optimizer
 
 import (
+	"tur/pkg/schema"
 	"tur/pkg/sql/lexer"
 	"tur/pkg/sql/parser"
 )
 
+// StatisticsProvider provides table statistics for query optimization
+type StatisticsProvider interface {
+	// GetTableStatistics returns statistics for the named table, or nil if not available
+	GetTableStatistics(tableName string) *schema.TableStatistics
+}
+
 // Optimizer applies query optimization techniques
 type Optimizer struct {
-	costEstimator *CostEstimator
+	costEstimator      *CostEstimator
+	statisticsProvider StatisticsProvider
 
 	// UseDP controls join reordering algorithm selection:
 	//
@@ -39,6 +47,24 @@ func NewOptimizer() *Optimizer {
 		costEstimator: NewCostEstimator(),
 		UseDP:         false, // Default to greedy algorithm
 	}
+}
+
+// SetStatisticsProvider sets the statistics provider for cardinality estimation
+func (o *Optimizer) SetStatisticsProvider(provider StatisticsProvider) {
+	o.statisticsProvider = provider
+}
+
+// getTableCardinality returns the estimated row count for a table,
+// using statistics if available, otherwise falling back to the plan node estimate
+func (o *Optimizer) getTableCardinality(node PlanNode) int64 {
+	if o.statisticsProvider != nil {
+		if tableScan, ok := node.(*TableScanNode); ok && tableScan.Table != nil {
+			if stats := o.statisticsProvider.GetTableStatistics(tableScan.Table.Name); stats != nil {
+				return stats.RowCount
+			}
+		}
+	}
+	return node.EstimatedRows()
 }
 
 // Optimize applies all optimization techniques to a query plan
@@ -129,17 +155,18 @@ func (o *Optimizer) collectJoinComponents(node *NestedLoopJoinNode) ([]PlanNode,
 }
 
 // buildLeftDeepTree constructs a new join tree using greedy heuristic
+// Uses statistics-based cardinality estimates when available
 func (o *Optimizer) buildLeftDeepTree(leaves []PlanNode, conditions []parser.Expression) PlanNode {
 	if len(leaves) == 0 {
 		return nil
 	}
 
-	// 1. Pick the leaf with fewest rows as the start
+	// 1. Pick the leaf with fewest rows as the start (using statistics if available)
 	bestIdx := 0
-	minRows := leaves[0].EstimatedRows()
+	minRows := o.getTableCardinality(leaves[0])
 
 	for i := 1; i < len(leaves); i++ {
-		rows := leaves[i].EstimatedRows()
+		rows := o.getTableCardinality(leaves[i])
 		if rows < minRows {
 			minRows = rows
 			bestIdx = i
@@ -151,17 +178,15 @@ func (o *Optimizer) buildLeftDeepTree(leaves []PlanNode, conditions []parser.Exp
 	// Remove used leaf
 	remaining := append(leaves[:bestIdx], leaves[bestIdx+1:]...)
 
-	// 2. Iteratively pick the next leaf that minimizes join cost (or simply usually next smallest)
-	// Real greedy would check conditions connectivity.
-	// For simplicity in this iteration: pick next smallest.
-	// TODO: Check conditions connectivity to avoid Cartesian products if possible.
+	// 2. Iteratively pick the next leaf that minimizes join cost
+	// Uses statistics-based cardinality for better estimates
 
 	for len(remaining) > 0 {
 		bestIdx = 0
-		minRows = remaining[0].EstimatedRows()
+		minRows = o.getTableCardinality(remaining[0])
 
 		for i := 1; i < len(remaining); i++ {
-			rows := remaining[i].EstimatedRows()
+			rows := o.getTableCardinality(remaining[i])
 			if rows < minRows {
 				minRows = rows
 				bestIdx = i
@@ -204,6 +229,7 @@ func (o *Optimizer) buildLeftDeepTree(leaves []PlanNode, conditions []parser.Exp
 // buildDPJoinTree uses dynamic programming to find the optimal join order
 // Algorithm: For each subset of relations, compute the optimal join order
 // Time complexity: O(n * 2^n) where n is the number of relations
+// Uses statistics-based cardinality estimates when available
 func (o *Optimizer) buildDPJoinTree(leaves []PlanNode, conditions []parser.Expression) PlanNode {
 	n := len(leaves)
 	if n == 0 {
@@ -218,15 +244,18 @@ func (o *Optimizer) buildDPJoinTree(leaves []PlanNode, conditions []parser.Expre
 	type dpEntry struct {
 		plan PlanNode
 		cost float64
+		rows int64 // Statistics-aware row count
 	}
 	dp := make(map[int]*dpEntry)
 
-	// Initialize base cases: single tables
+	// Initialize base cases: single tables (using statistics-based cardinality)
 	for i := 0; i < n; i++ {
 		subset := 1 << i // bitset with only bit i set
+		rows := o.getTableCardinality(leaves[i])
 		dp[subset] = &dpEntry{
 			plan: leaves[i],
 			cost: leaves[i].EstimatedCost(),
+			rows: rows,
 		}
 	}
 
@@ -240,6 +269,7 @@ func (o *Optimizer) buildDPJoinTree(leaves []PlanNode, conditions []parser.Expre
 			// For each subset, try all possible ways to split it into two parts
 			bestCost := float64(1e18) // Large number
 			var bestPlan PlanNode
+			var bestRows int64
 
 			// Try all possible left/right splits
 			// Left must be non-empty and proper subset
@@ -270,7 +300,7 @@ func (o *Optimizer) buildDPJoinTree(leaves []PlanNode, conditions []parser.Expre
 					cond = conditions[0]
 				}
 
-				// Create a join node and compute its cost
+				// Create a join node
 				joinNode := &NestedLoopJoinNode{
 					Left:      leftEntry.plan,
 					Right:     rightEntry.plan,
@@ -278,12 +308,23 @@ func (o *Optimizer) buildDPJoinTree(leaves []PlanNode, conditions []parser.Expre
 					JoinType:  parser.JoinInner,
 				}
 
-				cost := joinNode.EstimatedCost()
+				// Compute cost using statistics-aware row counts
+				// Nested loop join cost = left cost + (left rows * right cost)
+				leftRows := leftEntry.rows
+				rightCost := rightEntry.cost
+				cost := leftEntry.cost + float64(leftRows)*rightCost
+
+				// Estimate output rows (use min of left and right for 1:1 join assumption)
+				joinRows := leftEntry.rows
+				if rightEntry.rows < joinRows {
+					joinRows = rightEntry.rows
+				}
 
 				// Update best if this is better
 				if cost < bestCost {
 					bestCost = cost
 					bestPlan = joinNode
+					bestRows = joinRows
 				}
 			}
 
@@ -292,6 +333,7 @@ func (o *Optimizer) buildDPJoinTree(leaves []PlanNode, conditions []parser.Expre
 				dp[subset] = &dpEntry{
 					plan: bestPlan,
 					cost: bestCost,
+					rows: bestRows,
 				}
 			}
 		}

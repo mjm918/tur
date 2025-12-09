@@ -1034,7 +1034,7 @@
     {
       "title": "SQL Statements - JOIN",
       "description": "INNER, LEFT, RIGHT, FULL OUTER JOIN support",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse JOIN syntax with ON clause",
@@ -1063,8 +1063,8 @@
         },
         {
           "task": "Optimize join order based on cardinality estimates",
-          "done": false,
-          "note": "Basic support exists, needs further refinement"
+          "done": true,
+          "note": "Implemented: StatisticsProvider interface, greedy and DP algorithms use statistics-based cardinality for join reordering"
         }
       ]
     },

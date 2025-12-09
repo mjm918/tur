@@ -396,3 +396,118 @@ func TestOptimization_AutomaticDPSelection(t *testing.T) {
 		}
 	})
 }
+
+// TestOptimization_StatisticsBasedJoinReordering tests that the optimizer uses
+// statistics-based cardinality estimates for join reordering decisions
+func TestOptimization_StatisticsBasedJoinReordering(t *testing.T) {
+	// Scenario: Three tables with misleading initial row estimates
+	// Table A: Initial estimate 1000 rows, but statistics say 10 rows (small)
+	// Table B: Initial estimate 10 rows, but statistics say 1000 rows (large)
+	// Table C: Initial estimate 100 rows, statistics confirm 100 rows (medium)
+	//
+	// Without statistics: optimizer would think B is smallest (10 rows)
+	// With statistics: optimizer should know A is smallest (10 rows)
+	//
+	// The optimal join order with statistics should put A first, not B
+
+	tableA := &TableScanNode{
+		Table: &schema.TableDef{Name: "A"},
+		Cost:  1000.0,
+		Rows:  1000, // Misleading: initial estimate says 1000 rows
+	}
+
+	tableB := &TableScanNode{
+		Table: &schema.TableDef{Name: "B"},
+		Cost:  10.0,
+		Rows:  10, // Misleading: initial estimate says 10 rows
+	}
+
+	tableC := &TableScanNode{
+		Table: &schema.TableDef{Name: "C"},
+		Cost:  100.0,
+		Rows:  100, // Accurate
+	}
+
+	// Create a join where B appears to be cheapest based on Rows field
+	// Initial plan: (B Join C) Join A - this would be chosen without statistics
+	initialJoin := &NestedLoopJoinNode{
+		Left: &NestedLoopJoinNode{
+			Left:      tableB,
+			Right:     tableC,
+			Condition: &parser.BinaryExpr{},
+			JoinType:  parser.JoinInner,
+		},
+		Right:     tableA,
+		Condition: &parser.BinaryExpr{},
+		JoinType:  parser.JoinInner,
+	}
+
+	// Create statistics that provide accurate cardinality
+	stats := &MockStatisticsProvider{
+		tableStats: map[string]*schema.TableStatistics{
+			"A": {TableName: "A", RowCount: 10},   // Actually small!
+			"B": {TableName: "B", RowCount: 1000}, // Actually large!
+			"C": {TableName: "C", RowCount: 100},
+		},
+	}
+
+	// Create optimizer with statistics
+	optimizer := NewOptimizer()
+	optimizer.SetStatisticsProvider(stats)
+
+	optimized := optimizer.ReorderJoins(initialJoin)
+
+	// Verify the result is a valid join tree
+	joinNode, ok := optimized.(*NestedLoopJoinNode)
+	if !ok {
+		t.Fatalf("Expected NestedLoopJoinNode, got %T", optimized)
+	}
+
+	// The optimizer should have placed table A (smallest according to stats) on the left
+	// Check the leftmost table in the tree
+	leftmostTable := getLeftmostTable(joinNode)
+	if leftmostTable == nil {
+		t.Fatal("Could not find leftmost table")
+	}
+
+	// With statistics, A should be recognized as smallest (10 rows) and placed first
+	if leftmostTable.Table.Name != "A" {
+		t.Errorf("Expected leftmost table to be A (smallest by statistics), got %s", leftmostTable.Table.Name)
+	}
+
+	// Verify all tables are present
+	tables := collectTableNames(optimized)
+	if len(tables) != 3 {
+		t.Errorf("Expected 3 tables, got %d: %v", len(tables), tables)
+	}
+}
+
+// MockStatisticsProvider provides table statistics for testing
+type MockStatisticsProvider struct {
+	tableStats map[string]*schema.TableStatistics
+}
+
+func (m *MockStatisticsProvider) GetTableStatistics(tableName string) *schema.TableStatistics {
+	if m.tableStats == nil {
+		return nil
+	}
+	return m.tableStats[tableName]
+}
+
+// getLeftmostTable returns the leftmost TableScanNode in a join tree
+func getLeftmostTable(node PlanNode) *TableScanNode {
+	switch n := node.(type) {
+	case *TableScanNode:
+		return n
+	case *NestedLoopJoinNode:
+		return getLeftmostTable(n.Left)
+	case *HashJoinNode:
+		return getLeftmostTable(n.Left)
+	case *FilterNode:
+		return getLeftmostTable(n.Input)
+	case *ProjectionNode:
+		return getLeftmostTable(n.Input)
+	default:
+		return nil
+	}
+}
