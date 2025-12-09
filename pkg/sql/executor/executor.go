@@ -31,11 +31,12 @@ type Result struct {
 type Executor struct {
 	pager       *pager.Pager
 	catalog     *schema.Catalog
-	trees       map[string]*btree.BTree     // table name -> btree
-	rowid       map[string]uint64           // table name -> next rowid
+	trees       map[string]*btree.BTree    // table name -> btree
+	rowid       map[string]uint64          // table name -> next rowid
+	maxRowid    map[string]int64           // table name -> max INTEGER PRIMARY KEY value (for AUTOINCREMENT)
 	txManager   *mvcc.TransactionManager
-	currentTx   *mvcc.Transaction       // current active transaction (nil if none)
-	hnswIndexes map[string]*hnsw.Index  // HNSW index name -> index
+	currentTx   *mvcc.Transaction          // current active transaction (nil if none)
+	hnswIndexes map[string]*hnsw.Index     // HNSW index name -> index
 }
 
 // New creates a new Executor
@@ -45,6 +46,7 @@ func New(p *pager.Pager) *Executor {
 		catalog:   schema.NewCatalog(),
 		trees:     make(map[string]*btree.BTree),
 		rowid:     make(map[string]uint64),
+		maxRowid:  make(map[string]int64),
 		txManager: mvcc.NewTransactionManager(),
 	}
 }
@@ -226,6 +228,11 @@ func (e *Executor) executeCreateTable(stmt *parser.CreateTableStmt) (*Result, er
 	// Store tree reference
 	e.trees[stmt.TableName] = tree
 	e.rowid[stmt.TableName] = 1
+
+	// Auto-create unique index for PRIMARY KEY columns
+	if err := e.createPrimaryKeyIndex(table); err != nil {
+		return nil, fmt.Errorf("failed to create primary key index: %w", err)
+	}
 
 	return &Result{}, nil
 }
@@ -691,6 +698,9 @@ func (e *Executor) executeInsert(stmt *parser.InsertStmt) (*Result, error) {
 		e.trees[stmt.TableName] = tree
 	}
 
+	// Find INTEGER PRIMARY KEY column for AUTOINCREMENT
+	intPKColIdx := e.findIntegerPrimaryKeyColumn(table)
+
 	var rowsAffected int64
 
 	// Get rows to insert - either from VALUES or SELECT
@@ -719,8 +729,27 @@ func (e *Executor) executeInsert(stmt *parser.InsertStmt) (*Result, error) {
 		}
 	}
 
+	// Build column mapping if column list is specified
+	colMapping := e.buildColumnMapping(stmt.Columns, table)
+
 	// Insert each row
-	for _, values := range rowsToInsert {
+	for _, inputValues := range rowsToInsert {
+		// Map input values to full column list
+		values := e.mapInputToColumns(inputValues, colMapping, table)
+
+		// Handle INTEGER PRIMARY KEY auto-increment
+		if intPKColIdx >= 0 {
+			if values[intPKColIdx].IsNull() {
+				// Auto-generate ID for NULL INTEGER PRIMARY KEY
+				nextID := e.getNextAutoIncrementID(stmt.TableName)
+				values[intPKColIdx] = types.NewInt(nextID)
+			} else {
+				// Track the explicit ID to update max rowid
+				if values[intPKColIdx].Type() == types.TypeInt {
+					e.trackMaxRowID(stmt.TableName, values[intPKColIdx].Int())
+				}
+			}
+		}
 
 		// Validate constraints
 		if err := e.validateConstraints(table, values); err != nil {
@@ -1182,6 +1211,13 @@ func (e *Executor) validateConstraints(table *schema.TableDef, values []types.Va
 
 		for _, constraint := range colDef.Constraints {
 			switch constraint.Type {
+			case schema.ConstraintPrimaryKey:
+				// PRIMARY KEY implies NOT NULL for non-INTEGER columns
+				// INTEGER PRIMARY KEY allows NULL which triggers AUTOINCREMENT
+				if val.IsNull() && colDef.Type != types.TypeInt {
+					return fmt.Errorf("NOT NULL constraint violation: PRIMARY KEY column '%s' cannot be NULL", colDef.Name)
+				}
+
 			case schema.ConstraintNotNull:
 				if val.IsNull() {
 					return fmt.Errorf("NOT NULL constraint violation: column '%s' cannot be NULL", colDef.Name)
@@ -3069,4 +3105,144 @@ func (e *Executor) explainGenericPlan(stmt parser.Statement, result *Result) (*R
 	result.Rows = append(result.Rows, row)
 
 	return result, nil
+}
+
+// findIntegerPrimaryKeyColumn returns the index of an INTEGER PRIMARY KEY column,
+// or -1 if no such column exists. This is used for AUTOINCREMENT behavior.
+func (e *Executor) findIntegerPrimaryKeyColumn(table *schema.TableDef) int {
+	for i, col := range table.Columns {
+		if col.PrimaryKey && col.Type == types.TypeInt {
+			return i
+		}
+	}
+	return -1
+}
+
+// buildColumnMapping builds a mapping from input column positions to table column positions.
+// Returns nil if stmt.Columns is nil/empty (meaning all columns in order).
+func (e *Executor) buildColumnMapping(stmtColumns []string, table *schema.TableDef) []int {
+	if len(stmtColumns) == 0 {
+		return nil // No mapping needed, values are in table column order
+	}
+
+	mapping := make([]int, len(stmtColumns))
+	for i, colName := range stmtColumns {
+		for j, col := range table.Columns {
+			if strings.EqualFold(col.Name, colName) {
+				mapping[i] = j
+				break
+			}
+		}
+	}
+	return mapping
+}
+
+// mapInputToColumns maps input values to a full row according to column mapping.
+// If colMapping is nil, returns inputValues as-is (assumes all columns in order).
+func (e *Executor) mapInputToColumns(inputValues []types.Value, colMapping []int, table *schema.TableDef) []types.Value {
+	if colMapping == nil {
+		return inputValues
+	}
+
+	// Create a full row with NULLs for all columns
+	values := make([]types.Value, len(table.Columns))
+	for i := range values {
+		values[i] = types.NewNull()
+	}
+
+	// Map input values to their table positions
+	for i, val := range inputValues {
+		if i < len(colMapping) {
+			values[colMapping[i]] = val
+		}
+	}
+
+	return values
+}
+
+// getNextAutoIncrementID returns the next auto-increment ID for the table.
+func (e *Executor) getNextAutoIncrementID(tableName string) int64 {
+	maxID := e.maxRowid[tableName]
+	nextID := maxID + 1
+	e.maxRowid[tableName] = nextID
+	return nextID
+}
+
+// trackMaxRowID updates the max rowid if the given id is larger.
+func (e *Executor) trackMaxRowID(tableName string, id int64) {
+	if id > e.maxRowid[tableName] {
+		e.maxRowid[tableName] = id
+	}
+}
+
+// createPrimaryKeyIndex creates a unique index for PRIMARY KEY columns.
+// This is called automatically during CREATE TABLE.
+func (e *Executor) createPrimaryKeyIndex(table *schema.TableDef) error {
+	// Find PRIMARY KEY columns
+	var pkColumns []string
+
+	// Check for column-level PRIMARY KEY
+	for _, col := range table.Columns {
+		if col.PrimaryKey {
+			pkColumns = append(pkColumns, col.Name)
+		}
+	}
+
+	// Check for table-level PRIMARY KEY (composite key)
+	for _, tc := range table.TableConstraints {
+		if tc.Type == schema.ConstraintPrimaryKey {
+			pkColumns = tc.Columns
+			break
+		}
+	}
+
+	// No PRIMARY KEY defined
+	if len(pkColumns) == 0 {
+		return nil
+	}
+
+	// Generate index name: pk_<tablename> or pk_<tablename>_<column>
+	var indexName string
+	if len(pkColumns) == 1 {
+		indexName = fmt.Sprintf("pk_%s_%s", table.Name, pkColumns[0])
+	} else {
+		indexName = fmt.Sprintf("pk_%s", table.Name)
+	}
+
+	// Create B-tree for the index
+	indexTree, err := btree.Create(e.pager)
+	if err != nil {
+		return fmt.Errorf("failed to create primary key index btree: %w", err)
+	}
+
+	// Store the index tree
+	idxTreeName := "index:" + indexName
+	e.trees[idxTreeName] = indexTree
+
+	// Build column index map
+	colIndexes := make([]int, len(pkColumns))
+	for i, colName := range pkColumns {
+		_, idx := table.GetColumn(colName)
+		if idx < 0 {
+			return fmt.Errorf("primary key column %s not found", colName)
+		}
+		colIndexes[i] = idx
+	}
+
+	// Create index definition
+	idx := &schema.IndexDef{
+		Name:      indexName,
+		TableName: table.Name,
+		Columns:   pkColumns,
+		Type:      schema.IndexTypeBTree,
+		Unique:    true, // PRIMARY KEY is always unique
+		RootPage:  indexTree.RootPage(),
+	}
+
+	// Add to catalog
+	if err := e.catalog.CreateIndex(idx); err != nil {
+		return err
+	}
+
+	return nil
 }
