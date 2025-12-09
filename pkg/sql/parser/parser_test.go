@@ -2256,3 +2256,49 @@ func TestParser_CreateView_IfNotExists(t *testing.T) {
 		t.Error("IfNotExists = false, want true")
 	}
 }
+
+// DROP VIEW tests
+
+func TestParser_DropView_Simple(t *testing.T) {
+	input := "DROP VIEW my_view"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	drop, ok := stmt.(*DropViewStmt)
+	if !ok {
+		t.Fatalf("Expected *DropViewStmt, got %T", stmt)
+	}
+
+	if drop.ViewName != "my_view" {
+		t.Errorf("ViewName = %q, want 'my_view'", drop.ViewName)
+	}
+
+	if drop.IfExists {
+		t.Error("IfExists = true, want false")
+	}
+}
+
+func TestParser_DropView_IfExists(t *testing.T) {
+	input := "DROP VIEW IF EXISTS my_view"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	drop, ok := stmt.(*DropViewStmt)
+	if !ok {
+		t.Fatalf("Expected *DropViewStmt, got %T", stmt)
+	}
+
+	if drop.ViewName != "my_view" {
+		t.Errorf("ViewName = %q, want 'my_view'", drop.ViewName)
+	}
+
+	if !drop.IfExists {
+		t.Error("IfExists = false, want true")
+	}
+}

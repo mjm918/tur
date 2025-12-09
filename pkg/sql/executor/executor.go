@@ -95,6 +95,8 @@ func (e *Executor) Execute(sql string) (*Result, error) {
 		return e.executeSetOperation(s)
 	case *parser.CreateViewStmt:
 		return e.executeCreateView(s)
+	case *parser.DropViewStmt:
+		return e.executeDropView(s)
 	default:
 		return nil, fmt.Errorf("unsupported statement type: %T", stmt)
 	}
@@ -238,6 +240,23 @@ func (e *Executor) executeCreateView(stmt *parser.CreateViewStmt) (*Result, erro
 	}
 
 	if err := e.catalog.CreateView(view); err != nil {
+		return nil, err
+	}
+
+	return &Result{}, nil
+}
+
+// executeDropView handles DROP VIEW
+func (e *Executor) executeDropView(stmt *parser.DropViewStmt) (*Result, error) {
+	// Check if view exists
+	if e.catalog.GetView(stmt.ViewName) == nil {
+		if stmt.IfExists {
+			return &Result{}, nil
+		}
+		return nil, fmt.Errorf("view %s not found", stmt.ViewName)
+	}
+
+	if err := e.catalog.DropView(stmt.ViewName); err != nil {
 		return nil, err
 	}
 

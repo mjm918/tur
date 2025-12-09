@@ -98,7 +98,7 @@ func (p *Parser) parseCreate() (Statement, error) {
 	}
 }
 
-// parseDrop handles DROP TABLE and DROP INDEX statements
+// parseDrop handles DROP TABLE, DROP INDEX, and DROP VIEW statements
 func (p *Parser) parseDrop() (Statement, error) {
 	p.nextToken() // consume DROP
 
@@ -107,8 +107,10 @@ func (p *Parser) parseDrop() (Statement, error) {
 		return p.parseDropTableBody()
 	case lexer.INDEX:
 		return p.parseDropIndex()
+	case lexer.VIEW:
+		return p.parseDropView()
 	default:
-		return nil, fmt.Errorf("expected TABLE or INDEX after DROP, got %s", p.cur.Literal)
+		return nil, fmt.Errorf("expected TABLE, INDEX, or VIEW after DROP, got %s", p.cur.Literal)
 	}
 }
 
@@ -1229,6 +1231,30 @@ func (p *Parser) parseDropIndex() (*DropIndexStmt, error) {
 		return nil, fmt.Errorf("expected index name, got %s", p.peek.Literal)
 	}
 	stmt.IndexName = p.cur.Literal
+
+	return stmt, nil
+}
+
+// parseDropView parses: DROP VIEW [IF EXISTS] view_name
+// Called after DROP VIEW has been consumed and current token is VIEW
+func (p *Parser) parseDropView() (*DropViewStmt, error) {
+	stmt := &DropViewStmt{}
+
+	// Check for optional IF EXISTS
+	if p.peekIs(lexer.IF) {
+		p.nextToken() // consume VIEW, now at IF
+		if !p.expectPeek(lexer.EXISTS) {
+			return nil, fmt.Errorf("expected EXISTS after IF, got %s", p.peek.Literal)
+		}
+		stmt.IfExists = true
+		// now at EXISTS, need to move to view name
+	}
+
+	// Current token is VIEW or EXISTS, move to view name
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected view name, got %s", p.peek.Literal)
+	}
+	stmt.ViewName = p.cur.Literal
 
 	return stmt, nil
 }

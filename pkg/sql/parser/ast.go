@@ -453,3 +453,11 @@ type CreateViewStmt struct {
 }
 
 func (s *CreateViewStmt) statementNode() {}
+
+// DropViewStmt represents a DROP VIEW statement
+type DropViewStmt struct {
+	ViewName string // Name of the view to drop
+	IfExists bool   // IF EXISTS clause
+}
+
+func (s *DropViewStmt) statementNode() {}

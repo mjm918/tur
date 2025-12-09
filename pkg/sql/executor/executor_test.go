@@ -1946,3 +1946,44 @@ func TestExecutor_SelectFromView_WithFilter(t *testing.T) {
 		t.Errorf("Name = %q, want 'Gadget'", result.Rows[0][0].Text())
 	}
 }
+
+func TestExecutor_DropView(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, _ = exec.Execute("CREATE TABLE t (id INT)")
+	_, _ = exec.Execute("CREATE VIEW v AS SELECT id FROM t")
+
+	// Drop the view
+	_, err := exec.Execute("DROP VIEW v")
+	if err != nil {
+		t.Fatalf("DROP VIEW: %v", err)
+	}
+
+	// Verify view no longer exists
+	if exec.catalog.GetView("v") != nil {
+		t.Error("View should not exist after DROP VIEW")
+	}
+}
+
+func TestExecutor_DropView_NotFound(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Drop non-existent view should error
+	_, err := exec.Execute("DROP VIEW nonexistent")
+	if err == nil {
+		t.Fatal("Expected error for dropping non-existent view")
+	}
+}
+
+func TestExecutor_DropView_IfExists(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Should not error with IF EXISTS
+	_, err := exec.Execute("DROP VIEW IF EXISTS nonexistent")
+	if err != nil {
+		t.Fatalf("DROP VIEW IF EXISTS should not error: %v", err)
+	}
+}
