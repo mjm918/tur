@@ -143,6 +143,16 @@ const (
 	// Savepoint keywords
 	SAVEPOINT
 	RELEASE
+
+	// Window function keywords
+	OVER
+	PARTITION
+	ROWS
+	RANGE_KW
+	UNBOUNDED
+	PRECEDING
+	FOLLOWING
+	CURRENT
 )
 
 // Token represents a lexical token
@@ -355,6 +365,22 @@ func (t TokenType) String() string {
 		return "SAVEPOINT"
 	case RELEASE:
 		return "RELEASE"
+	case OVER:
+		return "OVER"
+	case PARTITION:
+		return "PARTITION"
+	case ROWS:
+		return "ROWS"
+	case RANGE_KW:
+		return "RANGE"
+	case UNBOUNDED:
+		return "UNBOUNDED"
+	case PRECEDING:
+		return "PRECEDING"
+	case FOLLOWING:
+		return "FOLLOWING"
+	case CURRENT:
+		return "CURRENT"
 	default:
 		return "UNKNOWN"
 	}
@@ -440,6 +466,14 @@ var keywords = map[string]TokenType{
 	"EXPLAIN":     EXPLAIN,
 	"QUERY":       QUERY,
 	"PLAN":        PLAN,
+	"OVER":        OVER,
+	"PARTITION":   PARTITION,
+	"ROWS":        ROWS,
+	"RANGE":       RANGE_KW,
+	"UNBOUNDED":   UNBOUNDED,
+	"PRECEDING":   PRECEDING,
+	"FOLLOWING":   FOLLOWING,
+	"CURRENT":     CURRENT,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT

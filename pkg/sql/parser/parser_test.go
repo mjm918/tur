@@ -2476,3 +2476,120 @@ func TestParser_ExplainQueryPlan_Join(t *testing.T) {
 		t.Errorf("Join type = %v, want JoinInner", join.Type)
 	}
 }
+
+// ====== Window Functions Tests ======
+
+func TestParser_WindowFunction_RankWithOrderBy(t *testing.T) {
+	input := "SELECT name, RANK() OVER (ORDER BY score DESC) FROM users"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel, ok := stmt.(*SelectStmt)
+	if !ok {
+		t.Fatalf("Expected *SelectStmt, got %T", stmt)
+	}
+
+	if len(sel.Columns) != 2 {
+		t.Fatalf("Columns count = %d, want 2", len(sel.Columns))
+	}
+
+	// Second column should be a window function
+	winFunc, ok := sel.Columns[1].Expr.(*WindowFunction)
+	if !ok {
+		t.Fatalf("Expected *WindowFunction for column 2, got %T", sel.Columns[1].Expr)
+	}
+
+	// Check the function name
+	funcCall, ok := winFunc.Function.(*FunctionCall)
+	if !ok {
+		t.Fatalf("Expected *FunctionCall in WindowFunction, got %T", winFunc.Function)
+	}
+	if funcCall.Name != "RANK" {
+		t.Errorf("Function name = %q, want 'RANK'", funcCall.Name)
+	}
+
+	// Check OVER clause exists
+	if winFunc.Over == nil {
+		t.Fatal("Over clause is nil, want non-nil")
+	}
+
+	// Check ORDER BY in window spec
+	if len(winFunc.Over.OrderBy) != 1 {
+		t.Fatalf("OrderBy count = %d, want 1", len(winFunc.Over.OrderBy))
+	}
+
+	orderExpr := winFunc.Over.OrderBy[0]
+	colRef, ok := orderExpr.Expr.(*ColumnRef)
+	if !ok {
+		t.Fatalf("OrderBy expression type = %T, want *ColumnRef", orderExpr.Expr)
+	}
+	if colRef.Name != "score" {
+		t.Errorf("OrderBy column = %q, want 'score'", colRef.Name)
+	}
+	if orderExpr.Direction != OrderDesc {
+		t.Errorf("OrderBy direction = %v, want OrderDesc", orderExpr.Direction)
+	}
+}
+
+func TestParser_WindowFunction_DenseRankWithOrderBy(t *testing.T) {
+	input := "SELECT name, DENSE_RANK() OVER (ORDER BY score ASC) FROM users"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel := stmt.(*SelectStmt)
+
+	// Second column should be a window function
+	winFunc, ok := sel.Columns[1].Expr.(*WindowFunction)
+	if !ok {
+		t.Fatalf("Expected *WindowFunction for column 2, got %T", sel.Columns[1].Expr)
+	}
+
+	funcCall := winFunc.Function.(*FunctionCall)
+	if funcCall.Name != "DENSE_RANK" {
+		t.Errorf("Function name = %q, want 'DENSE_RANK'", funcCall.Name)
+	}
+
+	if winFunc.Over.OrderBy[0].Direction != OrderAsc {
+		t.Errorf("OrderBy direction = %v, want OrderAsc", winFunc.Over.OrderBy[0].Direction)
+	}
+}
+
+func TestParser_WindowFunction_WithPartitionBy(t *testing.T) {
+	input := "SELECT name, RANK() OVER (PARTITION BY dept ORDER BY score DESC) FROM users"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel := stmt.(*SelectStmt)
+
+	winFunc, ok := sel.Columns[1].Expr.(*WindowFunction)
+	if !ok {
+		t.Fatalf("Expected *WindowFunction for column 2, got %T", sel.Columns[1].Expr)
+	}
+
+	// Check PARTITION BY
+	if len(winFunc.Over.PartitionBy) != 1 {
+		t.Fatalf("PartitionBy count = %d, want 1", len(winFunc.Over.PartitionBy))
+	}
+
+	partCol, ok := winFunc.Over.PartitionBy[0].(*ColumnRef)
+	if !ok {
+		t.Fatalf("PartitionBy expression type = %T, want *ColumnRef", winFunc.Over.PartitionBy[0])
+	}
+	if partCol.Name != "dept" {
+		t.Errorf("PartitionBy column = %q, want 'dept'", partCol.Name)
+	}
+
+	// Check ORDER BY still works
+	if len(winFunc.Over.OrderBy) != 1 {
+		t.Fatalf("OrderBy count = %d, want 1", len(winFunc.Over.OrderBy))
+	}
+}
