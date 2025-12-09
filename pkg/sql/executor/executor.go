@@ -4,6 +4,7 @@ package executor
 import (
 	"encoding/binary"
 	"fmt"
+	"strings"
 	"time"
 
 	"tur/pkg/btree"
@@ -1511,6 +1512,28 @@ func (e *Executor) executePlanWithCTEs(plan optimizer.PlanNode, cteData map[stri
 			colMap:   colMap,
 			executor: e,
 		}, outputCols, nil
+
+	case *optimizer.SubqueryScanNode:
+		// Execute the subquery plan (used for views and derived tables)
+		subIter, subCols, err := e.executePlanWithCTEs(node.SubqueryPlan, cteData)
+		if err != nil {
+			return nil, nil, fmt.Errorf("executing subquery: %w", err)
+		}
+
+		// Rename columns with the alias prefix if provided
+		var cols []string
+		for _, col := range subCols {
+			// If the column already has a prefix, extract just the column name
+			parts := strings.Split(col, ".")
+			colName := parts[len(parts)-1]
+			if node.Alias != "" {
+				cols = append(cols, node.Alias+"."+colName)
+			} else {
+				cols = append(cols, col)
+			}
+		}
+
+		return subIter, cols, nil
 
 	default:
 		return nil, nil, fmt.Errorf("unsupported plan node: %T", plan)

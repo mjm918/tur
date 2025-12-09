@@ -139,7 +139,40 @@ func buildTableReferenceWithCTEs(ref parser.TableReference, catalog *schema.Cata
 			}
 		}
 
-		// Otherwise look up in catalog
+		// Check if it's a view
+		viewDef := catalog.GetView(t.Name)
+		if viewDef != nil {
+			// Parse the view's SQL to get a SelectStmt
+			viewParser := parser.New(viewDef.SQL)
+			viewStmt, err := viewParser.Parse()
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse view %s: %w", t.Name, err)
+			}
+
+			selectStmt, ok := viewStmt.(*parser.SelectStmt)
+			if !ok {
+				return nil, fmt.Errorf("view %s does not contain a SELECT statement", t.Name)
+			}
+
+			// Build a plan for the view's query
+			viewPlan, err := BuildPlanWithCTEs(selectStmt, catalog, ctes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to build plan for view %s: %w", t.Name, err)
+			}
+
+			// Wrap in SubqueryScanNode with the view name as alias (or explicit alias if provided)
+			alias := t.Name
+			if t.Alias != "" {
+				alias = t.Alias
+			}
+
+			return &SubqueryScanNode{
+				SubqueryPlan: viewPlan,
+				Alias:        alias,
+			}, nil
+		}
+
+		// Otherwise look up in catalog as a table
 		tableDef := catalog.GetTable(t.Name)
 		if tableDef == nil {
 			return nil, fmt.Errorf("table %s not found", t.Name)

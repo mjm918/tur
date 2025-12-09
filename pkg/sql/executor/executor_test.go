@@ -1881,3 +1881,68 @@ func TestExecutor_CreateView_WithColumnList(t *testing.T) {
 		t.Errorf("Columns = %v, want [user_id, user_name]", view.Columns)
 	}
 }
+
+func TestExecutor_SelectFromView(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create base table with data
+	_, _ = exec.Execute("CREATE TABLE users (id INT, name TEXT, active INT)")
+	_, _ = exec.Execute("INSERT INTO users VALUES (1, 'Alice', 1)")
+	_, _ = exec.Execute("INSERT INTO users VALUES (2, 'Bob', 0)")
+	_, _ = exec.Execute("INSERT INTO users VALUES (3, 'Charlie', 1)")
+
+	// Create view that filters active users
+	_, err := exec.Execute("CREATE VIEW active_users AS SELECT id, name FROM users WHERE active = 1")
+	if err != nil {
+		t.Fatalf("CREATE VIEW: %v", err)
+	}
+
+	// Query the view - should return only active users
+	result, err := exec.Execute("SELECT * FROM active_users")
+	if err != nil {
+		t.Fatalf("SELECT FROM view: %v", err)
+	}
+
+	if len(result.Rows) != 2 {
+		t.Errorf("Rows count = %d, want 2 (active users)", len(result.Rows))
+	}
+
+	// Verify we got the correct users (Alice and Charlie)
+	names := make(map[string]bool)
+	for _, row := range result.Rows {
+		if len(row) >= 2 {
+			names[row[1].Text()] = true
+		}
+	}
+	if !names["Alice"] || !names["Charlie"] {
+		t.Errorf("Expected Alice and Charlie, got rows: %v", result.Rows)
+	}
+}
+
+func TestExecutor_SelectFromView_WithFilter(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, _ = exec.Execute("CREATE TABLE products (id INT, name TEXT, price INT)")
+	_, _ = exec.Execute("INSERT INTO products VALUES (1, 'Widget', 100)")
+	_, _ = exec.Execute("INSERT INTO products VALUES (2, 'Gadget', 200)")
+	_, _ = exec.Execute("INSERT INTO products VALUES (3, 'Doodad', 50)")
+
+	// Create view
+	_, _ = exec.Execute("CREATE VIEW expensive AS SELECT id, name, price FROM products WHERE price > 75")
+
+	// Query with additional filter
+	result, err := exec.Execute("SELECT name FROM expensive WHERE price > 150")
+	if err != nil {
+		t.Fatalf("SELECT FROM view with filter: %v", err)
+	}
+
+	if len(result.Rows) != 1 {
+		t.Errorf("Rows count = %d, want 1", len(result.Rows))
+	}
+
+	if len(result.Rows) > 0 && result.Rows[0][0].Text() != "Gadget" {
+		t.Errorf("Name = %q, want 'Gadget'", result.Rows[0][0].Text())
+	}
+}
