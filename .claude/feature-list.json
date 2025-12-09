@@ -1405,31 +1405,32 @@
     {
       "title": "Vector Extensions - vector_quantize_scan()",
       "description": "Table-valued function for KNN search returning (rowid, distance)",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Register vector_quantize_scan as table-valued function",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse table name, column name, query vector, k parameters",
-          "done": false
+          "done": true
         },
         {
           "task": "Load HNSW index for specified column",
-          "done": false
+          "done": true
         },
         {
           "task": "Execute KNN search with query vector",
-          "done": false
+          "done": true
         },
         {
           "task": "Return result set with (rowid, distance) columns",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement VDBE cursor for scan results",
-          "done": false
+          "done": true,
+          "note": "Implemented using SliceIterator which provides RowIterator interface"
         }
       ]
     },

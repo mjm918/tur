@@ -154,3 +154,97 @@ func TestVectorQuantize_NonVectorColumn(t *testing.T) {
 		t.Errorf("expected 0 rows for non-vector column, got %d", len(result.Rows))
 	}
 }
+
+// TestVectorQuantizeScan_Basic tests the basic vector_quantize_scan function
+func TestVectorQuantizeScan_Basic(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create a table with a VECTOR column
+	_, err := exec.Execute("CREATE TABLE embeddings (id INTEGER PRIMARY KEY, embedding VECTOR(3))")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	// Insert some vectors using hex encoding
+	// vec1 is along X axis, vec2 along Y axis, vec3 along Z axis
+	vec1 := vectorToHex([]float32{1.0, 0.0, 0.0})
+	vec2 := vectorToHex([]float32{0.0, 1.0, 0.0})
+	vec3 := vectorToHex([]float32{0.0, 0.0, 1.0})
+
+	_, err = exec.Execute(fmt.Sprintf("INSERT INTO embeddings (id, embedding) VALUES (1, x'%s')", vec1))
+	if err != nil {
+		t.Fatalf("failed to insert row 1: %v", err)
+	}
+	_, err = exec.Execute(fmt.Sprintf("INSERT INTO embeddings (id, embedding) VALUES (2, x'%s')", vec2))
+	if err != nil {
+		t.Fatalf("failed to insert row 2: %v", err)
+	}
+	_, err = exec.Execute(fmt.Sprintf("INSERT INTO embeddings (id, embedding) VALUES (3, x'%s')", vec3))
+	if err != nil {
+		t.Fatalf("failed to insert row 3: %v", err)
+	}
+
+	// Build HNSW index
+	_, err = exec.Execute("SELECT vector_quantize('embeddings', 'embedding')")
+	if err != nil {
+		t.Fatalf("vector_quantize failed: %v", err)
+	}
+
+	// Query for vectors similar to X axis - should return rowid 1 first
+	queryVec := vectorToHex([]float32{1.0, 0.0, 0.0})
+	result, err := exec.Execute(fmt.Sprintf("SELECT * FROM vector_quantize_scan('embeddings', 'embedding', x'%s', 2)", queryVec))
+	if err != nil {
+		t.Fatalf("vector_quantize_scan failed: %v", err)
+	}
+
+	// Should return 2 rows (k=2)
+	if len(result.Rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(result.Rows))
+	}
+
+	// Check columns: should have rowid and distance
+	if len(result.Columns) != 2 {
+		t.Errorf("expected 2 columns (rowid, distance), got %d", len(result.Columns))
+	}
+
+	// First result should be rowid=1 (exact match to query)
+	firstRowId := result.Rows[0][0].Int()
+	if firstRowId != 1 {
+		t.Errorf("expected first result to be rowid 1, got %d", firstRowId)
+	}
+
+	// First result distance should be 0 (exact match)
+	firstDistance := result.Rows[0][1].Float()
+	if firstDistance > 0.001 {
+		t.Errorf("expected first result distance ~0, got %f", firstDistance)
+	}
+}
+
+// TestVectorQuantizeScan_NoIndex tests vector_quantize_scan without an index
+func TestVectorQuantizeScan_NoIndex(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create a table with a VECTOR column
+	_, err := exec.Execute("CREATE TABLE embeddings (id INTEGER PRIMARY KEY, embedding VECTOR(3))")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	// Insert a vector but DON'T build index
+	vec1 := vectorToHex([]float32{1.0, 0.0, 0.0})
+	_, err = exec.Execute(fmt.Sprintf("INSERT INTO embeddings (id, embedding) VALUES (1, x'%s')", vec1))
+	if err != nil {
+		t.Fatalf("failed to insert row: %v", err)
+	}
+
+	// Query without index should fail or return empty
+	queryVec := vectorToHex([]float32{1.0, 0.0, 0.0})
+	result, err := exec.Execute(fmt.Sprintf("SELECT * FROM vector_quantize_scan('embeddings', 'embedding', x'%s', 2)", queryVec))
+
+	// Should either error or return empty result
+	if err == nil && len(result.Rows) > 0 {
+		t.Errorf("expected error or empty result when no index exists")
+	}
+}

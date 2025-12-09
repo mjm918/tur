@@ -314,3 +314,23 @@ func (n *WindowNode) EstimatedRows() int64 {
 	// Window functions don't change row count
 	return n.Input.EstimatedRows()
 }
+
+// TableFunctionNode represents a table-valued function call
+// e.g., vector_quantize_scan('table', 'column', query_vec, k)
+type TableFunctionNode struct {
+	Name  string              // Function name (e.g., "vector_quantize_scan")
+	Args  []parser.Expression // Function arguments
+	Alias string              // Optional alias
+}
+
+func (n *TableFunctionNode) EstimatedCost() float64 {
+	// Table function cost is roughly linear in expected output rows
+	// For vector search, this is typically the k parameter
+	return 1.0 // Default cost
+}
+
+func (n *TableFunctionNode) EstimatedRows() int64 {
+	// For vector_quantize_scan, rows = k parameter (4th argument)
+	// Default to 10 if we can't determine
+	return 10
+}

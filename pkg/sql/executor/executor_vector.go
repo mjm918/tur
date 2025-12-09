@@ -10,6 +10,8 @@ import (
 	"tur/pkg/hnsw"
 	"tur/pkg/record"
 	"tur/pkg/schema"
+	"tur/pkg/sql/optimizer"
+	"tur/pkg/sql/parser"
 	"tur/pkg/types"
 )
 
@@ -167,4 +169,110 @@ func extractVectorFromValue(val types.Value) (*types.Vector, error) {
 	default:
 		return nil, fmt.Errorf("value is not a vector type")
 	}
+}
+
+// executeTableFunction executes a table-valued function and returns a row iterator
+func (e *Executor) executeTableFunction(node *optimizer.TableFunctionNode, cteData map[string]*cteResult) (RowIterator, []string, error) {
+	switch strings.ToUpper(node.Name) {
+	case "VECTOR_QUANTIZE_SCAN":
+		return e.executeVectorQuantizeScan(node.Args)
+	default:
+		return nil, nil, fmt.Errorf("unknown table function: %s", node.Name)
+	}
+}
+
+// executeVectorQuantizeScan implements the vector_quantize_scan(table, column, query_vec, k) function.
+// Returns an iterator over (rowid, distance) pairs.
+func (e *Executor) executeVectorQuantizeScan(args []parser.Expression) (RowIterator, []string, error) {
+	// Validate arguments: need exactly 4 arguments
+	if len(args) != 4 {
+		return nil, nil, fmt.Errorf("vector_quantize_scan requires 4 arguments: table_name, column_name, query_vector, k")
+	}
+
+	// Evaluate arguments
+	argValues := make([]types.Value, 4)
+	for i, arg := range args {
+		val, err := e.evaluateExpr(arg, nil, nil)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to evaluate argument %d: %w", i, err)
+		}
+		argValues[i] = val
+	}
+
+	// Extract table name (first argument)
+	if argValues[0].Type() != types.TypeText {
+		return nil, nil, fmt.Errorf("vector_quantize_scan: table_name must be a string")
+	}
+	tableName := argValues[0].Text()
+
+	// Extract column name (second argument)
+	if argValues[1].Type() != types.TypeText {
+		return nil, nil, fmt.Errorf("vector_quantize_scan: column_name must be a string")
+	}
+	columnName := argValues[1].Text()
+
+	// Extract query vector (third argument)
+	queryVec, err := extractVectorFromValue(argValues[2])
+	if err != nil {
+		return nil, nil, fmt.Errorf("vector_quantize_scan: invalid query vector: %w", err)
+	}
+
+	// Extract k (fourth argument)
+	if argValues[3].Type() != types.TypeInt {
+		return nil, nil, fmt.Errorf("vector_quantize_scan: k must be an integer")
+	}
+	k := int(argValues[3].Int())
+	if k <= 0 {
+		return nil, nil, fmt.Errorf("vector_quantize_scan: k must be positive")
+	}
+
+	// Find the HNSW index for this table/column
+	indexName := fmt.Sprintf("hnsw_%s_%s", tableName, columnName)
+	idx := e.hnswIndexes[indexName]
+	if idx == nil {
+		return nil, nil, fmt.Errorf("vector_quantize_scan: no HNSW index found for %s.%s (run vector_quantize first)", tableName, columnName)
+	}
+
+	// Execute KNN search
+	results, err := idx.SearchKNN(queryVec, k)
+	if err != nil {
+		return nil, nil, fmt.Errorf("vector_quantize_scan: search failed: %w", err)
+	}
+
+	// Build rows from search results
+	rows := make([][]types.Value, len(results))
+	for i, result := range results {
+		rows[i] = []types.Value{
+			types.NewInt(result.RowID),
+			types.NewFloat(float64(result.Distance)),
+		}
+	}
+
+	// Return iterator with columns
+	columns := []string{"rowid", "distance"}
+	return &SliceIterator{rows: rows, pos: 0}, columns, nil
+}
+
+// SliceIterator implements RowIterator over a slice of rows
+type SliceIterator struct {
+	rows [][]types.Value
+	pos  int
+	val  []types.Value
+}
+
+func (it *SliceIterator) Next() bool {
+	if it.pos >= len(it.rows) {
+		return false
+	}
+	it.val = it.rows[it.pos]
+	it.pos++
+	return true
+}
+
+func (it *SliceIterator) Value() []types.Value {
+	return it.val
+}
+
+func (it *SliceIterator) Close() {
+	// Nothing to release
 }

@@ -223,6 +223,13 @@ func buildTableReferenceWithCTEs(ref parser.TableReference, catalog *schema.Cata
 			Alias:        t.Alias,
 		}, nil
 
+	case *parser.TableFunction:
+		return &TableFunctionNode{
+			Name:  t.Name,
+			Args:  t.Args,
+			Alias: t.Alias,
+		}, nil
+
 	case *parser.Join:
 		left, err := buildTableReferenceWithCTEs(t.Left, catalog, ctes)
 		if err != nil {

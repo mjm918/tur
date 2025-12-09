@@ -1024,12 +1024,58 @@ func (p *Parser) parseTableFactor() (TableReference, error) {
 		return nil, fmt.Errorf("expected SELECT after '(' in table reference")
 	}
 
-	// Regular table
+	// Regular table or table function
 	if !p.expectPeek(lexer.IDENT) {
 		return nil, fmt.Errorf("expected table name, got %s", p.peek.Literal)
 	}
 
-	table := &Table{Name: p.cur.Literal}
+	name := p.cur.Literal
+
+	// Check if this is a table function call: func_name(args)
+	if p.peekIs(lexer.LPAREN) {
+		p.nextToken() // consume (
+
+		// Parse arguments
+		var args []Expression
+		if !p.peekIs(lexer.RPAREN) {
+			p.nextToken() // move to first argument
+			for {
+				arg, err := p.parseExpression(LOWEST)
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse table function argument: %w", err)
+				}
+				args = append(args, arg)
+
+				if !p.peekIs(lexer.COMMA) {
+					break
+				}
+				p.nextToken() // consume ,
+				p.nextToken() // move to next argument
+			}
+		}
+
+		if !p.expectPeek(lexer.RPAREN) {
+			return nil, fmt.Errorf("expected ')' after table function arguments")
+		}
+
+		tableFunc := &TableFunction{Name: name, Args: args}
+
+		// Parse alias
+		if p.peekIs(lexer.AS_KW) {
+			p.nextToken() // AS
+			if !p.expectPeek(lexer.IDENT) {
+				return nil, fmt.Errorf("expected alias after AS")
+			}
+			tableFunc.Alias = p.cur.Literal
+		} else if p.peekIs(lexer.IDENT) {
+			p.nextToken()
+			tableFunc.Alias = p.cur.Literal
+		}
+
+		return tableFunc, nil
+	}
+
+	table := &Table{Name: name}
 
 	// Parse alias
 	if p.peekIs(lexer.AS_KW) {

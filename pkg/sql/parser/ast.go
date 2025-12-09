@@ -431,6 +431,16 @@ type DerivedTable struct {
 
 func (d *DerivedTable) tableRefNode() {}
 
+// TableFunction represents a table-valued function call in FROM clause
+// e.g., vector_quantize_scan('table', 'column', query_vec, k)
+type TableFunction struct {
+	Name  string       // Function name
+	Args  []Expression // Function arguments
+	Alias string       // Optional alias
+}
+
+func (tf *TableFunction) tableRefNode() {}
+
 // BeginStmt represents a BEGIN [TRANSACTION] statement
 type BeginStmt struct{}
 

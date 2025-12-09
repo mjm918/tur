@@ -1744,6 +1744,9 @@ func (e *Executor) executePlanWithCTEs(plan optimizer.PlanNode, cteData map[stri
 
 		return subIter, cols, nil
 
+	case *optimizer.TableFunctionNode:
+		return e.executeTableFunction(node, cteData)
+
 	default:
 		return nil, nil, fmt.Errorf("unsupported plan node: %T", plan)
 	}
