@@ -375,3 +375,44 @@ func TestLexer_GroupByHavingKeywords(t *testing.T) {
 		}
 	}
 }
+
+func TestLexer_WindowFunctionKeywords(t *testing.T) {
+	input := "LAG(value) OVER (PARTITION BY category ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
+	expected := []struct {
+		typ     TokenType
+		literal string
+	}{
+		{IDENT, "LAG"},
+		{LPAREN, "("},
+		{IDENT, "value"},
+		{RPAREN, ")"},
+		{OVER, "OVER"},
+		{LPAREN, "("},
+		{PARTITION, "PARTITION"},
+		{BY, "BY"},
+		{IDENT, "category"},
+		{ORDER, "ORDER"},
+		{BY, "BY"},
+		{IDENT, "id"},
+		{ROWS, "ROWS"},
+		{BETWEEN, "BETWEEN"},
+		{UNBOUNDED, "UNBOUNDED"},
+		{PRECEDING, "PRECEDING"},
+		{AND, "AND"},
+		{CURRENT, "CURRENT"},
+		{ROW, "ROW"},
+		{RPAREN, ")"},
+		{EOF, ""},
+	}
+
+	l := New(input)
+	for i, exp := range expected {
+		tok := l.NextToken()
+		if tok.Type != exp.typ {
+			t.Errorf("token[%d]: type = %v, want %v (literal=%q)", i, tok.Type, exp.typ, tok.Literal)
+		}
+		if tok.Literal != exp.literal {
+			t.Errorf("token[%d]: literal = %q, want %q", i, tok.Literal, exp.literal)
+		}
+	}
+}
