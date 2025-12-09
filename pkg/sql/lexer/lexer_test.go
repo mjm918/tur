@@ -375,3 +375,67 @@ func TestLexer_GroupByHavingKeywords(t *testing.T) {
 		}
 	}
 }
+
+func TestLexer_WindowFunctionKeywords(t *testing.T) {
+	input := "SELECT ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary) FROM employees"
+	expected := []struct {
+		typ     TokenType
+		literal string
+	}{
+		{SELECT, "SELECT"},
+		{IDENT, "ROW_NUMBER"},
+		{LPAREN, "("},
+		{RPAREN, ")"},
+		{OVER, "OVER"},
+		{LPAREN, "("},
+		{PARTITION, "PARTITION"},
+		{BY, "BY"},
+		{IDENT, "dept"},
+		{ORDER, "ORDER"},
+		{BY, "BY"},
+		{IDENT, "salary"},
+		{RPAREN, ")"},
+		{FROM, "FROM"},
+		{IDENT, "employees"},
+		{EOF, ""},
+	}
+
+	l := New(input)
+	for i, exp := range expected {
+		tok := l.NextToken()
+		if tok.Type != exp.typ {
+			t.Errorf("token[%d]: type = %v, want %v", i, tok.Type, exp.typ)
+		}
+		if tok.Literal != exp.literal {
+			t.Errorf("token[%d]: literal = %q, want %q", i, tok.Literal, exp.literal)
+		}
+	}
+}
+
+func TestLexer_WindowFrameKeywords(t *testing.T) {
+	input := "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"
+	expected := []struct {
+		typ     TokenType
+		literal string
+	}{
+		{ROWS, "ROWS"},
+		{BETWEEN, "BETWEEN"},
+		{UNBOUNDED, "UNBOUNDED"},
+		{PRECEDING, "PRECEDING"},
+		{AND, "AND"},
+		{CURRENT, "CURRENT"},
+		{ROW, "ROW"},
+		{EOF, ""},
+	}
+
+	l := New(input)
+	for i, exp := range expected {
+		tok := l.NextToken()
+		if tok.Type != exp.typ {
+			t.Errorf("token[%d]: type = %v, want %v", i, tok.Type, exp.typ)
+		}
+		if tok.Literal != exp.literal {
+			t.Errorf("token[%d]: literal = %q, want %q", i, tok.Literal, exp.literal)
+		}
+	}
+}
