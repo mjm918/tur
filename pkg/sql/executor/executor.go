@@ -1408,6 +1408,39 @@ func (e *Executor) executePlanWithCTEs(plan optimizer.PlanNode, cteData map[stri
 			executor:    e,
 		}, outputCols, nil
 
+	case *optimizer.WindowNode:
+		inputIter, inputCols, err := e.executePlanWithCTEs(node.Input, cteData)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		colMap := e.buildColMap(inputCols)
+
+		// Build output column names
+		var outputCols []string
+		for _, expr := range node.AllExpressions {
+			if colRef, ok := expr.(*parser.ColumnRef); ok {
+				outputCols = append(outputCols, colRef.Name)
+			} else if wf, ok := expr.(*parser.WindowFunction); ok {
+				// Use function name for window function columns
+				if funcCall, ok := wf.Function.(*parser.FunctionCall); ok {
+					outputCols = append(outputCols, funcCall.Name)
+				} else {
+					outputCols = append(outputCols, "?")
+				}
+			} else {
+				outputCols = append(outputCols, "?")
+			}
+		}
+
+		return NewWindowFunctionIterator(
+			inputIter,
+			node.AllExpressions,
+			node.WindowFunctions,
+			colMap,
+			e,
+		), outputCols, nil
+
 	case *optimizer.NestedLoopJoinNode:
 		leftIter, leftCols, err := e.executePlanWithCTEs(node.Left, cteData)
 		if err != nil {

@@ -49,7 +49,7 @@ func BuildPlanWithCTEs(stmt *parser.SelectStmt, catalog *schema.Catalog, ctes ma
 		}
 	}
 
-	// 4. Apply Projection (Select columns)
+	// 4. Apply Projection (Select columns) or Window Functions
 	// Skip projection when GROUP BY is present - AggregateNode handles column output
 	// Check if SELECT *
 	isStar := false
@@ -59,15 +59,32 @@ func BuildPlanWithCTEs(stmt *parser.SelectStmt, catalog *schema.Catalog, ctes ma
 
 	if !isStar && len(stmt.GroupBy) == 0 {
 		var exprs []parser.Expression
+		var windowFuncs []*parser.WindowFunction
+
 		for _, col := range stmt.Columns {
 			// Convert SelectColumn to Expression
 			if col.Expr != nil {
 				exprs = append(exprs, col.Expr)
+
+				// Check if this is a window function
+				if wf, ok := col.Expr.(*parser.WindowFunction); ok {
+					windowFuncs = append(windowFuncs, wf)
+				}
 			}
 		}
-		node = &ProjectionNode{
-			Input:       node,
-			Expressions: exprs,
+
+		// If window functions present, use WindowNode
+		if len(windowFuncs) > 0 {
+			node = &WindowNode{
+				Input:           node,
+				WindowFunctions: windowFuncs,
+				AllExpressions:  exprs,
+			}
+		} else {
+			node = &ProjectionNode{
+				Input:       node,
+				Expressions: exprs,
+			}
 		}
 	}
 
