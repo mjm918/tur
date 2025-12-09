@@ -109,6 +109,13 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Function: builtinRound,
 	})
 
+	// Register VECTOR_DISTANCE function
+	r.Register(&ScalarFunction{
+		Name:     "VECTOR_DISTANCE",
+		NumArgs:  2,
+		Function: builtinVectorDistance,
+	})
+
 	return r
 }
 
@@ -363,4 +370,47 @@ func builtinRound(args []types.Value) types.Value {
 	rounded := math.Round(val * multiplier) / multiplier
 
 	return types.NewFloat(rounded)
+}
+
+// builtinVectorDistance implements VECTOR_DISTANCE(vec1, vec2)
+// Computes the cosine distance between two vectors.
+// Accepts Vector values or Blob values containing serialized vectors.
+// Returns REAL (float64) distance value.
+func builtinVectorDistance(args []types.Value) types.Value {
+	if len(args) != 2 {
+		return types.NewNull()
+	}
+
+	// Check for NULL arguments
+	if args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+
+	// Extract vectors from arguments (either Vector type or Blob)
+	vec1, err := extractVector(args[0])
+	if err != nil {
+		return types.NewNull()
+	}
+
+	vec2, err := extractVector(args[1])
+	if err != nil {
+		return types.NewNull()
+	}
+
+	// Compute cosine distance and return as REAL
+	distance := vec1.CosineDistance(vec2)
+	return types.NewFloat(float64(distance))
+}
+
+// extractVector extracts a Vector from a Value.
+// Supports TypeVector and TypeBlob (deserializes from blob).
+func extractVector(val types.Value) (*types.Vector, error) {
+	switch val.Type() {
+	case types.TypeVector:
+		return val.Vector(), nil
+	case types.TypeBlob:
+		return types.VectorFromBytes(val.Blob())
+	default:
+		return nil, fmt.Errorf("unsupported type for vector: %v", val.Type())
+	}
 }

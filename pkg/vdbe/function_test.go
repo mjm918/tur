@@ -636,3 +636,248 @@ func TestRound_Null(t *testing.T) {
 		t.Error("ROUND(3.14, NULL) should return NULL")
 	}
 }
+
+// Tests for VECTOR_DISTANCE function
+
+func TestVectorDistance_Registered(t *testing.T) {
+	// Task 1: Register vector_distance as scalar function
+	registry := DefaultFunctionRegistry()
+	vectorDistance := registry.Lookup("VECTOR_DISTANCE")
+	if vectorDistance == nil {
+		t.Fatal("VECTOR_DISTANCE function not found in default registry")
+	}
+	if vectorDistance.NumArgs != 2 {
+		t.Errorf("expected NumArgs=2, got %d", vectorDistance.NumArgs)
+	}
+}
+
+func TestVectorDistance_WithVectorValues(t *testing.T) {
+	// Tasks 2-5: Parse vectors, compute cosine distance, return REAL
+	registry := DefaultFunctionRegistry()
+	vectorDistance := registry.Lookup("VECTOR_DISTANCE")
+	if vectorDistance == nil {
+		t.Fatal("VECTOR_DISTANCE function not found in default registry")
+	}
+
+	// Create two normalized vectors for testing
+	// Using simple normalized vectors: [1, 0, 0] and [1, 0, 0] should have distance 0
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	v2 := types.NewVector([]float32{1.0, 0.0, 0.0})
+
+	args := []types.Value{types.NewVectorValue(v1), types.NewVectorValue(v2)}
+	result := vectorDistance.Call(args)
+
+	if result.Type() != types.TypeFloat {
+		t.Fatalf("expected REAL result, got %v", result.Type())
+	}
+	// Identical normalized vectors have distance 0
+	if result.Float() != 0.0 {
+		t.Errorf("expected distance 0.0 for identical vectors, got %f", result.Float())
+	}
+}
+
+func TestVectorDistance_OrthogonalVectors(t *testing.T) {
+	// Orthogonal normalized vectors should have distance 1.0
+	registry := DefaultFunctionRegistry()
+	vectorDistance := registry.Lookup("VECTOR_DISTANCE")
+	if vectorDistance == nil {
+		t.Fatal("VECTOR_DISTANCE function not found in default registry")
+	}
+
+	// [1, 0, 0] and [0, 1, 0] are orthogonal - cosine similarity is 0, distance is 1
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	v2 := types.NewVector([]float32{0.0, 1.0, 0.0})
+
+	args := []types.Value{types.NewVectorValue(v1), types.NewVectorValue(v2)}
+	result := vectorDistance.Call(args)
+
+	if result.Type() != types.TypeFloat {
+		t.Fatalf("expected REAL result, got %v", result.Type())
+	}
+	// Orthogonal vectors have distance 1.0 (cosine distance = 1 - 0 = 1)
+	if result.Float() != 1.0 {
+		t.Errorf("expected distance 1.0 for orthogonal vectors, got %f", result.Float())
+	}
+}
+
+func TestVectorDistance_OppositeVectors(t *testing.T) {
+	// Opposite normalized vectors should have distance 2.0
+	registry := DefaultFunctionRegistry()
+	vectorDistance := registry.Lookup("VECTOR_DISTANCE")
+	if vectorDistance == nil {
+		t.Fatal("VECTOR_DISTANCE function not found in default registry")
+	}
+
+	// [1, 0, 0] and [-1, 0, 0] are opposite - cosine similarity is -1, distance is 2
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	v2 := types.NewVector([]float32{-1.0, 0.0, 0.0})
+
+	args := []types.Value{types.NewVectorValue(v1), types.NewVectorValue(v2)}
+	result := vectorDistance.Call(args)
+
+	if result.Type() != types.TypeFloat {
+		t.Fatalf("expected REAL result, got %v", result.Type())
+	}
+	// Opposite vectors have distance 2.0 (cosine distance = 1 - (-1) = 2)
+	if result.Float() != 2.0 {
+		t.Errorf("expected distance 2.0 for opposite vectors, got %f", result.Float())
+	}
+}
+
+func TestVectorDistance_WithBlobs(t *testing.T) {
+	// Tasks 2-3: Parse and deserialize vectors from blobs
+	registry := DefaultFunctionRegistry()
+	vectorDistance := registry.Lookup("VECTOR_DISTANCE")
+	if vectorDistance == nil {
+		t.Fatal("VECTOR_DISTANCE function not found in default registry")
+	}
+
+	// Create vectors and convert to blobs
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	v2 := types.NewVector([]float32{1.0, 0.0, 0.0})
+
+	blob1 := v1.ToBytes()
+	blob2 := v2.ToBytes()
+
+	args := []types.Value{types.NewBlob(blob1), types.NewBlob(blob2)}
+	result := vectorDistance.Call(args)
+
+	if result.Type() != types.TypeFloat {
+		t.Fatalf("expected REAL result from blob vectors, got %v", result.Type())
+	}
+	if result.Float() != 0.0 {
+		t.Errorf("expected distance 0.0 for identical blob vectors, got %f", result.Float())
+	}
+}
+
+func TestVectorDistance_MixedVectorAndBlob(t *testing.T) {
+	// Test with one Vector and one Blob
+	registry := DefaultFunctionRegistry()
+	vectorDistance := registry.Lookup("VECTOR_DISTANCE")
+	if vectorDistance == nil {
+		t.Fatal("VECTOR_DISTANCE function not found in default registry")
+	}
+
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	v2 := types.NewVector([]float32{0.0, 1.0, 0.0})
+	blob2 := v2.ToBytes()
+
+	args := []types.Value{types.NewVectorValue(v1), types.NewBlob(blob2)}
+	result := vectorDistance.Call(args)
+
+	if result.Type() != types.TypeFloat {
+		t.Fatalf("expected REAL result from mixed types, got %v", result.Type())
+	}
+	if result.Float() != 1.0 {
+		t.Errorf("expected distance 1.0 for orthogonal mixed types, got %f", result.Float())
+	}
+}
+
+func TestVectorDistance_NullHandling(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	vectorDistance := registry.Lookup("VECTOR_DISTANCE")
+	if vectorDistance == nil {
+		t.Fatal("VECTOR_DISTANCE function not found in default registry")
+	}
+
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+
+	// NULL first argument
+	args := []types.Value{types.NewNull(), types.NewVectorValue(v1)}
+	result := vectorDistance.Call(args)
+	if !result.IsNull() {
+		t.Error("VECTOR_DISTANCE(NULL, vec) should return NULL")
+	}
+
+	// NULL second argument
+	args = []types.Value{types.NewVectorValue(v1), types.NewNull()}
+	result = vectorDistance.Call(args)
+	if !result.IsNull() {
+		t.Error("VECTOR_DISTANCE(vec, NULL) should return NULL")
+	}
+
+	// Both NULL
+	args = []types.Value{types.NewNull(), types.NewNull()}
+	result = vectorDistance.Call(args)
+	if !result.IsNull() {
+		t.Error("VECTOR_DISTANCE(NULL, NULL) should return NULL")
+	}
+}
+
+func TestVectorDistance_DimensionMismatch(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	vectorDistance := registry.Lookup("VECTOR_DISTANCE")
+	if vectorDistance == nil {
+		t.Fatal("VECTOR_DISTANCE function not found in default registry")
+	}
+
+	// Vectors with different dimensions
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+	v2 := types.NewVector([]float32{1.0, 0.0}) // 2D vs 3D
+
+	args := []types.Value{types.NewVectorValue(v1), types.NewVectorValue(v2)}
+	result := vectorDistance.Call(args)
+
+	if result.Type() != types.TypeFloat {
+		t.Fatalf("expected REAL result for dimension mismatch, got %v", result.Type())
+	}
+	// Dimension mismatch returns 2.0 (max distance) as per Vector.CosineDistance behavior
+	if result.Float() != 2.0 {
+		t.Errorf("expected distance 2.0 for dimension mismatch, got %f", result.Float())
+	}
+}
+
+func TestVectorDistance_InvalidArgs(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	vectorDistance := registry.Lookup("VECTOR_DISTANCE")
+	if vectorDistance == nil {
+		t.Fatal("VECTOR_DISTANCE function not found in default registry")
+	}
+
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+
+	// Wrong number of arguments
+	args := []types.Value{types.NewVectorValue(v1)}
+	result := vectorDistance.Call(args)
+	if !result.IsNull() {
+		t.Error("VECTOR_DISTANCE with 1 arg should return NULL")
+	}
+
+	// Too many arguments
+	args = []types.Value{types.NewVectorValue(v1), types.NewVectorValue(v1), types.NewVectorValue(v1)}
+	result = vectorDistance.Call(args)
+	if !result.IsNull() {
+		t.Error("VECTOR_DISTANCE with 3 args should return NULL")
+	}
+
+	// Invalid types (not vector or blob)
+	args = []types.Value{types.NewInt(42), types.NewVectorValue(v1)}
+	result = vectorDistance.Call(args)
+	if !result.IsNull() {
+		t.Error("VECTOR_DISTANCE(int, vec) should return NULL")
+	}
+
+	args = []types.Value{types.NewText("hello"), types.NewVectorValue(v1)}
+	result = vectorDistance.Call(args)
+	if !result.IsNull() {
+		t.Error("VECTOR_DISTANCE(text, vec) should return NULL")
+	}
+}
+
+func TestVectorDistance_InvalidBlob(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	vectorDistance := registry.Lookup("VECTOR_DISTANCE")
+	if vectorDistance == nil {
+		t.Fatal("VECTOR_DISTANCE function not found in default registry")
+	}
+
+	v1 := types.NewVector([]float32{1.0, 0.0, 0.0})
+
+	// Invalid blob (not a valid vector serialization)
+	invalidBlob := []byte{0, 1, 2, 3}
+	args := []types.Value{types.NewBlob(invalidBlob), types.NewVectorValue(v1)}
+	result := vectorDistance.Call(args)
+	if !result.IsNull() {
+		t.Error("VECTOR_DISTANCE with invalid blob should return NULL")
+	}
+}

@@ -1436,27 +1436,27 @@
     {
       "title": "Vector Extensions - vector_distance()",
       "description": "Scalar function to compute distance between two vectors",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Register vector_distance as scalar function",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse two vector blob parameters",
-          "done": false
+          "done": true
         },
         {
           "task": "Deserialize vectors from blobs",
-          "done": false
+          "done": true
         },
         {
           "task": "Compute cosine distance (1 - cosine similarity)",
-          "done": false
+          "done": true
         },
         {
           "task": "Return distance as REAL value",
-          "done": false
+          "done": true
         }
       ]
     },
