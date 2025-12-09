@@ -49,7 +49,16 @@ func BuildPlanWithCTEs(stmt *parser.SelectStmt, catalog *schema.Catalog, ctes ma
 		}
 	}
 
-	// 4. Apply Projection (Select columns)
+	// 4. Apply Window Functions (before regular projection)
+	windowFuncs := extractWindowFunctions(stmt.Columns)
+	if len(windowFuncs) > 0 {
+		node = &WindowNode{
+			Input:           node,
+			WindowFunctions: windowFuncs,
+		}
+	}
+
+	// 5. Apply Projection (Select columns)
 	// Skip projection when GROUP BY is present - AggregateNode handles column output
 	// Check if SELECT *
 	isStar := false
@@ -71,7 +80,7 @@ func BuildPlanWithCTEs(stmt *parser.SelectStmt, catalog *schema.Catalog, ctes ma
 		}
 	}
 
-	// 5. Apply ORDER BY (Sort)
+	// 6. Apply ORDER BY (Sort)
 	if len(stmt.OrderBy) > 0 {
 		node = &SortNode{
 			Input:   node,
@@ -79,7 +88,7 @@ func BuildPlanWithCTEs(stmt *parser.SelectStmt, catalog *schema.Catalog, ctes ma
 		}
 	}
 
-	// 6. Apply LIMIT/OFFSET
+	// 7. Apply LIMIT/OFFSET
 	if stmt.Limit != nil || stmt.Offset != nil {
 		node = &LimitNode{
 			Input:  node,
@@ -118,6 +127,41 @@ func extractAggregates(columns []parser.SelectColumn) []AggregateExpr {
 	}
 
 	return aggregates
+}
+
+// extractWindowFunctions extracts window function expressions from SELECT columns
+func extractWindowFunctions(columns []parser.SelectColumn) []WindowFunctionSpec {
+	var windowFuncs []WindowFunctionSpec
+
+	for _, col := range columns {
+		if col.Star {
+			continue
+		}
+
+		// Check if the column expression is a WindowFunction
+		if winFunc, ok := col.Expr.(*parser.WindowFunction); ok {
+			// Extract the function call from inside the window function
+			funcCall, ok := winFunc.Function.(*parser.FunctionCall)
+			if !ok {
+				continue
+			}
+
+			spec := WindowFunctionSpec{
+				FuncName: funcCall.Name,
+				Args:     funcCall.Args,
+			}
+
+			// Extract PARTITION BY and ORDER BY from window spec
+			if winFunc.Over != nil {
+				spec.PartitionBy = winFunc.Over.PartitionBy
+				spec.OrderBy = winFunc.Over.OrderBy
+			}
+
+			windowFuncs = append(windowFuncs, spec)
+		}
+	}
+
+	return windowFuncs
 }
 
 func buildTableReference(ref parser.TableReference, catalog *schema.Catalog) (PlanNode, error) {

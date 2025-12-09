@@ -282,3 +282,29 @@ func (n *CTEScanNode) EstimatedCost() float64 {
 func (n *CTEScanNode) EstimatedRows() int64 {
 	return n.Rows
 }
+
+// WindowFunctionSpec represents a window function in a query
+type WindowFunctionSpec struct {
+	FuncName    string              // e.g., "ROW_NUMBER", "RANK"
+	Args        []parser.Expression // Arguments to the function
+	PartitionBy []parser.Expression // PARTITION BY expressions
+	OrderBy     []parser.OrderByExpr // ORDER BY expressions within window
+}
+
+// WindowNode represents a window function operation
+type WindowNode struct {
+	Input           PlanNode             // Input plan
+	WindowFunctions []WindowFunctionSpec // Window functions to compute
+}
+
+func (n *WindowNode) EstimatedCost() float64 {
+	// Window function cost = child cost + sort cost + (rows * cost per window op)
+	const costPerWindowOp = 0.05
+	inputRows := float64(n.Input.EstimatedRows())
+	return n.Input.EstimatedCost() + (inputRows * costPerWindowOp)
+}
+
+func (n *WindowNode) EstimatedRows() int64 {
+	// Window functions don't change row count
+	return n.Input.EstimatedRows()
+}
