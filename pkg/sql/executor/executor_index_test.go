@@ -230,3 +230,103 @@ func TestCreateUniqueIndex_FailsOnDuplicates(t *testing.T) {
 		t.Error("Expected error when creating unique index on duplicate data")
 	}
 }
+
+// TestUniqueIndex_AllowsMultipleNulls tests that unique indexes allow
+// multiple NULL values (standard SQL behavior).
+func TestUniqueIndex_AllowsMultipleNulls(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create table with unique index
+	_, err := exec.Execute("CREATE TABLE users (id INT, email TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	_, err = exec.Execute("CREATE UNIQUE INDEX idx_email ON users (email)")
+	if err != nil {
+		t.Fatalf("CREATE UNIQUE INDEX: %v", err)
+	}
+
+	// Insert first row with NULL email - should succeed
+	_, err = exec.Execute("INSERT INTO users VALUES (1, NULL)")
+	if err != nil {
+		t.Fatalf("INSERT with NULL 1: %v", err)
+	}
+
+	// Insert second row with NULL email - should ALSO succeed (multiple NULLs allowed)
+	_, err = exec.Execute("INSERT INTO users VALUES (2, NULL)")
+	if err != nil {
+		t.Errorf("INSERT with NULL 2 should succeed but got: %v", err)
+	}
+
+	// Insert third row with NULL email - should also succeed
+	_, err = exec.Execute("INSERT INTO users VALUES (3, NULL)")
+	if err != nil {
+		t.Errorf("INSERT with NULL 3 should succeed but got: %v", err)
+	}
+
+	// But non-NULL duplicate should still fail
+	_, err = exec.Execute("INSERT INTO users VALUES (4, 'test@example.com')")
+	if err != nil {
+		t.Fatalf("INSERT with value: %v", err)
+	}
+
+	_, err = exec.Execute("INSERT INTO users VALUES (5, 'test@example.com')")
+	if err == nil {
+		t.Error("INSERT with duplicate non-NULL value should fail")
+	}
+}
+
+// TestUniqueIndex_MultiColumnWithNulls tests unique index behavior with
+// multiple columns where some are NULL.
+func TestUniqueIndex_MultiColumnWithNulls(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create table with multi-column unique index
+	_, err := exec.Execute("CREATE TABLE orders (id INT, customer_id INT, order_date TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	_, err = exec.Execute("CREATE UNIQUE INDEX idx_cust_date ON orders (customer_id, order_date)")
+	if err != nil {
+		t.Fatalf("CREATE UNIQUE INDEX: %v", err)
+	}
+
+	// Insert row with first column NULL
+	_, err = exec.Execute("INSERT INTO orders VALUES (1, NULL, '2024-01-01')")
+	if err != nil {
+		t.Fatalf("INSERT 1: %v", err)
+	}
+
+	// Insert another row with same first column NULL - should succeed (NULL != NULL)
+	_, err = exec.Execute("INSERT INTO orders VALUES (2, NULL, '2024-01-01')")
+	if err != nil {
+		t.Errorf("INSERT 2 with NULL should succeed but got: %v", err)
+	}
+
+	// Insert row with second column NULL
+	_, err = exec.Execute("INSERT INTO orders VALUES (3, 100, NULL)")
+	if err != nil {
+		t.Fatalf("INSERT 3: %v", err)
+	}
+
+	// Insert another row with same second column NULL - should succeed
+	_, err = exec.Execute("INSERT INTO orders VALUES (4, 100, NULL)")
+	if err != nil {
+		t.Errorf("INSERT 4 with NULL should succeed but got: %v", err)
+	}
+
+	// But fully non-NULL duplicates should still fail
+	_, err = exec.Execute("INSERT INTO orders VALUES (5, 200, '2024-02-01')")
+	if err != nil {
+		t.Fatalf("INSERT 5: %v", err)
+	}
+
+	_, err = exec.Execute("INSERT INTO orders VALUES (6, 200, '2024-02-01')")
+	if err == nil {
+		t.Error("INSERT with duplicate non-NULL values should fail")
+	}
+}

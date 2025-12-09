@@ -49,21 +49,40 @@ func (e *Executor) updateIndexes(table *schema.TableDef, rowID uint64, values []
 		var value []byte
 
 		if idx.Unique {
-			// Unique index: Key = Columns, Value = RowID
-			key = record.Encode(keyValues)
-
-			// Check for uniqueness
-			// Note: This check is optimistic. For full correctness in concurrent env,
-			// we rely on B-Tree locks or MVCC, but for now we check existence.
-			existingVal, err := tree.Get(key)
-			if err == nil && existingVal != nil {
-				return fmt.Errorf("unique constraint violation: index %s", idx.Name)
+			// Check if any column is NULL
+			// SQL standard: Multiple NULL values are allowed in unique indexes
+			hasNull := false
+			for _, kv := range keyValues {
+				if kv.IsNull() {
+					hasNull = true
+					break
+				}
 			}
 
-			// Encode RowID as value
-			buf := make([]byte, 8)
-			binary.BigEndian.PutUint64(buf, rowID)
-			value = buf
+			if hasNull {
+				// For rows with NULL values, we need to include rowID in key
+				// to allow multiple NULLs (since each gets a unique key)
+				keyValuesWithRowID := append([]types.Value{}, keyValues...)
+				keyValuesWithRowID = append(keyValuesWithRowID, types.NewInt(int64(rowID)))
+				key = record.Encode(keyValuesWithRowID)
+				// Value is empty since rowID is in the key
+				value = []byte{}
+			} else {
+				// Unique index with no NULLs: Key = Columns, Value = RowID
+				key = record.Encode(keyValues)
+
+				// Note: This check is optimistic. For full correctness in concurrent env,
+				// we rely on B-Tree locks or MVCC, but for now we check existence.
+				existingVal, err := tree.Get(key)
+				if err == nil && existingVal != nil {
+					return fmt.Errorf("unique constraint violation: index %s", idx.Name)
+				}
+
+				// Encode RowID as value
+				buf := make([]byte, 8)
+				binary.BigEndian.PutUint64(buf, rowID)
+				value = buf
+			}
 		} else {
 			// Non-unique index: Key = Columns + RowID, Value = empty
 			// Append RowID to key values to make it unique
@@ -117,8 +136,24 @@ func (e *Executor) deleteFromIndexes(table *schema.TableDef, rowID uint64, value
 		// Build key (same logic as updateIndexes)
 		var key []byte
 		if idx.Unique {
-			// Unique index: Key = Columns
-			key = record.Encode(keyValues)
+			// Check if any column is NULL
+			hasNull := false
+			for _, kv := range keyValues {
+				if kv.IsNull() {
+					hasNull = true
+					break
+				}
+			}
+
+			if hasNull {
+				// For rows with NULL values, rowID is part of the key
+				keyValuesWithRowID := append([]types.Value{}, keyValues...)
+				keyValuesWithRowID = append(keyValuesWithRowID, types.NewInt(int64(rowID)))
+				key = record.Encode(keyValuesWithRowID)
+			} else {
+				// Unique index with no NULLs: Key = Columns only
+				key = record.Encode(keyValues)
+			}
 		} else {
 			// Non-unique index: Key = Columns + RowID
 			keyValues = append(keyValues, types.NewInt(int64(rowID)))
