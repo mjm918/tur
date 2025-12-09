@@ -155,6 +155,17 @@ const (
 	FOLLOWING
 	CURRENT
 	ROW
+
+	// Trigger keywords
+	TRIGGER
+	BEFORE
+	AFTER
+	END
+
+	// RAISE function keywords
+	RAISE
+	ABORT
+	IGNORE
 )
 
 // Token represents a lexical token
@@ -387,6 +398,20 @@ func (t TokenType) String() string {
 		return "CURRENT"
 	case ROW:
 		return "ROW"
+	case TRIGGER:
+		return "TRIGGER"
+	case BEFORE:
+		return "BEFORE"
+	case AFTER:
+		return "AFTER"
+	case END:
+		return "END"
+	case RAISE:
+		return "RAISE"
+	case ABORT:
+		return "ABORT"
+	case IGNORE:
+		return "IGNORE"
 	default:
 		return "UNKNOWN"
 	}
@@ -482,6 +507,13 @@ var keywords = map[string]TokenType{
 	"FOLLOWING":   FOLLOWING,
 	"CURRENT":     CURRENT,
 	"ROW":         ROW,
+	"TRIGGER":     TRIGGER,
+	"BEFORE":      BEFORE,
+	"AFTER":       AFTER,
+	"END":         END,
+	"RAISE":       RAISE,
+	"ABORT":       ABORT,
+	"IGNORE":      IGNORE,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT

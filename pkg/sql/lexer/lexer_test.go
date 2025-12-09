@@ -480,3 +480,89 @@ func TestLexer_WindowFrameKeywords(t *testing.T) {
 		}
 	}
 }
+
+func TestLexer_TriggerKeywords(t *testing.T) {
+	input := "CREATE TRIGGER audit_insert BEFORE INSERT ON users BEGIN END"
+	expected := []struct {
+		typ     TokenType
+		literal string
+	}{
+		{CREATE, "CREATE"},
+		{TRIGGER, "TRIGGER"},
+		{IDENT, "audit_insert"},
+		{BEFORE, "BEFORE"},
+		{INSERT, "INSERT"},
+		{ON, "ON"},
+		{IDENT, "users"},
+		{BEGIN, "BEGIN"},
+		{END, "END"},
+		{EOF, ""},
+	}
+
+	l := New(input)
+	for i, exp := range expected {
+		tok := l.NextToken()
+		if tok.Type != exp.typ {
+			t.Errorf("token[%d]: type = %v, want %v (literal=%q)", i, tok.Type, exp.typ, tok.Literal)
+		}
+		if tok.Literal != exp.literal {
+			t.Errorf("token[%d]: literal = %q, want %q", i, tok.Literal, exp.literal)
+		}
+	}
+}
+
+func TestLexer_TriggerKeywords_AfterUpdate(t *testing.T) {
+	input := "AFTER UPDATE DELETE TRIGGER"
+	expected := []struct {
+		typ     TokenType
+		literal string
+	}{
+		{AFTER, "AFTER"},
+		{UPDATE, "UPDATE"},
+		{DELETE, "DELETE"},
+		{TRIGGER, "TRIGGER"},
+		{EOF, ""},
+	}
+
+	l := New(input)
+	for i, exp := range expected {
+		tok := l.NextToken()
+		if tok.Type != exp.typ {
+			t.Errorf("token[%d]: type = %v, want %v", i, tok.Type, exp.typ)
+		}
+		if tok.Literal != exp.literal {
+			t.Errorf("token[%d]: literal = %q, want %q", i, tok.Literal, exp.literal)
+		}
+	}
+}
+
+func TestLexer_RaiseKeywords(t *testing.T) {
+	input := "RAISE(ABORT, 'error message') RAISE(IGNORE)"
+	expected := []struct {
+		typ     TokenType
+		literal string
+	}{
+		{RAISE, "RAISE"},
+		{LPAREN, "("},
+		{ABORT, "ABORT"},
+		{COMMA, ","},
+		{STRING, "error message"},
+		{RPAREN, ")"},
+		{RAISE, "RAISE"},
+		{LPAREN, "("},
+		{IGNORE, "IGNORE"},
+		{RPAREN, ")"},
+		{EOF, ""},
+	}
+
+	l := New(input)
+	for i, exp := range expected {
+		tok := l.NextToken()
+		if tok.Type != exp.typ {
+			t.Errorf("token[%d]: type = %v, want %v (literal=%q)", i, tok.Type, exp.typ, tok.Literal)
+		}
+		if tok.Literal != exp.literal {
+			t.Errorf("token[%d]: literal = %q, want %q", i, tok.Literal, exp.literal)
+		}
+	}
+}
