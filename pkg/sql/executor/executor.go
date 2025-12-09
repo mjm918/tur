@@ -92,6 +92,12 @@ func (e *Executor) Execute(sql string) (*Result, error) {
 		return e.executeCommit(s)
 	case *parser.RollbackStmt:
 		return e.executeRollback(s)
+	case *parser.SavepointStmt:
+		return e.executeSavepoint(s)
+	case *parser.RollbackToStmt:
+		return e.executeRollbackTo(s)
+	case *parser.ReleaseStmt:
+		return e.executeRelease(s)
 	case *parser.SetOperation:
 		return e.executeSetOperation(s)
 	case *parser.CreateViewStmt:
@@ -2375,6 +2381,51 @@ func (e *Executor) executeRollback(_ *parser.RollbackStmt) (*Result, error) {
 	return &Result{}, nil
 }
 
+// executeSavepoint handles SAVEPOINT savepoint_name
+func (e *Executor) executeSavepoint(stmt *parser.SavepointStmt) (*Result, error) {
+	// Check if there's an active transaction
+	if !e.HasActiveTransaction() {
+		return nil, fmt.Errorf("cannot create savepoint: no transaction is active")
+	}
+
+	// Create savepoint in the transaction
+	if err := e.currentTx.Savepoint(stmt.Name); err != nil {
+		return nil, fmt.Errorf("savepoint failed: %w", err)
+	}
+
+	return &Result{}, nil
+}
+
+// executeRollbackTo handles ROLLBACK TO [SAVEPOINT] savepoint_name
+func (e *Executor) executeRollbackTo(stmt *parser.RollbackToStmt) (*Result, error) {
+	// Check if there's an active transaction
+	if !e.HasActiveTransaction() {
+		return nil, fmt.Errorf("cannot rollback to savepoint: no transaction is active")
+	}
+
+	// Rollback to the savepoint
+	if err := e.currentTx.RollbackTo(stmt.Name); err != nil {
+		return nil, fmt.Errorf("rollback to savepoint failed: %w", err)
+	}
+
+	return &Result{}, nil
+}
+
+// executeRelease handles RELEASE [SAVEPOINT] savepoint_name
+func (e *Executor) executeRelease(stmt *parser.ReleaseStmt) (*Result, error) {
+	// Check if there's an active transaction
+	if !e.HasActiveTransaction() {
+		return nil, fmt.Errorf("cannot release savepoint: no transaction is active")
+	}
+
+	// Release the savepoint
+	if err := e.currentTx.Release(stmt.Name); err != nil {
+		return nil, fmt.Errorf("release savepoint failed: %w", err)
+	}
+
+	return &Result{}, nil
+}
+
 // executeSetOperation handles UNION, INTERSECT, EXCEPT operations
 func (e *Executor) executeSetOperation(stmt *parser.SetOperation) (*Result, error) {
 	// Execute left and right SELECT statements
@@ -2621,14 +2672,14 @@ func (e *Executor) executeExplainBytecode(stmt *parser.ExplainStmt) (*Result, er
 		comment := e.generateOpcodeComment(instr)
 
 		row := []types.Value{
-			types.NewInt(int64(i)),             // addr
-			types.NewText(instr.Op.String()),   // opcode
-			types.NewInt(int64(instr.P1)),      // p1
-			types.NewInt(int64(instr.P2)),      // p2
-			types.NewInt(int64(instr.P3)),      // p3
-			types.NewText(p4Str),               // p4
-			types.NewInt(int64(instr.P5)),      // p5
-			types.NewText(comment),             // comment
+			types.NewInt(int64(i)),           // addr
+			types.NewText(instr.Op.String()), // opcode
+			types.NewInt(int64(instr.P1)),    // p1
+			types.NewInt(int64(instr.P2)),    // p2
+			types.NewInt(int64(instr.P3)),    // p3
+			types.NewText(p4Str),             // p4
+			types.NewInt(int64(instr.P5)),    // p5
+			types.NewText(comment),           // comment
 		}
 		result.Rows = append(result.Rows, row)
 	}

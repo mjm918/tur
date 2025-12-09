@@ -139,6 +139,10 @@ const (
 	EXPLAIN
 	QUERY
 	PLAN
+
+	// Savepoint keywords
+	SAVEPOINT
+	RELEASE
 )
 
 // Token represents a lexical token
@@ -347,6 +351,10 @@ func (t TokenType) String() string {
 		return "QUERY"
 	case PLAN:
 		return "PLAN"
+	case SAVEPOINT:
+		return "SAVEPOINT"
+	case RELEASE:
+		return "RELEASE"
 	default:
 		return "UNKNOWN"
 	}
@@ -427,6 +435,8 @@ var keywords = map[string]TokenType{
 	"WITH":        WITH,
 	"RECURSIVE":   RECURSIVE,
 	"VIEW":        VIEW,
+	"SAVEPOINT":   SAVEPOINT,
+	"RELEASE":     RELEASE,
 	"EXPLAIN":     EXPLAIN,
 	"QUERY":       QUERY,
 	"PLAN":        PLAN,

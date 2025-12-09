@@ -60,6 +60,10 @@ func (p *Parser) Parse() (Statement, error) {
 		return p.parseRollback()
 	case lexer.EXPLAIN:
 		return p.parseExplain()
+	case lexer.SAVEPOINT:
+		return p.parseSavepoint()
+	case lexer.RELEASE:
+		return p.parseRelease()
 	default:
 		return nil, fmt.Errorf("unexpected token: %s", p.cur.Literal)
 	}
@@ -1802,14 +1806,50 @@ func (p *Parser) parseCommit() (*CommitStmt, error) {
 	return &CommitStmt{}, nil
 }
 
-// parseRollback parses: ROLLBACK [TRANSACTION]
-func (p *Parser) parseRollback() (*RollbackStmt, error) {
-	// consume ROLLBACK
+// parseRollback parses: ROLLBACK [TRANSACTION] or ROLLBACK TO [SAVEPOINT] name
+func (p *Parser) parseRollback() (Statement, error) {
+	// Check if this is ROLLBACK TO [SAVEPOINT] name
+	if p.peekIs(lexer.TO) {
+		p.nextToken() // consume TO
+		// Optional SAVEPOINT keyword
+		if p.peekIs(lexer.SAVEPOINT) {
+			p.nextToken() // consume SAVEPOINT
+		}
+		// Expect savepoint name
+		if !p.expectPeek(lexer.IDENT) {
+			return nil, fmt.Errorf("expected savepoint name after ROLLBACK TO, got %s", p.peek.Literal)
+		}
+		return &RollbackToStmt{Name: p.cur.Literal}, nil
+	}
+
+	// Regular ROLLBACK [TRANSACTION]
 	// Optional TRANSACTION keyword
 	if p.peekIs(lexer.TRANSACTION) {
 		p.nextToken()
 	}
 	return &RollbackStmt{}, nil
+}
+
+// parseSavepoint parses: SAVEPOINT savepoint_name
+func (p *Parser) parseSavepoint() (*SavepointStmt, error) {
+	// consume SAVEPOINT, expect identifier
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected savepoint name after SAVEPOINT, got %s", p.peek.Literal)
+	}
+	return &SavepointStmt{Name: p.cur.Literal}, nil
+}
+
+// parseRelease parses: RELEASE [SAVEPOINT] savepoint_name
+func (p *Parser) parseRelease() (*ReleaseStmt, error) {
+	// Optional SAVEPOINT keyword
+	if p.peekIs(lexer.SAVEPOINT) {
+		p.nextToken() // consume SAVEPOINT
+	}
+	// Expect savepoint name
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected savepoint name after RELEASE, got %s", p.peek.Literal)
+	}
+	return &ReleaseStmt{Name: p.cur.Literal}, nil
 }
 
 // parseWith parses: WITH [RECURSIVE] cte_name AS (SELECT ...), ... SELECT ...

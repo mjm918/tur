@@ -81,7 +81,8 @@
       "Bash(git -C /Users/julfikar/Documents/PassionFruit.nosync/tur diff pkg/sql/executor/executor.go)",
       "Bash(git -C /Users/julfikar/Documents/PassionFruit.nosync/tur commit -m \"$(cat <<''EOF''\nfix(executor): correct incremental statistics updates for INSERT/DELETE\n\n- Add incrementTableRowCount call to executeInsert (was missing after merge)\n- Fix executeDelete to use negative delta for row count decrement\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
       "Bash(git -C /Users/julfikar/Documents/PassionFruit.nosync/tur worktree remove /Users/julfikar/Documents/PassionFruit.nosync/tur-feature-sql-statistics-collection)",
-      "Bash(git -C /Users/julfikar/Documents/PassionFruit.nosync/tur worktree remove /Users/julfikar/Documents/PassionFruit.nosync/tur-feature-begin-commit-rollback)"
+      "Bash(git -C /Users/julfikar/Documents/PassionFruit.nosync/tur worktree remove /Users/julfikar/Documents/PassionFruit.nosync/tur-feature-begin-commit-rollback)",
+      "Bash(/bin/pwd:*)"
     ],
     "deny": [],
     "ask": []
