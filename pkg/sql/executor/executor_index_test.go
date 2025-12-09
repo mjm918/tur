@@ -358,8 +358,9 @@ func TestCreatePartialIndex(t *testing.T) {
 		t.Error("IsPartial() = false, want true")
 	}
 
-	if idx.WhereClause != "active = 1" {
-		t.Errorf("WhereClause = %q, want 'active = 1'", idx.WhereClause)
+	// Note: exprToString wraps binary expressions in parentheses
+	if idx.WhereClause != "(active = 1)" {
+		t.Errorf("WhereClause = %q, want '(active = 1)'", idx.WhereClause)
 	}
 }
 
@@ -423,8 +424,9 @@ func TestCreateUniquePartialIndex(t *testing.T) {
 		t.Error("IsPartial() = false, want true")
 	}
 
-	if idx.WhereClause != "deleted = 0" {
-		t.Errorf("WhereClause = %q, want 'deleted = 0'", idx.WhereClause)
+	// Note: exprToString wraps binary expressions in parentheses
+	if idx.WhereClause != "(deleted = 0)" {
+		t.Errorf("WhereClause = %q, want '(deleted = 0)'", idx.WhereClause)
 	}
 }
 
