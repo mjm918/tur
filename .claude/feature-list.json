@@ -1374,31 +1374,31 @@
     {
       "title": "Vector Extensions - vector_quantize()",
       "description": "Function to build HNSW index on a VECTOR column",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Register vector_quantize as scalar function",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse table and column name parameters",
-          "done": false
+          "done": true
         },
         {
           "task": "Scan table to collect all vectors from column",
-          "done": false
+          "done": true
         },
         {
           "task": "Build HNSW index with vectors",
-          "done": false
+          "done": true
         },
         {
           "task": "Store index metadata in schema catalog",
-          "done": false
+          "done": true
         },
         {
           "task": "Return number of vectors indexed",
-          "done": false
+          "done": true
         }
       ]
     },
