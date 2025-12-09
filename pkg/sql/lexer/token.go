@@ -131,6 +131,9 @@ const (
 	// CTE keywords
 	WITH
 	RECURSIVE
+
+	// View keywords
+	VIEW
 )
 
 // Token represents a lexical token
@@ -331,6 +334,8 @@ func (t TokenType) String() string {
 		return "WITH"
 	case RECURSIVE:
 		return "RECURSIVE"
+	case VIEW:
+		return "VIEW"
 	default:
 		return "UNKNOWN"
 	}
@@ -410,6 +415,7 @@ var keywords = map[string]TokenType{
 	"TRANSACTION": TRANSACTION,
 	"WITH":        WITH,
 	"RECURSIVE":   RECURSIVE,
+	"VIEW":        VIEW,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT

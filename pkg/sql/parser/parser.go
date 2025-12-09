@@ -63,7 +63,7 @@ func (p *Parser) Parse() (Statement, error) {
 	}
 }
 
-// parseCreate handles CREATE TABLE and CREATE INDEX statements
+// parseCreate handles CREATE TABLE, CREATE INDEX, and CREATE VIEW statements
 func (p *Parser) parseCreate() (Statement, error) {
 	p.nextToken() // consume CREATE
 
@@ -78,8 +78,23 @@ func (p *Parser) parseCreate() (Statement, error) {
 			return nil, fmt.Errorf("expected INDEX after UNIQUE, got %s", p.peek.Literal)
 		}
 		return p.parseCreateIndex(true)
+	case lexer.VIEW:
+		return p.parseCreateView(false)
+	case lexer.IF:
+		// CREATE IF NOT EXISTS VIEW (SQLite extension)
+		if !p.expectPeek(lexer.NOT) {
+			return nil, fmt.Errorf("expected NOT after IF, got %s", p.peek.Literal)
+		}
+		if !p.expectPeek(lexer.EXISTS) {
+			return nil, fmt.Errorf("expected EXISTS after NOT, got %s", p.peek.Literal)
+		}
+		if p.peekIs(lexer.VIEW) {
+			p.nextToken() // consume VIEW
+			return p.parseCreateView(true)
+		}
+		return nil, fmt.Errorf("expected VIEW after IF NOT EXISTS, got %s", p.peek.Literal)
 	default:
-		return nil, fmt.Errorf("expected TABLE, INDEX, or UNIQUE after CREATE, got %s", p.cur.Literal)
+		return nil, fmt.Errorf("expected TABLE, INDEX, VIEW, or UNIQUE after CREATE, got %s", p.cur.Literal)
 	}
 }
 
@@ -1860,4 +1875,61 @@ func (p *Parser) parseCTE() (CTE, error) {
 	}
 
 	return cte, nil
+}
+
+// parseCreateView parses: VIEW [IF NOT EXISTS] view_name [(columns)] AS SELECT ...
+// Called after CREATE [IF NOT EXISTS] VIEW has been consumed
+func (p *Parser) parseCreateView(ifNotExists bool) (*CreateViewStmt, error) {
+	stmt := &CreateViewStmt{IfNotExists: ifNotExists}
+
+	// Check for IF NOT EXISTS when it comes after VIEW
+	// e.g., CREATE VIEW IF NOT EXISTS my_view AS ...
+	if p.peekIs(lexer.IF) {
+		p.nextToken() // consume IF
+		if !p.expectPeek(lexer.NOT) {
+			return nil, fmt.Errorf("expected NOT after IF, got %s", p.peek.Literal)
+		}
+		if !p.expectPeek(lexer.EXISTS) {
+			return nil, fmt.Errorf("expected EXISTS after NOT, got %s", p.peek.Literal)
+		}
+		stmt.IfNotExists = true
+	}
+
+	// View name
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected view name, got %s", p.peek.Literal)
+	}
+	stmt.ViewName = p.cur.Literal
+
+	// Optional column list: (col1, col2, ...)
+	if p.peekIs(lexer.LPAREN) {
+		p.nextToken() // consume (
+		cols, err := p.parseIdentList()
+		if err != nil {
+			return nil, fmt.Errorf("parsing view column list: %w", err)
+		}
+		stmt.Columns = cols
+		if !p.expectPeek(lexer.RPAREN) {
+			return nil, fmt.Errorf("expected ')' after view column list")
+		}
+	}
+
+	// AS keyword
+	if !p.expectPeek(lexer.AS_KW) {
+		return nil, fmt.Errorf("expected AS after view name, got %s", p.peek.Literal)
+	}
+
+	// SELECT statement
+	if !p.expectPeek(lexer.SELECT) {
+		return nil, fmt.Errorf("expected SELECT after AS, got %s", p.peek.Literal)
+	}
+	p.nextToken() // move to columns
+
+	selectStmt, err := p.parseSelectBody()
+	if err != nil {
+		return nil, fmt.Errorf("parsing view SELECT: %w", err)
+	}
+	stmt.Query = selectStmt
+
+	return stmt, nil
 }

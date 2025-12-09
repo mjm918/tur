@@ -2175,3 +2175,84 @@ func TestParser_CTE_MultipleCTEs(t *testing.T) {
 		t.Errorf("CTE[1] name = %q, want 'cte2'", cte2.Name)
 	}
 }
+
+// CREATE VIEW tests
+
+func TestParser_CreateView_Simple(t *testing.T) {
+	input := "CREATE VIEW active_users AS SELECT id, name FROM users WHERE active = 1"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	view, ok := stmt.(*CreateViewStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateViewStmt, got %T", stmt)
+	}
+
+	if view.ViewName != "active_users" {
+		t.Errorf("ViewName = %q, want 'active_users'", view.ViewName)
+	}
+
+	if view.Query == nil {
+		t.Fatal("Query is nil, expected SelectStmt")
+	}
+
+	// Verify the SELECT has the expected structure
+	if len(view.Query.Columns) != 2 {
+		t.Errorf("Query columns = %d, want 2", len(view.Query.Columns))
+	}
+}
+
+func TestParser_CreateView_WithColumnList(t *testing.T) {
+	input := "CREATE VIEW user_summary (user_id, user_name) AS SELECT id, name FROM users"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	view, ok := stmt.(*CreateViewStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateViewStmt, got %T", stmt)
+	}
+
+	if view.ViewName != "user_summary" {
+		t.Errorf("ViewName = %q, want 'user_summary'", view.ViewName)
+	}
+
+	if len(view.Columns) != 2 {
+		t.Fatalf("Columns count = %d, want 2", len(view.Columns))
+	}
+
+	if view.Columns[0] != "user_id" {
+		t.Errorf("Columns[0] = %q, want 'user_id'", view.Columns[0])
+	}
+
+	if view.Columns[1] != "user_name" {
+		t.Errorf("Columns[1] = %q, want 'user_name'", view.Columns[1])
+	}
+}
+
+func TestParser_CreateView_IfNotExists(t *testing.T) {
+	input := "CREATE VIEW IF NOT EXISTS my_view AS SELECT * FROM data"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	view, ok := stmt.(*CreateViewStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateViewStmt, got %T", stmt)
+	}
+
+	if view.ViewName != "my_view" {
+		t.Errorf("ViewName = %q, want 'my_view'", view.ViewName)
+	}
+
+	if !view.IfNotExists {
+		t.Error("IfNotExists = false, want true")
+	}
+}

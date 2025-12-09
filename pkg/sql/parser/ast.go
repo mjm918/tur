@@ -443,3 +443,13 @@ func (s *CommitStmt) statementNode() {}
 type RollbackStmt struct{}
 
 func (s *RollbackStmt) statementNode() {}
+
+// CreateViewStmt represents a CREATE VIEW statement
+type CreateViewStmt struct {
+	ViewName    string      // Name of the view
+	Columns     []string    // Optional column name list
+	Query       *SelectStmt // The SELECT statement defining the view
+	IfNotExists bool        // IF NOT EXISTS clause
+}
+
+func (s *CreateViewStmt) statementNode() {}
