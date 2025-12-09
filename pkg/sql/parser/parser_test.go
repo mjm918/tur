@@ -2593,3 +2593,103 @@ func TestParser_WindowFunction_WithPartitionBy(t *testing.T) {
 		t.Fatalf("OrderBy count = %d, want 1", len(winFunc.Over.OrderBy))
 	}
 }
+
+func TestParser_WindowFunction_LAG_Basic(t *testing.T) {
+	input := "SELECT id, value, LAG(value) OVER (ORDER BY id) FROM data"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel, ok := stmt.(*SelectStmt)
+	if !ok {
+		t.Fatalf("Expected *SelectStmt, got %T", stmt)
+	}
+
+	if len(sel.Columns) != 3 {
+		t.Fatalf("Columns count = %d, want 3", len(sel.Columns))
+	}
+
+	// Third column should be a WindowFunction
+	wf, ok := sel.Columns[2].Expr.(*WindowFunction)
+	if !ok {
+		t.Fatalf("Column[2].Expr type = %T, want *WindowFunction", sel.Columns[2].Expr)
+	}
+
+	// Check that the function is LAG
+	funcCall, ok := wf.Function.(*FunctionCall)
+	if !ok {
+		t.Fatalf("WindowFunction.Function type = %T, want *FunctionCall", wf.Function)
+	}
+	if funcCall.Name != "LAG" {
+		t.Errorf("Function name = %q, want 'LAG'", funcCall.Name)
+	}
+
+	// Check OVER clause has ORDER BY
+	if wf.Over == nil {
+		t.Fatal("WindowFunction.Over is nil")
+	}
+	if len(wf.Over.OrderBy) != 1 {
+		t.Errorf("OrderBy count = %d, want 1", len(wf.Over.OrderBy))
+	}
+}
+
+func TestParser_WindowFunction_LAG_WithPartition(t *testing.T) {
+	input := "SELECT category, value, LAG(value, 1, 0) OVER (PARTITION BY category ORDER BY id) FROM data"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel, ok := stmt.(*SelectStmt)
+	if !ok {
+		t.Fatalf("Expected *SelectStmt, got %T", stmt)
+	}
+
+	// Third column should be a WindowFunction
+	wf, ok := sel.Columns[2].Expr.(*WindowFunction)
+	if !ok {
+		t.Fatalf("Column[2].Expr type = %T, want *WindowFunction", sel.Columns[2].Expr)
+	}
+
+	// Check LAG has 3 arguments
+	funcCall := wf.Function.(*FunctionCall)
+	if len(funcCall.Args) != 3 {
+		t.Errorf("LAG args count = %d, want 3", len(funcCall.Args))
+	}
+
+	// Check OVER clause has PARTITION BY and ORDER BY
+	if len(wf.Over.PartitionBy) != 1 {
+		t.Errorf("PartitionBy count = %d, want 1", len(wf.Over.PartitionBy))
+	}
+	if len(wf.Over.OrderBy) != 1 {
+		t.Errorf("OrderBy count = %d, want 1", len(wf.Over.OrderBy))
+	}
+}
+
+func TestParser_WindowFunction_LEAD(t *testing.T) {
+	input := "SELECT LEAD(value) OVER (ORDER BY id DESC) FROM data"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel := stmt.(*SelectStmt)
+	wf, ok := sel.Columns[0].Expr.(*WindowFunction)
+	if !ok {
+		t.Fatalf("Column[0].Expr type = %T, want *WindowFunction", sel.Columns[0].Expr)
+	}
+
+	funcCall := wf.Function.(*FunctionCall)
+	if funcCall.Name != "LEAD" {
+		t.Errorf("Function name = %q, want 'LEAD'", funcCall.Name)
+	}
+
+	// Check ORDER BY has DESC direction
+	if wf.Over.OrderBy[0].Direction != OrderDesc {
+		t.Errorf("OrderBy direction = %v, want OrderDesc", wf.Over.OrderBy[0].Direction)
+	}
+}

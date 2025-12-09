@@ -1987,3 +1987,183 @@ func TestExecutor_DropView_IfExists(t *testing.T) {
 		t.Fatalf("DROP VIEW IF EXISTS should not error: %v", err)
 	}
 }
+
+func TestExecutor_WindowFunction_LAG_Basic(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create table and insert data
+	_, err := exec.Execute("CREATE TABLE data (id INT, value INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Insert rows with sequential values
+	exec.Execute("INSERT INTO data (id, value) VALUES (1, 10)")
+	exec.Execute("INSERT INTO data (id, value) VALUES (2, 20)")
+	exec.Execute("INSERT INTO data (id, value) VALUES (3, 30)")
+	exec.Execute("INSERT INTO data (id, value) VALUES (4, 40)")
+	exec.Execute("INSERT INTO data (id, value) VALUES (5, 50)")
+
+	// Execute window function query
+	result, err := exec.Execute("SELECT id, value, LAG(value) OVER (ORDER BY id) FROM data")
+	if err != nil {
+		t.Fatalf("SELECT with LAG: %v", err)
+	}
+
+	// Expected: first row LAG is NULL, then previous values
+	// id=1: LAG=NULL, id=2: LAG=10, id=3: LAG=20, id=4: LAG=30, id=5: LAG=40
+	if len(result.Rows) != 5 {
+		t.Fatalf("Got %d rows, want 5", len(result.Rows))
+	}
+
+	// First row LAG should be NULL
+	if !result.Rows[0][2].IsNull() {
+		t.Errorf("Row 0 LAG: got %v, want NULL", result.Rows[0][2])
+	}
+
+	// Second row LAG should be 10 (previous value)
+	if result.Rows[1][2].Int() != 10 {
+		t.Errorf("Row 1 LAG: got %v, want 10", result.Rows[1][2])
+	}
+}
+
+func TestExecutor_WindowFunction_LEAD_Basic(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE data (id INT, value INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Insert rows
+	exec.Execute("INSERT INTO data (id, value) VALUES (1, 10)")
+	exec.Execute("INSERT INTO data (id, value) VALUES (2, 20)")
+	exec.Execute("INSERT INTO data (id, value) VALUES (3, 30)")
+	exec.Execute("INSERT INTO data (id, value) VALUES (4, 40)")
+	exec.Execute("INSERT INTO data (id, value) VALUES (5, 50)")
+
+	// Execute LEAD window function
+	result, err := exec.Execute("SELECT id, value, LEAD(value) OVER (ORDER BY id) FROM data")
+	if err != nil {
+		t.Fatalf("SELECT with LEAD: %v", err)
+	}
+
+	// Expected: last row LEAD is NULL, otherwise next values
+	// id=1: LEAD=20, id=2: LEAD=30, id=3: LEAD=40, id=4: LEAD=50, id=5: LEAD=NULL
+	if len(result.Rows) != 5 {
+		t.Fatalf("Got %d rows, want 5", len(result.Rows))
+	}
+
+	// First row LEAD should be 20 (next value)
+	if result.Rows[0][2].Int() != 20 {
+		t.Errorf("Row 0 LEAD: got %v, want 20", result.Rows[0][2])
+	}
+
+	// Last row LEAD should be NULL
+	if !result.Rows[4][2].IsNull() {
+		t.Errorf("Row 4 LEAD: got %v, want NULL", result.Rows[4][2])
+	}
+}
+
+func TestExecutor_WindowFunction_LAG_WithOffset(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE data (id INT, value INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Insert rows
+	exec.Execute("INSERT INTO data (id, value) VALUES (1, 10)")
+	exec.Execute("INSERT INTO data (id, value) VALUES (2, 20)")
+	exec.Execute("INSERT INTO data (id, value) VALUES (3, 30)")
+	exec.Execute("INSERT INTO data (id, value) VALUES (4, 40)")
+	exec.Execute("INSERT INTO data (id, value) VALUES (5, 50)")
+
+	// LAG with offset 2
+	result, err := exec.Execute("SELECT id, value, LAG(value, 2) OVER (ORDER BY id) FROM data")
+	if err != nil {
+		t.Fatalf("SELECT with LAG offset: %v", err)
+	}
+
+	// First two rows should be NULL, then values from 2 rows back
+	if !result.Rows[0][2].IsNull() || !result.Rows[1][2].IsNull() {
+		t.Errorf("First two rows should have NULL LAG with offset 2")
+	}
+
+	// Third row should have value from row 1 (10)
+	if result.Rows[2][2].Int() != 10 {
+		t.Errorf("Row 2 LAG(2): got %v, want 10", result.Rows[2][2])
+	}
+}
+
+func TestExecutor_WindowFunction_LAG_WithDefault(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE data (id INT, value INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Insert rows
+	exec.Execute("INSERT INTO data (id, value) VALUES (1, 10)")
+	exec.Execute("INSERT INTO data (id, value) VALUES (2, 20)")
+	exec.Execute("INSERT INTO data (id, value) VALUES (3, 30)")
+
+	// LAG with default value
+	result, err := exec.Execute("SELECT id, value, LAG(value, 1, 0) OVER (ORDER BY id) FROM data")
+	if err != nil {
+		t.Fatalf("SELECT with LAG default: %v", err)
+	}
+
+	// First row should return default (0) instead of NULL
+	if result.Rows[0][2].Int() != 0 {
+		t.Errorf("Row 0 LAG with default: got %v, want 0", result.Rows[0][2])
+	}
+
+	// Second row should return previous value
+	if result.Rows[1][2].Int() != 10 {
+		t.Errorf("Row 1 LAG: got %v, want 10", result.Rows[1][2])
+	}
+}
+
+func TestExecutor_WindowFunction_LAG_WithPartition(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE data (category TEXT, id INT, value INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Insert rows with two categories
+	exec.Execute("INSERT INTO data (category, id, value) VALUES ('A', 1, 10)")
+	exec.Execute("INSERT INTO data (category, id, value) VALUES ('A', 2, 20)")
+	exec.Execute("INSERT INTO data (category, id, value) VALUES ('B', 1, 100)")
+	exec.Execute("INSERT INTO data (category, id, value) VALUES ('B', 2, 200)")
+
+	// LAG with PARTITION BY
+	result, err := exec.Execute("SELECT category, id, value, LAG(value) OVER (PARTITION BY category ORDER BY id) FROM data")
+	if err != nil {
+		t.Fatalf("SELECT with LAG PARTITION: %v", err)
+	}
+
+	if len(result.Rows) != 4 {
+		t.Fatalf("Got %d rows, want 4", len(result.Rows))
+	}
+
+	// First row of each partition should have NULL LAG
+	// Find rows where id=1 and check LAG is NULL
+	for _, row := range result.Rows {
+		if row[1].Int() == 1 { // First in partition
+			if !row[3].IsNull() {
+				t.Errorf("First row of partition %v should have NULL LAG, got %v",
+					row[0].Text(), row[3])
+			}
+		}
+	}
+}

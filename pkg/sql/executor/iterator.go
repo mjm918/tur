@@ -2,6 +2,8 @@ package executor
 
 import (
 	"fmt"
+	"sort"
+
 	"tur/pkg/btree"
 	"tur/pkg/record"
 	"tur/pkg/sql/parser"
@@ -1295,5 +1297,365 @@ func (it *WindowIterator) computeDenseRank(partition []partitionEntry, orderBy [
 func (it *WindowIterator) computeRowNumber(partition []partitionEntry, windowValues [][]types.Value, wfIdx int) {
 	for i, entry := range partition {
 		windowValues[entry.originalIndex][wfIdx] = types.NewInt(int64(i + 1))
+	}
+}
+
+// WindowFunctionIterator computes window functions over a set of rows
+// It materializes all input rows, sorts/partitions them, and computes window function values
+type WindowFunctionIterator struct {
+	executor       *Executor
+	expressions    []parser.Expression      // All SELECT expressions
+	windowFuncs    []*parser.WindowFunction // Window functions to compute
+	colMap         map[string]int           // Input column mapping
+	inputRows      [][]types.Value          // Materialized input rows
+	computedRows   [][]types.Value          // Output rows with computed window values
+	index          int                      // Current row index
+	prepared       bool                     // Whether we've computed window values
+}
+
+func NewWindowFunctionIterator(
+	child RowIterator,
+	expressions []parser.Expression,
+	windowFuncs []*parser.WindowFunction,
+	colMap map[string]int,
+	executor *Executor,
+) *WindowFunctionIterator {
+	// Materialize all input rows
+	var inputRows [][]types.Value
+	for child.Next() {
+		row := child.Value()
+		rowCopy := make([]types.Value, len(row))
+		copy(rowCopy, row)
+		inputRows = append(inputRows, rowCopy)
+	}
+	child.Close()
+
+	return &WindowFunctionIterator{
+		executor:    executor,
+		expressions: expressions,
+		windowFuncs: windowFuncs,
+		colMap:      colMap,
+		inputRows:   inputRows,
+		index:       -1,
+		prepared:    false,
+	}
+}
+
+func (it *WindowFunctionIterator) Next() bool {
+	if !it.prepared {
+		it.computeWindowValues()
+		it.prepared = true
+	}
+
+	it.index++
+	return it.index < len(it.computedRows)
+}
+
+func (it *WindowFunctionIterator) Value() []types.Value {
+	if it.index >= 0 && it.index < len(it.computedRows) {
+		return it.computedRows[it.index]
+	}
+	return nil
+}
+
+func (it *WindowFunctionIterator) Close() {
+	// Nothing to close, data is in memory
+}
+
+// computeWindowValues computes window function values for all rows
+func (it *WindowFunctionIterator) computeWindowValues() {
+	if len(it.inputRows) == 0 {
+		return
+	}
+
+	// For each window function, we need to:
+	// 1. Sort rows by PARTITION BY + ORDER BY
+	// 2. For each partition, compute the window function values
+	// 3. Map these values back to the output rows
+
+	// For simplicity, we'll handle one window function at a time
+	// (In a full implementation, window functions with the same spec would be combined)
+
+	// Pre-compute window function results for each row
+	// Map from original row index to window function results
+	windowResults := make([]map[int]types.Value, len(it.inputRows))
+	for i := range windowResults {
+		windowResults[i] = make(map[int]types.Value)
+	}
+
+	// Process each window function
+	for wfIdx, wf := range it.windowFuncs {
+		it.computeSingleWindowFunction(wf, wfIdx, windowResults)
+	}
+
+	// Build output rows by evaluating all expressions
+	it.computedRows = make([][]types.Value, len(it.inputRows))
+	for i, inputRow := range it.inputRows {
+		outputRow := make([]types.Value, len(it.expressions))
+		for j, expr := range it.expressions {
+			// Check if this is a window function
+			if wf, ok := expr.(*parser.WindowFunction); ok {
+				// Find which window function index this is
+				for wfIdx, wf2 := range it.windowFuncs {
+					if wf == wf2 {
+						outputRow[j] = windowResults[i][wfIdx]
+						break
+					}
+				}
+			} else {
+				// Regular expression - evaluate against input row
+				val, err := it.executor.evaluateExpr(expr, inputRow, it.colMap)
+				if err != nil {
+					outputRow[j] = types.NewNull()
+				} else {
+					outputRow[j] = val
+				}
+			}
+		}
+		it.computedRows[i] = outputRow
+	}
+}
+
+// computeSingleWindowFunction computes values for a single window function across all rows
+func (it *WindowFunctionIterator) computeSingleWindowFunction(
+	wf *parser.WindowFunction,
+	wfIdx int,
+	windowResults []map[int]types.Value,
+) {
+	// Get the function call inside the window function
+	funcCall, ok := wf.Function.(*parser.FunctionCall)
+	if !ok {
+		// Not a function call, set NULL for all rows
+		for i := range windowResults {
+			windowResults[i][wfIdx] = types.NewNull()
+		}
+		return
+	}
+
+	funcName := funcCall.Name
+
+	// Create sorted indices based on window spec
+	sortedIndices := it.sortRowsForWindow(wf.Over)
+
+	// Compute values based on function type
+	switch funcName {
+	case "LAG":
+		it.computeLag(funcCall, wf.Over, sortedIndices, wfIdx, windowResults)
+	case "LEAD":
+		it.computeLead(funcCall, wf.Over, sortedIndices, wfIdx, windowResults)
+	default:
+		// Unknown window function, set NULL
+		for i := range windowResults {
+			windowResults[i][wfIdx] = types.NewNull()
+		}
+	}
+}
+
+// sortRowsForWindow returns indices of rows sorted according to window spec
+func (it *WindowFunctionIterator) sortRowsForWindow(spec *parser.WindowSpec) []int {
+	indices := make([]int, len(it.inputRows))
+	for i := range indices {
+		indices[i] = i
+	}
+
+	if spec == nil {
+		return indices
+	}
+
+	// Sort by PARTITION BY columns first, then ORDER BY columns
+	sort.Slice(indices, func(a, b int) bool {
+		rowA := it.inputRows[indices[a]]
+		rowB := it.inputRows[indices[b]]
+
+		// Compare by PARTITION BY
+		for _, partExpr := range spec.PartitionBy {
+			valA, _ := it.executor.evaluateExpr(partExpr, rowA, it.colMap)
+			valB, _ := it.executor.evaluateExpr(partExpr, rowB, it.colMap)
+			cmp := it.executor.compareValues(valA, valB)
+			if cmp != 0 {
+				return cmp < 0
+			}
+		}
+
+		// Compare by ORDER BY
+		for _, ob := range spec.OrderBy {
+			valA, _ := it.executor.evaluateExpr(ob.Expr, rowA, it.colMap)
+			valB, _ := it.executor.evaluateExpr(ob.Expr, rowB, it.colMap)
+			cmp := it.executor.compareValues(valA, valB)
+			if cmp != 0 {
+				if ob.Direction == parser.OrderDesc {
+					return cmp > 0
+				}
+				return cmp < 0
+			}
+		}
+
+		return false
+	})
+
+	return indices
+}
+
+// computeLag computes LAG(expr, offset, default) for each row
+func (it *WindowFunctionIterator) computeLag(
+	funcCall *parser.FunctionCall,
+	spec *parser.WindowSpec,
+	sortedIndices []int,
+	wfIdx int,
+	windowResults []map[int]types.Value,
+) {
+	// LAG arguments: (expression, offset=1, default=NULL)
+	if len(funcCall.Args) < 1 {
+		for i := range windowResults {
+			windowResults[i][wfIdx] = types.NewNull()
+		}
+		return
+	}
+
+	expr := funcCall.Args[0]
+	offset := int64(1) // default offset
+	var defaultVal types.Value = types.NewNull()
+
+	// Get offset if provided
+	if len(funcCall.Args) >= 2 {
+		offsetVal, err := it.executor.evaluateExpr(funcCall.Args[1], nil, nil)
+		if err == nil && offsetVal.Type() == types.TypeInt {
+			offset = offsetVal.Int()
+		}
+	}
+
+	// Get default value if provided
+	if len(funcCall.Args) >= 3 {
+		defVal, err := it.executor.evaluateExpr(funcCall.Args[2], nil, nil)
+		if err == nil {
+			defaultVal = defVal
+		}
+	}
+
+	// Process in partition groups
+	partitionStart := 0
+	for i := 0; i < len(sortedIndices); i++ {
+		// Check if new partition starts
+		isNewPartition := i == 0
+		if !isNewPartition && spec != nil && len(spec.PartitionBy) > 0 {
+			currRow := it.inputRows[sortedIndices[i]]
+			prevRow := it.inputRows[sortedIndices[i-1]]
+			for _, partExpr := range spec.PartitionBy {
+				valCurr, _ := it.executor.evaluateExpr(partExpr, currRow, it.colMap)
+				valPrev, _ := it.executor.evaluateExpr(partExpr, prevRow, it.colMap)
+				if it.executor.compareValues(valCurr, valPrev) != 0 {
+					isNewPartition = true
+					break
+				}
+			}
+		}
+
+		if isNewPartition {
+			partitionStart = i
+		}
+
+		// Compute LAG - look back 'offset' rows within partition
+		origIdx := sortedIndices[i]
+		posInPartition := i - partitionStart
+		if posInPartition >= int(offset) {
+			// Get value from 'offset' rows back in sorted order
+			lagIdx := sortedIndices[i-int(offset)]
+			lagRow := it.inputRows[lagIdx]
+			val, err := it.executor.evaluateExpr(expr, lagRow, it.colMap)
+			if err != nil {
+				windowResults[origIdx][wfIdx] = defaultVal
+			} else {
+				windowResults[origIdx][wfIdx] = val
+			}
+		} else {
+			// Not enough rows before - use default
+			windowResults[origIdx][wfIdx] = defaultVal
+		}
+	}
+}
+
+// computeLead computes LEAD(expr, offset, default) for each row
+func (it *WindowFunctionIterator) computeLead(
+	funcCall *parser.FunctionCall,
+	spec *parser.WindowSpec,
+	sortedIndices []int,
+	wfIdx int,
+	windowResults []map[int]types.Value,
+) {
+	// LEAD arguments: (expression, offset=1, default=NULL)
+	if len(funcCall.Args) < 1 {
+		for i := range windowResults {
+			windowResults[i][wfIdx] = types.NewNull()
+		}
+		return
+	}
+
+	expr := funcCall.Args[0]
+	offset := int64(1) // default offset
+	var defaultVal types.Value = types.NewNull()
+
+	// Get offset if provided
+	if len(funcCall.Args) >= 2 {
+		offsetVal, err := it.executor.evaluateExpr(funcCall.Args[1], nil, nil)
+		if err == nil && offsetVal.Type() == types.TypeInt {
+			offset = offsetVal.Int()
+		}
+	}
+
+	// Get default value if provided
+	if len(funcCall.Args) >= 3 {
+		defVal, err := it.executor.evaluateExpr(funcCall.Args[2], nil, nil)
+		if err == nil {
+			defaultVal = defVal
+		}
+	}
+
+	// First, compute partition boundaries
+	partitionEnds := make([]int, len(sortedIndices))
+	currentPartitionEnd := len(sortedIndices) - 1
+
+	// Scan backwards to find partition ends
+	for i := len(sortedIndices) - 1; i >= 0; i-- {
+		if i == len(sortedIndices)-1 {
+			currentPartitionEnd = i
+		} else if spec != nil && len(spec.PartitionBy) > 0 {
+			currRow := it.inputRows[sortedIndices[i]]
+			nextRow := it.inputRows[sortedIndices[i+1]]
+			isPartitionEnd := false
+			for _, partExpr := range spec.PartitionBy {
+				valCurr, _ := it.executor.evaluateExpr(partExpr, currRow, it.colMap)
+				valNext, _ := it.executor.evaluateExpr(partExpr, nextRow, it.colMap)
+				if it.executor.compareValues(valCurr, valNext) != 0 {
+					isPartitionEnd = true
+					break
+				}
+			}
+			if isPartitionEnd {
+				currentPartitionEnd = i
+			}
+		}
+		partitionEnds[i] = currentPartitionEnd
+	}
+
+	// Now compute LEAD values
+	for i := 0; i < len(sortedIndices); i++ {
+		origIdx := sortedIndices[i]
+		partEnd := partitionEnds[i]
+
+		// LEAD looks forward 'offset' rows within partition
+		leadPos := i + int(offset)
+		if leadPos <= partEnd {
+			leadIdx := sortedIndices[leadPos]
+			leadRow := it.inputRows[leadIdx]
+			val, err := it.executor.evaluateExpr(expr, leadRow, it.colMap)
+			if err != nil {
+				windowResults[origIdx][wfIdx] = defaultVal
+			} else {
+				windowResults[origIdx][wfIdx] = val
+			}
+		} else {
+			// Beyond partition end - use default
+			windowResults[origIdx][wfIdx] = defaultVal
+		}
 	}
 }

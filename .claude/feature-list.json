@@ -1131,7 +1131,7 @@
     {
       "title": "SQL Statements - CTEs",
       "description": "Common Table Expressions (WITH clause) including recursive CTEs",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse WITH cte_name AS (SELECT ...) syntax",
@@ -1147,8 +1147,8 @@
         },
         {
           "task": "Implement fixpoint iteration for recursive CTEs",
-          "done": false,
-          "note": "Recursive CTEs require UNION ALL parsing inside CTE and fixpoint iteration which is a complex feature"
+          "done": true,
+          "note": "Implemented in executor_recursive.go with breadth-first iteration and 100-depth limit"
         },
         {
           "task": "Handle multiple CTEs in single query",
@@ -2574,46 +2574,46 @@
     {
       "title": "Window Functions - ROW_NUMBER",
       "description": "Window function for assigning sequential numbers",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse OVER clause in SELECT",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse PARTITION BY in window specification",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement row numbering within partitions",
-          "done": false
+          "done": true
         },
         {
           "task": "Reset row number on partition boundary",
-          "done": false
+          "done": true
         }
       ]
     },
     {
       "title": "Window Functions - RANK/DENSE_RANK",
       "description": "Ranking functions with gap/no-gap semantics",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse ORDER BY in window specification",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement RANK with gaps for ties",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement DENSE_RANK without gaps",
-          "done": false
+          "done": true
         },
         {
           "task": "Handle peer rows (same ORDER BY value)",
-          "done": false
+          "done": true
         }
       ]
     },
