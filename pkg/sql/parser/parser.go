@@ -1454,6 +1454,7 @@ func (p *Parser) parsePrefixExpression() (Expression, error) {
 
 // parseFunctionCall parses a function call: name(arg1, arg2, ...)
 // Handles special cases like COUNT(*) where * is allowed as an argument
+// Also handles window functions: func() OVER (...)
 func (p *Parser) parseFunctionCall() (Expression, error) {
 	funcCall := &FunctionCall{
 		Name: p.cur.Literal,
@@ -1466,7 +1467,7 @@ func (p *Parser) parseFunctionCall() (Expression, error) {
 	// Handle empty args: func()
 	if p.peekIs(lexer.RPAREN) {
 		p.nextToken()
-		return funcCall, nil
+		return p.maybeParseWindowFunction(funcCall)
 	}
 
 	// Handle COUNT(*) special case
@@ -1477,7 +1478,7 @@ func (p *Parser) parseFunctionCall() (Expression, error) {
 		if !p.expectPeek(lexer.RPAREN) {
 			return nil, fmt.Errorf("expected ')' after '*'")
 		}
-		return funcCall, nil
+		return p.maybeParseWindowFunction(funcCall)
 	}
 
 	// Parse argument list
@@ -1500,7 +1501,113 @@ func (p *Parser) parseFunctionCall() (Expression, error) {
 		return nil, fmt.Errorf("expected ')' or ',' in function call")
 	}
 
-	return funcCall, nil
+	return p.maybeParseWindowFunction(funcCall)
+}
+
+// maybeParseWindowFunction checks if the function call is followed by OVER clause
+// and converts it to a WindowFunction if so
+func (p *Parser) maybeParseWindowFunction(funcCall *FunctionCall) (Expression, error) {
+	// Check if followed by OVER keyword
+	if !p.peekIs(lexer.OVER) {
+		return funcCall, nil
+	}
+
+	p.nextToken() // consume OVER
+
+	// Parse window specification
+	windowSpec, err := p.parseWindowSpec()
+	if err != nil {
+		return nil, err
+	}
+
+	return &WindowFunction{
+		Function: funcCall,
+		Over:     windowSpec,
+	}, nil
+}
+
+// parseWindowSpec parses a window specification: (PARTITION BY ... ORDER BY ...)
+func (p *Parser) parseWindowSpec() (*WindowSpec, error) {
+	if !p.expectPeek(lexer.LPAREN) {
+		return nil, fmt.Errorf("expected '(' after OVER")
+	}
+
+	spec := &WindowSpec{}
+
+	// Handle empty window spec: OVER ()
+	if p.peekIs(lexer.RPAREN) {
+		p.nextToken()
+		return spec, nil
+	}
+
+	p.nextToken() // move to first token in window spec
+
+	// Parse PARTITION BY clause (optional)
+	if p.cur.Type == lexer.PARTITION {
+		if !p.expectPeek(lexer.BY) {
+			return nil, fmt.Errorf("expected BY after PARTITION")
+		}
+		p.nextToken() // move to first partition expression
+
+		for {
+			expr, err := p.parseExpression(LOWEST)
+			if err != nil {
+				return nil, err
+			}
+			spec.PartitionBy = append(spec.PartitionBy, expr)
+
+			if !p.peekIs(lexer.COMMA) {
+				break
+			}
+			p.nextToken() // consume comma
+			p.nextToken() // move to next expression
+		}
+
+		// Check if there's an ORDER BY clause after
+		if p.peekIs(lexer.ORDER) {
+			p.nextToken() // consume ORDER
+		}
+	}
+
+	// Parse ORDER BY clause (optional)
+	if p.cur.Type == lexer.ORDER {
+		if !p.expectPeek(lexer.BY) {
+			return nil, fmt.Errorf("expected BY after ORDER in window spec")
+		}
+		p.nextToken() // move to first order expression
+
+		for {
+			expr, err := p.parseExpression(LOWEST)
+			if err != nil {
+				return nil, err
+			}
+
+			direction := OrderAsc // Default is ASC
+			if p.peekIs(lexer.ASC) {
+				p.nextToken()
+			} else if p.peekIs(lexer.DESC) {
+				p.nextToken()
+				direction = OrderDesc
+			}
+
+			spec.OrderBy = append(spec.OrderBy, OrderByExpr{
+				Expr:      expr,
+				Direction: direction,
+			})
+
+			if !p.peekIs(lexer.COMMA) {
+				break
+			}
+			p.nextToken() // consume comma
+			p.nextToken() // move to next expression
+		}
+	}
+
+	if !p.expectPeek(lexer.RPAREN) {
+		return nil, fmt.Errorf("expected ')' at end of window specification")
+	}
+
+	return spec, nil
 }
 
 // parseInfixExpression parses a binary expression
