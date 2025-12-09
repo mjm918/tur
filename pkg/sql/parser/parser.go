@@ -40,6 +40,8 @@ func (p *Parser) Parse() (Statement, error) {
 		return p.parseInsert()
 	case lexer.SELECT:
 		return p.parseSelect()
+	case lexer.WITH:
+		return p.parseWith()
 	case lexer.DROP:
 		return p.parseDrop()
 	case lexer.UPDATE:
@@ -1765,4 +1767,97 @@ func (p *Parser) parseRollback() (*RollbackStmt, error) {
 		p.nextToken()
 	}
 	return &RollbackStmt{}, nil
+}
+
+// parseWith parses: WITH [RECURSIVE] cte_name AS (SELECT ...), ... SELECT ...
+func (p *Parser) parseWith() (*SelectStmt, error) {
+	withClause := &WithClause{}
+
+	// Current token is WITH
+	// Check for optional RECURSIVE keyword
+	if p.peekIs(lexer.RECURSIVE) {
+		p.nextToken() // consume RECURSIVE
+		withClause.Recursive = true
+	}
+
+	// Parse CTEs: cte_name [(columns)] AS (SELECT ...)
+	for {
+		cte, err := p.parseCTE()
+		if err != nil {
+			return nil, err
+		}
+		withClause.CTEs = append(withClause.CTEs, cte)
+
+		// Check for more CTEs
+		if !p.peekIs(lexer.COMMA) {
+			break
+		}
+		p.nextToken() // consume comma
+	}
+
+	// Expect SELECT
+	if !p.expectPeek(lexer.SELECT) {
+		return nil, fmt.Errorf("expected SELECT after WITH clause, got %s", p.peek.Literal)
+	}
+	p.nextToken() // move to columns
+
+	// Parse the main SELECT body
+	stmt, err := p.parseSelectBody()
+	if err != nil {
+		return nil, err
+	}
+
+	stmt.With = withClause
+	return stmt, nil
+}
+
+// parseCTE parses: cte_name [(columns)] AS (SELECT ...)
+func (p *Parser) parseCTE() (CTE, error) {
+	cte := CTE{}
+
+	// CTE name
+	if !p.expectPeek(lexer.IDENT) {
+		return cte, fmt.Errorf("expected CTE name, got %s", p.peek.Literal)
+	}
+	cte.Name = p.cur.Literal
+
+	// Optional column list: (col1, col2, ...)
+	if p.peekIs(lexer.LPAREN) {
+		p.nextToken() // consume (
+		cols, err := p.parseIdentList()
+		if err != nil {
+			return cte, err
+		}
+		cte.Columns = cols
+		if !p.expectPeek(lexer.RPAREN) {
+			return cte, fmt.Errorf("expected ')' after CTE column list")
+		}
+	}
+
+	// AS
+	if !p.expectPeek(lexer.AS_KW) {
+		return cte, fmt.Errorf("expected AS after CTE name, got %s", p.peek.Literal)
+	}
+
+	// (SELECT ...)
+	if !p.expectPeek(lexer.LPAREN) {
+		return cte, fmt.Errorf("expected '(' after AS, got %s", p.peek.Literal)
+	}
+
+	if !p.expectPeek(lexer.SELECT) {
+		return cte, fmt.Errorf("expected SELECT in CTE, got %s", p.peek.Literal)
+	}
+	p.nextToken() // move to columns
+
+	selectStmt, err := p.parseSelectBody()
+	if err != nil {
+		return cte, err
+	}
+	cte.Query = selectStmt
+
+	if !p.expectPeek(lexer.RPAREN) {
+		return cte, fmt.Errorf("expected ')' after CTE SELECT")
+	}
+
+	return cte, nil
 }

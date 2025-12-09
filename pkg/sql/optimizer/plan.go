@@ -265,3 +265,20 @@ func log2(x float64) float64 {
 	// log2(x) = ln(x) / ln(2)
 	return 3.321928 * (x - 1) / x // Approximation for small values
 }
+
+// CTEScanNode represents a scan over materialized CTE results
+type CTEScanNode struct {
+	CTEName string   // Name of the CTE
+	Alias   string   // Optional alias
+	Columns []string // Column names from CTE
+	Rows    int64    // Estimated rows (set after materialization)
+}
+
+func (n *CTEScanNode) EstimatedCost() float64 {
+	// CTE scan is cheap since data is already materialized in memory
+	return float64(n.Rows) * 0.001
+}
+
+func (n *CTEScanNode) EstimatedRows() int64 {
+	return n.Rows
+}

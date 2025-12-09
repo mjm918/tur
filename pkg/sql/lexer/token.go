@@ -127,6 +127,10 @@ const (
 	INTERSECT
 	EXCEPT
 	ALL
+
+	// CTE keywords
+	WITH
+	RECURSIVE
 )
 
 // Token represents a lexical token
@@ -323,6 +327,10 @@ func (t TokenType) String() string {
 		return "EXCEPT"
 	case ALL:
 		return "ALL"
+	case WITH:
+		return "WITH"
+	case RECURSIVE:
+		return "RECURSIVE"
 	default:
 		return "UNKNOWN"
 	}
@@ -400,6 +408,8 @@ var keywords = map[string]TokenType{
 	"COMMIT":      COMMIT,
 	"ROLLBACK":    ROLLBACK,
 	"TRANSACTION": TRANSACTION,
+	"WITH":        WITH,
+	"RECURSIVE":   RECURSIVE,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT

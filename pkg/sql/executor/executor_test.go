@@ -1720,3 +1720,79 @@ func TestExecutor_Select_GroupBy_WithHaving(t *testing.T) {
 		t.Errorf("East count = %d, want 2", counts["East"])
 	}
 }
+
+// ============================================================================
+// CTE (Common Table Expression) Tests
+// ============================================================================
+
+func TestExecutor_CTE_Simple(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create a table with some data
+	_, err := exec.Execute("CREATE TABLE numbers (n INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	_, err = exec.Execute("INSERT INTO numbers VALUES (1), (2), (3)")
+	if err != nil {
+		t.Fatalf("INSERT: %v", err)
+	}
+
+	// Use a CTE to query the data
+	result, err := exec.Execute("WITH doubled AS (SELECT n FROM numbers) SELECT n FROM doubled")
+	if err != nil {
+		t.Fatalf("CTE query: %v", err)
+	}
+
+	if len(result.Rows) != 3 {
+		t.Errorf("Rows count = %d, want 3", len(result.Rows))
+	}
+
+	// Verify the values
+	expected := []int64{1, 2, 3}
+	for i, row := range result.Rows {
+		if len(row) != 1 {
+			t.Errorf("Row %d: column count = %d, want 1", i, len(row))
+			continue
+		}
+		if row[0].Int() != expected[i] {
+			t.Errorf("Row %d: n = %d, want %d", i, row[0].Int(), expected[i])
+		}
+	}
+}
+
+func TestExecutor_CTE_MultipleCTEs(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create two tables with data
+	_, err := exec.Execute("CREATE TABLE t1 (a INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE t1: %v", err)
+	}
+	_, err = exec.Execute("CREATE TABLE t2 (b INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE t2: %v", err)
+	}
+
+	_, err = exec.Execute("INSERT INTO t1 VALUES (1), (2)")
+	if err != nil {
+		t.Fatalf("INSERT INTO t1: %v", err)
+	}
+	_, err = exec.Execute("INSERT INTO t2 VALUES (10), (20)")
+	if err != nil {
+		t.Fatalf("INSERT INTO t2: %v", err)
+	}
+
+	// Use multiple CTEs
+	result, err := exec.Execute("WITH cte1 AS (SELECT a FROM t1), cte2 AS (SELECT b FROM t2) SELECT a FROM cte1")
+	if err != nil {
+		t.Fatalf("CTE query: %v", err)
+	}
+
+	if len(result.Rows) != 2 {
+		t.Errorf("Rows count = %d, want 2", len(result.Rows))
+	}
+}
