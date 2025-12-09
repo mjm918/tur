@@ -1536,23 +1536,23 @@
     {
       "title": "Indexes - Multi-column B-tree Indexes",
       "description": "Support composite indexes on multiple columns",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse multi-column index definition",
-          "done": false
+          "done": true
         },
         {
           "task": "Construct composite key from multiple columns",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement prefix matching for index scans",
-          "done": false
+          "done": true
         },
         {
           "task": "Optimize queries using index prefixes",
-          "done": false
+          "done": true
         }
       ]
     },
