@@ -75,7 +75,7 @@ func (p *Parser) ParseExpression() (Expression, error) {
 	return p.parseExpression(LOWEST)
 }
 
-// parseCreate handles CREATE TABLE, CREATE INDEX, and CREATE VIEW statements
+// parseCreate handles CREATE TABLE, CREATE INDEX, CREATE VIEW, and CREATE TRIGGER statements
 func (p *Parser) parseCreate() (Statement, error) {
 	p.nextToken() // consume CREATE
 
@@ -92,6 +92,8 @@ func (p *Parser) parseCreate() (Statement, error) {
 		return p.parseCreateIndex(true)
 	case lexer.VIEW:
 		return p.parseCreateView(false)
+	case lexer.TRIGGER:
+		return p.parseCreateTrigger()
 	case lexer.IF:
 		// CREATE IF NOT EXISTS VIEW (SQLite extension)
 		if !p.expectPeek(lexer.NOT) {
@@ -106,11 +108,11 @@ func (p *Parser) parseCreate() (Statement, error) {
 		}
 		return nil, fmt.Errorf("expected VIEW after IF NOT EXISTS, got %s", p.peek.Literal)
 	default:
-		return nil, fmt.Errorf("expected TABLE, INDEX, VIEW, or UNIQUE after CREATE, got %s", p.cur.Literal)
+		return nil, fmt.Errorf("expected TABLE, INDEX, VIEW, TRIGGER, or UNIQUE after CREATE, got %s", p.cur.Literal)
 	}
 }
 
-// parseDrop handles DROP TABLE, DROP INDEX, and DROP VIEW statements
+// parseDrop handles DROP TABLE, DROP INDEX, DROP VIEW, and DROP TRIGGER statements
 func (p *Parser) parseDrop() (Statement, error) {
 	p.nextToken() // consume DROP
 
@@ -121,8 +123,10 @@ func (p *Parser) parseDrop() (Statement, error) {
 		return p.parseDropIndex()
 	case lexer.VIEW:
 		return p.parseDropView()
+	case lexer.TRIGGER:
+		return p.parseDropTrigger()
 	default:
-		return nil, fmt.Errorf("expected TABLE, INDEX, or VIEW after DROP, got %s", p.cur.Literal)
+		return nil, fmt.Errorf("expected TABLE, INDEX, VIEW, or TRIGGER after DROP, got %s", p.cur.Literal)
 	}
 }
 
@@ -2463,6 +2467,107 @@ func (p *Parser) parseExplain() (*ExplainStmt, error) {
 		return nil, fmt.Errorf("parsing statement in EXPLAIN: %w", err)
 	}
 	stmt.Statement = innerStmt
+
+	return stmt, nil
+}
+
+// parseCreateTrigger parses: CREATE TRIGGER name BEFORE|AFTER INSERT|UPDATE|DELETE ON table BEGIN actions END
+// Called after CREATE TRIGGER has been consumed and current token is TRIGGER
+func (p *Parser) parseCreateTrigger() (*CreateTriggerStmt, error) {
+	stmt := &CreateTriggerStmt{}
+
+	// Trigger name
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected trigger name after TRIGGER, got %s", p.peek.Literal)
+	}
+	stmt.TriggerName = p.cur.Literal
+
+	// BEFORE or AFTER
+	p.nextToken()
+	switch p.cur.Type {
+	case lexer.BEFORE:
+		stmt.Timing = TriggerBefore
+	case lexer.AFTER:
+		stmt.Timing = TriggerAfter
+	default:
+		return nil, fmt.Errorf("expected BEFORE or AFTER, got %s", p.cur.Literal)
+	}
+
+	// INSERT, UPDATE, or DELETE
+	p.nextToken()
+	switch p.cur.Type {
+	case lexer.INSERT:
+		stmt.Event = TriggerEventInsert
+	case lexer.UPDATE:
+		stmt.Event = TriggerEventUpdate
+	case lexer.DELETE:
+		stmt.Event = TriggerEventDelete
+	default:
+		return nil, fmt.Errorf("expected INSERT, UPDATE, or DELETE, got %s", p.cur.Literal)
+	}
+
+	// ON table_name
+	if !p.expectPeek(lexer.ON) {
+		return nil, fmt.Errorf("expected ON after event type, got %s", p.peek.Literal)
+	}
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected table name after ON, got %s", p.peek.Literal)
+	}
+	stmt.TableName = p.cur.Literal
+
+	// BEGIN
+	if !p.expectPeek(lexer.BEGIN) {
+		return nil, fmt.Errorf("expected BEGIN, got %s", p.peek.Literal)
+	}
+
+	// Parse action statements until END
+	for {
+		p.nextToken()
+
+		// Check for END
+		if p.cur.Type == lexer.END {
+			break
+		}
+
+		// Parse each action statement
+		action, err := p.Parse()
+		if err != nil {
+			return nil, fmt.Errorf("parsing trigger action: %w", err)
+		}
+		stmt.Actions = append(stmt.Actions, action)
+
+		// Skip optional semicolon after each statement
+		if p.peekIs(lexer.SEMICOLON) {
+			p.nextToken()
+		}
+	}
+
+	if len(stmt.Actions) == 0 {
+		return nil, fmt.Errorf("trigger must have at least one action statement")
+	}
+
+	return stmt, nil
+}
+
+// parseDropTrigger parses: DROP TRIGGER [IF EXISTS] name
+// Called after DROP TRIGGER has been consumed and current token is TRIGGER
+func (p *Parser) parseDropTrigger() (*DropTriggerStmt, error) {
+	stmt := &DropTriggerStmt{}
+
+	// Check for optional IF EXISTS
+	if p.peekIs(lexer.IF) {
+		p.nextToken() // consume TRIGGER, now at IF
+		if !p.expectPeek(lexer.EXISTS) {
+			return nil, fmt.Errorf("expected EXISTS after IF, got %s", p.peek.Literal)
+		}
+		stmt.IfExists = true
+	}
+
+	// Trigger name
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected trigger name, got %s", p.peek.Literal)
+	}
+	stmt.TriggerName = p.cur.Literal
 
 	return stmt, nil
 }

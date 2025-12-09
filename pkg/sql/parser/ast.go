@@ -336,6 +336,7 @@ func (s *CreateTriggerStmt) statementNode() {}
 // DropTriggerStmt represents a DROP TRIGGER statement
 type DropTriggerStmt struct {
 	TriggerName string // Name of the trigger to drop
+	IfExists    bool   // IF EXISTS clause
 }
 
 func (s *DropTriggerStmt) statementNode() {}

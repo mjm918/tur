@@ -2933,3 +2933,146 @@ func TestParser_CreateIndex_NoWhere(t *testing.T) {
 		t.Errorf("Where = %v, want nil", create.Where)
 	}
 }
+
+// =============================================================================
+// TRIGGER TESTS
+// =============================================================================
+
+func TestParser_CreateTrigger_BeforeInsert(t *testing.T) {
+	input := `CREATE TRIGGER audit_insert BEFORE INSERT ON users
+BEGIN
+  INSERT INTO audit_log (event_type) VALUES ('insert');
+END`
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	trigger, ok := stmt.(*CreateTriggerStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateTriggerStmt, got %T", stmt)
+	}
+
+	if trigger.TriggerName != "audit_insert" {
+		t.Errorf("TriggerName = %q, want 'audit_insert'", trigger.TriggerName)
+	}
+	if trigger.Timing != TriggerBefore {
+		t.Errorf("Timing = %v, want TriggerBefore", trigger.Timing)
+	}
+	if trigger.Event != TriggerEventInsert {
+		t.Errorf("Event = %v, want TriggerEventInsert", trigger.Event)
+	}
+	if trigger.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", trigger.TableName)
+	}
+	if len(trigger.Actions) != 1 {
+		t.Fatalf("Actions count = %d, want 1", len(trigger.Actions))
+	}
+	if _, ok := trigger.Actions[0].(*InsertStmt); !ok {
+		t.Errorf("Actions[0] = %T, want *InsertStmt", trigger.Actions[0])
+	}
+}
+
+func TestParser_CreateTrigger_AfterUpdate(t *testing.T) {
+	input := `CREATE TRIGGER audit_update AFTER UPDATE ON users
+BEGIN
+  UPDATE stats SET count = count + 1;
+END`
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	trigger := stmt.(*CreateTriggerStmt)
+
+	if trigger.Timing != TriggerAfter {
+		t.Errorf("Timing = %v, want TriggerAfter", trigger.Timing)
+	}
+	if trigger.Event != TriggerEventUpdate {
+		t.Errorf("Event = %v, want TriggerEventUpdate", trigger.Event)
+	}
+}
+
+func TestParser_CreateTrigger_AfterDelete(t *testing.T) {
+	input := `CREATE TRIGGER audit_delete AFTER DELETE ON users
+BEGIN
+  DELETE FROM user_data WHERE user_id = OLD.id;
+END`
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	trigger := stmt.(*CreateTriggerStmt)
+
+	if trigger.Event != TriggerEventDelete {
+		t.Errorf("Event = %v, want TriggerEventDelete", trigger.Event)
+	}
+}
+
+func TestParser_CreateTrigger_MultipleActions(t *testing.T) {
+	input := `CREATE TRIGGER complex_trigger AFTER INSERT ON orders
+BEGIN
+  INSERT INTO audit_log (event_type) VALUES ('order_created');
+  UPDATE inventory SET quantity = quantity - 1;
+END`
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	trigger := stmt.(*CreateTriggerStmt)
+
+	if len(trigger.Actions) != 2 {
+		t.Fatalf("Actions count = %d, want 2", len(trigger.Actions))
+	}
+	if _, ok := trigger.Actions[0].(*InsertStmt); !ok {
+		t.Errorf("Actions[0] = %T, want *InsertStmt", trigger.Actions[0])
+	}
+	if _, ok := trigger.Actions[1].(*UpdateStmt); !ok {
+		t.Errorf("Actions[1] = %T, want *UpdateStmt", trigger.Actions[1])
+	}
+}
+
+func TestParser_DropTrigger(t *testing.T) {
+	input := "DROP TRIGGER audit_insert"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	drop, ok := stmt.(*DropTriggerStmt)
+	if !ok {
+		t.Fatalf("Expected *DropTriggerStmt, got %T", stmt)
+	}
+
+	if drop.TriggerName != "audit_insert" {
+		t.Errorf("TriggerName = %q, want 'audit_insert'", drop.TriggerName)
+	}
+	if drop.IfExists {
+		t.Error("IfExists = true, want false")
+	}
+}
+
+func TestParser_DropTrigger_IfExists(t *testing.T) {
+	input := "DROP TRIGGER IF EXISTS audit_insert"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	drop := stmt.(*DropTriggerStmt)
+
+	if !drop.IfExists {
+		t.Error("IfExists = false, want true")
+	}
+	if drop.TriggerName != "audit_insert" {
+		t.Errorf("TriggerName = %q, want 'audit_insert'", drop.TriggerName)
+	}
+}
