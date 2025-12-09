@@ -211,3 +211,181 @@ func TestWindowFunction_PeerRows(t *testing.T) {
 		}
 	}
 }
+
+func TestWindowFunction_SUM_RunningTotal(t *testing.T) {
+	// Test SUM() with ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW (running total)
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE sales (id INT, amount INT)")
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	// Insert test data
+	testData := []string{
+		"INSERT INTO sales VALUES (1, 100)",
+		"INSERT INTO sales VALUES (2, 200)",
+		"INSERT INTO sales VALUES (3, 300)",
+		"INSERT INTO sales VALUES (4, 400)",
+	}
+	for _, sql := range testData {
+		_, err = exec.Execute(sql)
+		if err != nil {
+			t.Fatalf("Failed to insert: %v", err)
+		}
+	}
+
+	// Running total: cumulative sum up to current row
+	result, err := exec.Execute("SELECT id, amount, SUM(amount) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM sales")
+	if err != nil {
+		t.Fatalf("Failed to execute window function query: %v", err)
+	}
+
+	if len(result.Rows) != 4 {
+		t.Fatalf("Expected 4 rows, got %d", len(result.Rows))
+	}
+
+	// Expected running totals: 100, 300, 600, 1000
+	expectedSums := []int64{100, 300, 600, 1000}
+	for i, row := range result.Rows {
+		sum := row[2].Int()
+		if sum != expectedSums[i] {
+			t.Errorf("Row %d: SUM = %d, want %d", i, sum, expectedSums[i])
+		}
+	}
+}
+
+func TestWindowFunction_AVG_MovingAverage(t *testing.T) {
+	// Test AVG() with ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING (3-point moving average)
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE data (id INT, value INT)")
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	// Insert test data
+	testData := []string{
+		"INSERT INTO data VALUES (1, 10)",
+		"INSERT INTO data VALUES (2, 20)",
+		"INSERT INTO data VALUES (3, 30)",
+		"INSERT INTO data VALUES (4, 40)",
+		"INSERT INTO data VALUES (5, 50)",
+	}
+	for _, sql := range testData {
+		_, err = exec.Execute(sql)
+		if err != nil {
+			t.Fatalf("Failed to insert: %v", err)
+		}
+	}
+
+	// 3-point moving average
+	result, err := exec.Execute("SELECT id, value, AVG(value) OVER (ORDER BY id ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM data")
+	if err != nil {
+		t.Fatalf("Failed to execute window function query: %v", err)
+	}
+
+	if len(result.Rows) != 5 {
+		t.Fatalf("Expected 5 rows, got %d", len(result.Rows))
+	}
+
+	// Expected averages:
+	// id=1: avg(10,20) = 15 (no preceding)
+	// id=2: avg(10,20,30) = 20
+	// id=3: avg(20,30,40) = 30
+	// id=4: avg(30,40,50) = 40
+	// id=5: avg(40,50) = 45 (no following)
+	expectedAvgs := []float64{15, 20, 30, 40, 45}
+	for i, row := range result.Rows {
+		avg := row[2].Float()
+		if avg != expectedAvgs[i] {
+			t.Errorf("Row %d: AVG = %f, want %f", i, avg, expectedAvgs[i])
+		}
+	}
+}
+
+func TestWindowFunction_COUNT_WindowFrame(t *testing.T) {
+	// Test COUNT() with window frame
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE data (id INT, value INT)")
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	// Insert test data
+	testData := []string{
+		"INSERT INTO data VALUES (1, 10)",
+		"INSERT INTO data VALUES (2, 20)",
+		"INSERT INTO data VALUES (3, 30)",
+		"INSERT INTO data VALUES (4, 40)",
+	}
+	for _, sql := range testData {
+		_, err = exec.Execute(sql)
+		if err != nil {
+			t.Fatalf("Failed to insert: %v", err)
+		}
+	}
+
+	// Count rows in frame: ROWS BETWEEN 1 PRECEDING AND CURRENT ROW
+	result, err := exec.Execute("SELECT id, COUNT(*) OVER (ORDER BY id ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM data")
+	if err != nil {
+		t.Fatalf("Failed to execute window function query: %v", err)
+	}
+
+	if len(result.Rows) != 4 {
+		t.Fatalf("Expected 4 rows, got %d", len(result.Rows))
+	}
+
+	// Expected counts: 1, 2, 2, 2
+	expectedCounts := []int64{1, 2, 2, 2}
+	for i, row := range result.Rows {
+		count := row[1].Int()
+		if count != expectedCounts[i] {
+			t.Errorf("Row %d: COUNT = %d, want %d", i, count, expectedCounts[i])
+		}
+	}
+}
+
+func TestWindowFunction_MIN_MAX_WindowFrame(t *testing.T) {
+	// Test MIN() and MAX() with window frame
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE data (id INT, value INT)")
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	// Insert test data
+	testData := []string{
+		"INSERT INTO data VALUES (1, 50)",
+		"INSERT INTO data VALUES (2, 30)",
+		"INSERT INTO data VALUES (3, 70)",
+		"INSERT INTO data VALUES (4, 20)",
+	}
+	for _, sql := range testData {
+		_, err = exec.Execute(sql)
+		if err != nil {
+			t.Fatalf("Failed to insert: %v", err)
+		}
+	}
+
+	// Running MIN
+	result, err := exec.Execute("SELECT id, value, MIN(value) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM data")
+	if err != nil {
+		t.Fatalf("Failed to execute MIN window function: %v", err)
+	}
+
+	// Expected running MIN: 50, 30, 30, 20
+	expectedMins := []int64{50, 30, 30, 20}
+	for i, row := range result.Rows {
+		minVal := row[2].Int()
+		if minVal != expectedMins[i] {
+			t.Errorf("Row %d: MIN = %d, want %d", i, minVal, expectedMins[i])
+		}
+	}
+}

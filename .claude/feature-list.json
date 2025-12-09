@@ -2643,23 +2643,23 @@
     {
       "title": "Window Functions - Aggregate Window Functions",
       "description": "SUM, AVG, etc. over window frames",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse window frame specification (ROWS, RANGE)",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement sliding window aggregation",
-          "done": false
+          "done": true
         },
         {
           "task": "Support UNBOUNDED PRECEDING/FOLLOWING",
-          "done": false
+          "done": true
         },
         {
           "task": "Optimize frame computation with incremental updates",
-          "done": false
+          "done": true
         }
       ]
     },

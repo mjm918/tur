@@ -1462,6 +1462,16 @@ func (it *WindowFunctionIterator) computeSingleWindowFunction(
 		it.computeRank(wf.Over, sortedIndices, wfIdx, windowResults)
 	case "DENSE_RANK":
 		it.computeDenseRank(wf.Over, sortedIndices, wfIdx, windowResults)
+	case "SUM":
+		it.computeAggregateWindowFunc(funcCall, wf.Over, sortedIndices, wfIdx, windowResults, "SUM")
+	case "AVG":
+		it.computeAggregateWindowFunc(funcCall, wf.Over, sortedIndices, wfIdx, windowResults, "AVG")
+	case "COUNT":
+		it.computeAggregateWindowFunc(funcCall, wf.Over, sortedIndices, wfIdx, windowResults, "COUNT")
+	case "MIN":
+		it.computeAggregateWindowFunc(funcCall, wf.Over, sortedIndices, wfIdx, windowResults, "MIN")
+	case "MAX":
+		it.computeAggregateWindowFunc(funcCall, wf.Over, sortedIndices, wfIdx, windowResults, "MAX")
 	default:
 		// Unknown window function, set NULL
 		for i := range windowResults {
@@ -1835,5 +1845,280 @@ func (it *WindowFunctionIterator) computeDenseRank(
 
 		origIdx := sortedIndices[i]
 		windowResults[origIdx][wfIdx] = types.NewInt(rankVal)
+	}
+}
+
+// computeAggregateWindowFunc computes aggregate window functions (SUM, AVG, COUNT, MIN, MAX) with frame support
+func (it *WindowFunctionIterator) computeAggregateWindowFunc(
+	funcCall *parser.FunctionCall,
+	spec *parser.WindowSpec,
+	sortedIndices []int,
+	wfIdx int,
+	windowResults []map[int]types.Value,
+	aggFunc string,
+) {
+	if len(sortedIndices) == 0 {
+		return
+	}
+
+	// Get the expression to aggregate (first argument, or * for COUNT(*))
+	var aggExpr parser.Expression
+	isCountStar := false
+	if len(funcCall.Args) > 0 {
+		// Check if it's COUNT(*)
+		if lit, ok := funcCall.Args[0].(*parser.Literal); ok && lit.Value.Text() == "*" {
+			isCountStar = true
+		} else {
+			aggExpr = funcCall.Args[0]
+		}
+	} else if aggFunc == "COUNT" {
+		isCountStar = true
+	}
+
+	// Determine partition boundaries
+	partitionStarts := make([]int, len(sortedIndices))
+	partitionEnds := make([]int, len(sortedIndices))
+
+	currentPartStart := 0
+	for i := 0; i < len(sortedIndices); i++ {
+		isNewPartition := i == 0
+		if !isNewPartition && spec != nil && len(spec.PartitionBy) > 0 {
+			currRow := it.inputRows[sortedIndices[i]]
+			prevRow := it.inputRows[sortedIndices[i-1]]
+			for _, partExpr := range spec.PartitionBy {
+				valCurr, _ := it.executor.evaluateExpr(partExpr, currRow, it.colMap)
+				valPrev, _ := it.executor.evaluateExpr(partExpr, prevRow, it.colMap)
+				if it.executor.compareValues(valCurr, valPrev) != 0 {
+					isNewPartition = true
+					break
+				}
+			}
+		}
+		if isNewPartition {
+			currentPartStart = i
+		}
+		partitionStarts[i] = currentPartStart
+	}
+
+	// Compute partition ends (scan backwards)
+	currentPartEnd := len(sortedIndices) - 1
+	for i := len(sortedIndices) - 1; i >= 0; i-- {
+		if i == len(sortedIndices)-1 {
+			currentPartEnd = i
+		} else if spec != nil && len(spec.PartitionBy) > 0 {
+			currRow := it.inputRows[sortedIndices[i]]
+			nextRow := it.inputRows[sortedIndices[i+1]]
+			isPartEnd := false
+			for _, partExpr := range spec.PartitionBy {
+				valCurr, _ := it.executor.evaluateExpr(partExpr, currRow, it.colMap)
+				valNext, _ := it.executor.evaluateExpr(partExpr, nextRow, it.colMap)
+				if it.executor.compareValues(valCurr, valNext) != 0 {
+					isPartEnd = true
+					break
+				}
+			}
+			if isPartEnd {
+				currentPartEnd = i
+			}
+		}
+		partitionEnds[i] = currentPartEnd
+	}
+
+	// For each row, compute the aggregate over its frame
+	for i := 0; i < len(sortedIndices); i++ {
+		origIdx := sortedIndices[i]
+		partStart := partitionStarts[i]
+		partEnd := partitionEnds[i]
+
+		// Determine frame bounds for this row
+		frameStart, frameEnd := it.computeFrameBounds(spec, i, partStart, partEnd)
+
+		// Compute aggregate over frame
+		result := it.computeFrameAggregate(sortedIndices, frameStart, frameEnd, aggExpr, isCountStar, aggFunc)
+		windowResults[origIdx][wfIdx] = result
+	}
+}
+
+// computeFrameBounds computes the start and end indices of the frame for a given row
+func (it *WindowFunctionIterator) computeFrameBounds(spec *parser.WindowSpec, rowIdx, partStart, partEnd int) (int, int) {
+	// Default frame: RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW (when ORDER BY is present)
+	// Without ORDER BY: RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+	frameStart := partStart
+	frameEnd := rowIdx // Default to current row
+
+	if spec == nil || spec.Frame == nil {
+		// Default behavior
+		if spec != nil && len(spec.OrderBy) > 0 {
+			// With ORDER BY: UNBOUNDED PRECEDING to CURRENT ROW
+			frameEnd = rowIdx
+		} else {
+			// Without ORDER BY: whole partition
+			frameEnd = partEnd
+		}
+		return frameStart, frameEnd
+	}
+
+	frame := spec.Frame
+
+	// Compute start bound
+	if frame.StartBound != nil {
+		switch frame.StartBound.Type {
+		case parser.FrameBoundUnboundedPreceding:
+			frameStart = partStart
+		case parser.FrameBoundCurrentRow:
+			frameStart = rowIdx
+		case parser.FrameBoundPreceding:
+			offset := int64(1)
+			if frame.StartBound.Offset != nil {
+				if lit, ok := frame.StartBound.Offset.(*parser.Literal); ok {
+					offset = lit.Value.Int()
+				}
+			}
+			frameStart = rowIdx - int(offset)
+			if frameStart < partStart {
+				frameStart = partStart
+			}
+		case parser.FrameBoundFollowing:
+			offset := int64(1)
+			if frame.StartBound.Offset != nil {
+				if lit, ok := frame.StartBound.Offset.(*parser.Literal); ok {
+					offset = lit.Value.Int()
+				}
+			}
+			frameStart = rowIdx + int(offset)
+			if frameStart > partEnd {
+				frameStart = partEnd + 1 // Empty frame
+			}
+		}
+	}
+
+	// Compute end bound
+	if frame.EndBound != nil {
+		switch frame.EndBound.Type {
+		case parser.FrameBoundUnboundedFollowing:
+			frameEnd = partEnd
+		case parser.FrameBoundCurrentRow:
+			frameEnd = rowIdx
+		case parser.FrameBoundPreceding:
+			offset := int64(1)
+			if frame.EndBound.Offset != nil {
+				if lit, ok := frame.EndBound.Offset.(*parser.Literal); ok {
+					offset = lit.Value.Int()
+				}
+			}
+			frameEnd = rowIdx - int(offset)
+			if frameEnd < partStart {
+				frameEnd = partStart - 1 // Empty frame
+			}
+		case parser.FrameBoundFollowing:
+			offset := int64(1)
+			if frame.EndBound.Offset != nil {
+				if lit, ok := frame.EndBound.Offset.(*parser.Literal); ok {
+					offset = lit.Value.Int()
+				}
+			}
+			frameEnd = rowIdx + int(offset)
+			if frameEnd > partEnd {
+				frameEnd = partEnd
+			}
+		}
+	}
+
+	return frameStart, frameEnd
+}
+
+// computeFrameAggregate computes an aggregate value over a frame
+func (it *WindowFunctionIterator) computeFrameAggregate(
+	sortedIndices []int,
+	frameStart, frameEnd int,
+	aggExpr parser.Expression,
+	isCountStar bool,
+	aggFunc string,
+) types.Value {
+	if frameStart > frameEnd {
+		// Empty frame
+		if aggFunc == "COUNT" {
+			return types.NewInt(0)
+		}
+		return types.NewNull()
+	}
+
+	var sum float64
+	var count int64
+	var minVal, maxVal types.Value
+	hasMin, hasMax := false, false
+
+	for i := frameStart; i <= frameEnd; i++ {
+		if i < 0 || i >= len(sortedIndices) {
+			continue
+		}
+		origIdx := sortedIndices[i]
+		row := it.inputRows[origIdx]
+
+		if isCountStar {
+			count++
+			continue
+		}
+
+		if aggExpr == nil {
+			continue
+		}
+
+		val, err := it.executor.evaluateExpr(aggExpr, row, it.colMap)
+		if err != nil || val.IsNull() {
+			continue
+		}
+
+		count++
+
+		switch aggFunc {
+		case "SUM", "AVG":
+			switch val.Type() {
+			case types.TypeInt:
+				sum += float64(val.Int())
+			case types.TypeFloat:
+				sum += val.Float()
+			}
+		case "MIN":
+			if !hasMin || it.executor.compareValues(val, minVal) < 0 {
+				minVal = val
+				hasMin = true
+			}
+		case "MAX":
+			if !hasMax || it.executor.compareValues(val, maxVal) > 0 {
+				maxVal = val
+				hasMax = true
+			}
+		case "COUNT":
+			// count already incremented
+		}
+	}
+
+	// Return appropriate result
+	switch aggFunc {
+	case "SUM":
+		if count == 0 {
+			return types.NewNull()
+		}
+		return types.NewInt(int64(sum))
+	case "AVG":
+		if count == 0 {
+			return types.NewNull()
+		}
+		return types.NewFloat(sum / float64(count))
+	case "COUNT":
+		return types.NewInt(count)
+	case "MIN":
+		if !hasMin {
+			return types.NewNull()
+		}
+		return minVal
+	case "MAX":
+		if !hasMax {
+			return types.NewNull()
+		}
+		return maxVal
+	default:
+		return types.NewNull()
 	}
 }
