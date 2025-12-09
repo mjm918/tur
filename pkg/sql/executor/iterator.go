@@ -992,3 +992,263 @@ func (it *CTEScanIterator) Value() []types.Value {
 func (it *CTEScanIterator) Close() {
 	// Nothing to clean up - rows are just references to in-memory data
 }
+
+// WindowFunctionIterator computes window functions over input rows
+type WindowFunctionIterator struct {
+	child       RowIterator
+	windowFuncs []windowFuncState
+	colMap      map[string]int
+	executor    *Executor
+
+	// Output rows with window function values appended
+	rows     [][]types.Value
+	idx      int
+	prepared bool
+}
+
+// windowFuncState tracks state for a single window function
+type windowFuncState struct {
+	funcName    string
+	partitionBy []parser.Expression
+	orderBy     []parser.OrderByExpr
+}
+
+func (it *WindowFunctionIterator) Next() bool {
+	if !it.prepared {
+		it.prepare()
+		it.prepared = true
+		it.idx = 0
+	}
+
+	if it.idx < len(it.rows) {
+		it.idx++
+		return true
+	}
+	return false
+}
+
+func (it *WindowFunctionIterator) Value() []types.Value {
+	if it.idx > 0 && it.idx <= len(it.rows) {
+		return it.rows[it.idx-1]
+	}
+	return nil
+}
+
+func (it *WindowFunctionIterator) Close() {
+	it.child.Close()
+}
+
+// prepare materializes all rows and computes window functions
+func (it *WindowFunctionIterator) prepare() {
+	// Step 1: Materialize all input rows
+	var inputRows [][]types.Value
+	for it.child.Next() {
+		row := it.child.Value()
+		clone := make([]types.Value, len(row))
+		copy(clone, row)
+		inputRows = append(inputRows, clone)
+	}
+	it.child.Close()
+
+	if len(inputRows) == 0 {
+		return
+	}
+
+	// For each window function, compute values for all rows
+	// Currently only supporting ROW_NUMBER
+	for wfIdx, wf := range it.windowFuncs {
+		switch wf.funcName {
+		case "ROW_NUMBER":
+			it.computeRowNumber(inputRows, wfIdx, wf)
+		default:
+			// Unsupported window function - add NULL
+			for i := range inputRows {
+				inputRows[i] = append(inputRows[i], types.NewNull())
+			}
+		}
+	}
+
+	it.rows = inputRows
+}
+
+// computeRowNumber computes ROW_NUMBER() for each row
+func (it *WindowFunctionIterator) computeRowNumber(rows [][]types.Value, wfIdx int, wf windowFuncState) {
+	if len(rows) == 0 {
+		return
+	}
+
+	// If no PARTITION BY, all rows are in one partition
+	if len(wf.partitionBy) == 0 {
+		// Sort by ORDER BY if specified
+		if len(wf.orderBy) > 0 {
+			it.sortRowsByOrderBy(rows, wf.orderBy)
+		}
+
+		// Assign row numbers 1, 2, 3, ...
+		for i := range rows {
+			rows[i] = append(rows[i], types.NewInt(int64(i+1)))
+		}
+		return
+	}
+
+	// Use simpler in-place implementation for PARTITION BY
+	it.computeRowNumberSimple(rows, wf)
+}
+
+// computeRowNumberSimple is a simpler implementation that works in-place
+func (it *WindowFunctionIterator) computeRowNumberSimple(rows [][]types.Value, wf windowFuncState) {
+	if len(rows) == 0 {
+		return
+	}
+
+	// Create row indices for sorting
+	indices := make([]int, len(rows))
+	for i := range indices {
+		indices[i] = i
+	}
+
+	// Sort indices by partition key, then by ORDER BY
+	it.sortIndices(indices, rows, wf.partitionBy, wf.orderBy)
+
+	// Assign row numbers
+	results := make([]int64, len(rows))
+	var lastKey string
+	rowNum := int64(0)
+
+	for _, idx := range indices {
+		row := rows[idx]
+		currentKey := it.computePartitionKey(row, wf.partitionBy)
+
+		if currentKey != lastKey {
+			// New partition
+			rowNum = 1
+			lastKey = currentKey
+		} else {
+			rowNum++
+		}
+
+		results[idx] = rowNum
+	}
+
+	// Append results to each row
+	for i := range rows {
+		rows[i] = append(rows[i], types.NewInt(results[i]))
+	}
+}
+
+// computePartitionKey computes a string key for partition grouping
+func (it *WindowFunctionIterator) computePartitionKey(row []types.Value, partitionBy []parser.Expression) string {
+	if len(partitionBy) == 0 {
+		return "" // All rows in same partition
+	}
+
+	var key string
+	for i, expr := range partitionBy {
+		val, err := it.executor.evaluateExpr(expr, row, it.colMap)
+		if err != nil {
+			val = types.NewNull()
+		}
+		if i > 0 {
+			key += "|"
+		}
+		key += partitionValueToString(val)
+	}
+	return key
+}
+
+// partitionValueToString converts a types.Value to a string representation for partition keys
+func partitionValueToString(v types.Value) string {
+	if v.IsNull() {
+		return "NULL"
+	}
+	switch v.Type() {
+	case types.TypeInt:
+		return fmt.Sprintf("%d", v.Int())
+	case types.TypeFloat:
+		return fmt.Sprintf("%f", v.Float())
+	case types.TypeText:
+		return v.Text()
+	case types.TypeBlob:
+		return fmt.Sprintf("%x", v.Blob())
+	default:
+		return "?"
+	}
+}
+
+// sortIndices sorts row indices by partition key then ORDER BY
+func (it *WindowFunctionIterator) sortIndices(indices []int, rows [][]types.Value, partitionBy []parser.Expression, orderBy []parser.OrderByExpr) {
+	// Simple bubble sort
+	n := len(indices)
+	for i := 0; i < n-1; i++ {
+		for j := 0; j < n-i-1; j++ {
+			if it.compareRowsForWindow(rows[indices[j]], rows[indices[j+1]], partitionBy, orderBy) > 0 {
+				indices[j], indices[j+1] = indices[j+1], indices[j]
+			}
+		}
+	}
+}
+
+// compareRowsForWindow compares two rows first by partition, then by ORDER BY
+func (it *WindowFunctionIterator) compareRowsForWindow(a, b []types.Value, partitionBy []parser.Expression, orderBy []parser.OrderByExpr) int {
+	// First compare by partition key
+	for _, expr := range partitionBy {
+		valA, errA := it.executor.evaluateExpr(expr, a, it.colMap)
+		valB, errB := it.executor.evaluateExpr(expr, b, it.colMap)
+		if errA != nil || errB != nil {
+			continue
+		}
+		cmp := compareValuesForSort(valA, valB)
+		if cmp != 0 {
+			return cmp
+		}
+	}
+
+	// Then compare by ORDER BY
+	for _, ob := range orderBy {
+		valA, errA := it.executor.evaluateExpr(ob.Expr, a, it.colMap)
+		valB, errB := it.executor.evaluateExpr(ob.Expr, b, it.colMap)
+		if errA != nil || errB != nil {
+			continue
+		}
+		cmp := compareValuesForSort(valA, valB)
+		if cmp != 0 {
+			if ob.Direction == parser.OrderDesc {
+				return -cmp
+			}
+			return cmp
+		}
+	}
+
+	return 0
+}
+
+// sortRowsByOrderBy sorts rows in-place by ORDER BY expressions
+func (it *WindowFunctionIterator) sortRowsByOrderBy(rows [][]types.Value, orderBy []parser.OrderByExpr) {
+	n := len(rows)
+	for i := 0; i < n-1; i++ {
+		for j := 0; j < n-i-1; j++ {
+			if it.compareByOrderBy(rows[j], rows[j+1], orderBy) > 0 {
+				rows[j], rows[j+1] = rows[j+1], rows[j]
+			}
+		}
+	}
+}
+
+// compareByOrderBy compares two rows by ORDER BY expressions
+func (it *WindowFunctionIterator) compareByOrderBy(a, b []types.Value, orderBy []parser.OrderByExpr) int {
+	for _, ob := range orderBy {
+		valA, errA := it.executor.evaluateExpr(ob.Expr, a, it.colMap)
+		valB, errB := it.executor.evaluateExpr(ob.Expr, b, it.colMap)
+		if errA != nil || errB != nil {
+			continue
+		}
+		cmp := compareValuesForSort(valA, valB)
+		if cmp != 0 {
+			if ob.Direction == parser.OrderDesc {
+				return -cmp
+			}
+			return cmp
+		}
+	}
+	return 0
+}

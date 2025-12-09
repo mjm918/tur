@@ -1587,6 +1587,46 @@ func (e *Executor) executePlanWithCTEs(plan optimizer.PlanNode, cteData map[stri
 
 		return subIter, cols, nil
 
+	case *optimizer.WindowNode:
+		// Execute the input plan
+		inputIter, inputCols, err := e.executePlanWithCTEs(node.Input, cteData)
+		if err != nil {
+			return nil, nil, fmt.Errorf("executing window input: %w", err)
+		}
+
+		// Build column map
+		colMap := make(map[string]int)
+		for i, col := range inputCols {
+			colMap[col] = i
+			// Also add unqualified name
+			parts := strings.Split(col, ".")
+			if len(parts) > 1 {
+				colMap[parts[len(parts)-1]] = i
+			}
+		}
+
+		// Convert optimizer WindowFunctionSpec to iterator windowFuncState
+		var windowFuncs []windowFuncState
+		var outputCols []string
+		outputCols = append(outputCols, inputCols...)
+
+		for _, wf := range node.WindowFunctions {
+			windowFuncs = append(windowFuncs, windowFuncState{
+				funcName:    wf.FuncName,
+				partitionBy: wf.PartitionBy,
+				orderBy:     wf.OrderBy,
+			})
+			// Add output column for this window function
+			outputCols = append(outputCols, wf.FuncName)
+		}
+
+		return &WindowFunctionIterator{
+			child:       inputIter,
+			windowFuncs: windowFuncs,
+			colMap:      colMap,
+			executor:    e,
+		}, outputCols, nil
+
 	default:
 		return nil, nil, fmt.Errorf("unsupported plan node: %T", plan)
 	}
@@ -1709,6 +1749,22 @@ func (e *Executor) evaluateExpr(expr parser.Expression, rowValues []types.Value,
 		return result.Rows[0][0], nil
 	case *parser.FunctionCall:
 		return e.evaluateFunctionCall(ex, rowValues, colMap)
+	case *parser.WindowFunction:
+		// Window function results are stored in the row under the function name
+		// The WindowFunctionIterator has already computed the values
+		funcCall, ok := ex.Function.(*parser.FunctionCall)
+		if !ok {
+			return types.NewNull(), fmt.Errorf("window function has non-FunctionCall inner expression")
+		}
+		// Look up the window function result by name
+		idx, ok := colMap[funcCall.Name]
+		if !ok {
+			return types.NewNull(), fmt.Errorf("window function result column %s not found", funcCall.Name)
+		}
+		if idx < len(rowValues) {
+			return rowValues[idx], nil
+		}
+		return types.NewNull(), nil
 	default:
 		return types.NewNull(), fmt.Errorf("unsupported expression type: %T", expr)
 	}
