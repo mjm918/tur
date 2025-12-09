@@ -2620,23 +2620,23 @@
     {
       "title": "Window Functions - LAG/LEAD",
       "description": "Access previous/next rows in result set",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Implement LAG to access previous row",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement LEAD to access next row",
-          "done": false
+          "done": true
         },
         {
           "task": "Handle offset parameter (default 1)",
-          "done": false
+          "done": true
         },
         {
           "task": "Handle default value for out-of-bounds access",
-          "done": false
+          "done": true
         }
       ]
     },
