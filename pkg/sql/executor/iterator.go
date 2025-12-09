@@ -992,3 +992,308 @@ func (it *CTEScanIterator) Value() []types.Value {
 func (it *CTEScanIterator) Close() {
 	// Nothing to clean up - rows are just references to in-memory data
 }
+
+// WindowIterator computes window functions over an input iterator
+// It materializes all input rows, then computes window function values
+type WindowIterator struct {
+	child           RowIterator
+	expressions     []parser.Expression // All SELECT expressions (including window funcs)
+	colMap          map[string]int
+	executor        *Executor
+	windowFuncInfos []windowFuncInfo // Info about each window function in expressions
+
+	// State
+	outputRows [][]types.Value // Computed output rows with window function values
+	index      int
+	prepared   bool
+}
+
+// windowFuncInfo holds info about a window function in the expression list
+type windowFuncInfo struct {
+	exprIndex  int                   // Index in expressions slice
+	winFunc    *parser.WindowFunction
+	funcName   string
+}
+
+// NewWindowIterator creates a new WindowIterator
+func NewWindowIterator(child RowIterator, expressions []parser.Expression, colMap map[string]int, executor *Executor) *WindowIterator {
+	it := &WindowIterator{
+		child:       child,
+		expressions: expressions,
+		colMap:      colMap,
+		executor:    executor,
+		index:       -1,
+	}
+
+	// Find window functions in expressions
+	for i, expr := range expressions {
+		if wf, ok := expr.(*parser.WindowFunction); ok {
+			funcName := ""
+			if fc, ok := wf.Function.(*parser.FunctionCall); ok {
+				funcName = fc.Name
+			}
+			it.windowFuncInfos = append(it.windowFuncInfos, windowFuncInfo{
+				exprIndex:  i,
+				winFunc:    wf,
+				funcName:   funcName,
+			})
+		}
+	}
+
+	return it
+}
+
+func (it *WindowIterator) Next() bool {
+	if !it.prepared {
+		it.prepare()
+	}
+	it.index++
+	return it.index < len(it.outputRows)
+}
+
+func (it *WindowIterator) Value() []types.Value {
+	if it.index >= 0 && it.index < len(it.outputRows) {
+		return it.outputRows[it.index]
+	}
+	return nil
+}
+
+func (it *WindowIterator) Close() {
+	// Child closed during prepare
+}
+
+// prepare materializes input and computes window function values
+func (it *WindowIterator) prepare() {
+	// Step 1: Materialize all input rows
+	var inputRows [][]types.Value
+	for it.child.Next() {
+		row := it.child.Value()
+		clone := make([]types.Value, len(row))
+		copy(clone, row)
+		inputRows = append(inputRows, clone)
+	}
+	it.child.Close()
+
+	if len(inputRows) == 0 {
+		it.prepared = true
+		return
+	}
+
+	// Step 2: For each window function, compute values for all rows
+	// We'll store computed window function values indexed by [rowIndex][windowFuncIndex]
+	windowValues := make([][]types.Value, len(inputRows))
+	for i := range windowValues {
+		windowValues[i] = make([]types.Value, len(it.windowFuncInfos))
+	}
+
+	for wfIdx, wfInfo := range it.windowFuncInfos {
+		it.computeWindowFunction(wfInfo, inputRows, windowValues, wfIdx)
+	}
+
+	// Step 3: Build output rows
+	for rowIdx, inputRow := range inputRows {
+		outputRow := make([]types.Value, len(it.expressions))
+		wfResultIdx := 0
+
+		for exprIdx, expr := range it.expressions {
+			if _, ok := expr.(*parser.WindowFunction); ok {
+				// Use pre-computed window function value
+				outputRow[exprIdx] = windowValues[rowIdx][wfResultIdx]
+				wfResultIdx++
+			} else {
+				// Evaluate regular expression
+				val, err := it.executor.evaluateExpr(expr, inputRow, it.colMap)
+				if err != nil {
+					outputRow[exprIdx] = types.NewNull()
+				} else {
+					outputRow[exprIdx] = val
+				}
+			}
+		}
+		it.outputRows = append(it.outputRows, outputRow)
+	}
+
+	it.prepared = true
+}
+
+// computeWindowFunction computes values for a single window function across all rows
+func (it *WindowIterator) computeWindowFunction(wfInfo windowFuncInfo, inputRows [][]types.Value, windowValues [][]types.Value, wfIdx int) {
+	wf := wfInfo.winFunc
+	funcName := wfInfo.funcName
+
+	// Group rows by PARTITION BY
+	partitions := it.partitionRows(inputRows, wf.Over.PartitionBy)
+
+	// For each partition, sort by ORDER BY and compute ranks
+	for _, partition := range partitions {
+		// Sort partition by ORDER BY
+		it.sortPartition(partition, wf.Over.OrderBy)
+
+		// Compute function values based on function name
+		switch funcName {
+		case "RANK":
+			it.computeRank(partition, wf.Over.OrderBy, windowValues, wfIdx)
+		case "DENSE_RANK":
+			it.computeDenseRank(partition, wf.Over.OrderBy, windowValues, wfIdx)
+		case "ROW_NUMBER":
+			it.computeRowNumber(partition, windowValues, wfIdx)
+		default:
+			// Unknown window function - return NULL
+			for _, entry := range partition {
+				windowValues[entry.originalIndex][wfIdx] = types.NewNull()
+			}
+		}
+	}
+}
+
+// partitionEntry holds a row with its original index for tracking
+type partitionEntry struct {
+	row           []types.Value
+	originalIndex int
+}
+
+// partitionRows groups rows by PARTITION BY expressions
+func (it *WindowIterator) partitionRows(inputRows [][]types.Value, partitionBy []parser.Expression) [][]partitionEntry {
+	if len(partitionBy) == 0 {
+		// No partitioning - all rows in one partition
+		partition := make([]partitionEntry, len(inputRows))
+		for i, row := range inputRows {
+			partition[i] = partitionEntry{row: row, originalIndex: i}
+		}
+		return [][]partitionEntry{partition}
+	}
+
+	// Group by partition key
+	partitionMap := make(map[string][]partitionEntry)
+	var partitionOrder []string // Track order of first occurrence
+
+	for i, row := range inputRows {
+		key := it.computePartitionKey(row, partitionBy)
+		if _, exists := partitionMap[key]; !exists {
+			partitionOrder = append(partitionOrder, key)
+		}
+		partitionMap[key] = append(partitionMap[key], partitionEntry{row: row, originalIndex: i})
+	}
+
+	// Return partitions in order of first occurrence
+	var result [][]partitionEntry
+	for _, key := range partitionOrder {
+		result = append(result, partitionMap[key])
+	}
+	return result
+}
+
+// computePartitionKey computes a string key for grouping
+func (it *WindowIterator) computePartitionKey(row []types.Value, partitionBy []parser.Expression) string {
+	var parts []string
+	for _, expr := range partitionBy {
+		val, err := it.executor.evaluateExpr(expr, row, it.colMap)
+		if err != nil || val.IsNull() {
+			parts = append(parts, "NULL")
+		} else {
+			parts = append(parts, fmt.Sprintf("%v", val))
+		}
+	}
+	key := ""
+	for i, p := range parts {
+		if i > 0 {
+			key += "|"
+		}
+		key += p
+	}
+	return key
+}
+
+// sortPartition sorts partition entries by ORDER BY expressions
+func (it *WindowIterator) sortPartition(partition []partitionEntry, orderBy []parser.OrderByExpr) {
+	if len(orderBy) == 0 {
+		return
+	}
+
+	// Simple bubble sort (for correctness; optimize later if needed)
+	for i := 0; i < len(partition)-1; i++ {
+		for j := 0; j < len(partition)-i-1; j++ {
+			if it.compareOrderBy(partition[j].row, partition[j+1].row, orderBy) > 0 {
+				partition[j], partition[j+1] = partition[j+1], partition[j]
+			}
+		}
+	}
+}
+
+// compareOrderBy compares two rows by ORDER BY expressions
+// Returns negative if row1 < row2, 0 if equal, positive if row1 > row2
+func (it *WindowIterator) compareOrderBy(row1, row2 []types.Value, orderBy []parser.OrderByExpr) int {
+	for _, ob := range orderBy {
+		val1, _ := it.executor.evaluateExpr(ob.Expr, row1, it.colMap)
+		val2, _ := it.executor.evaluateExpr(ob.Expr, row2, it.colMap)
+
+		cmp := it.executor.compareValues(val1, val2)
+		if cmp != 0 {
+			if ob.Direction == parser.OrderDesc {
+				return -cmp
+			}
+			return cmp
+		}
+	}
+	return 0
+}
+
+// areOrderByValuesEqual checks if two rows have equal ORDER BY values (for peer detection)
+func (it *WindowIterator) areOrderByValuesEqual(row1, row2 []types.Value, orderBy []parser.OrderByExpr) bool {
+	for _, ob := range orderBy {
+		val1, _ := it.executor.evaluateExpr(ob.Expr, row1, it.colMap)
+		val2, _ := it.executor.evaluateExpr(ob.Expr, row2, it.colMap)
+
+		if it.executor.compareValues(val1, val2) != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// computeRank computes RANK() with gaps for ties
+func (it *WindowIterator) computeRank(partition []partitionEntry, orderBy []parser.OrderByExpr, windowValues [][]types.Value, wfIdx int) {
+	if len(partition) == 0 {
+		return
+	}
+
+	rank := int64(1)
+	for i, entry := range partition {
+		if i > 0 {
+			// Check if this row has same ORDER BY values as previous (peer)
+			if !it.areOrderByValuesEqual(partition[i-1].row, entry.row, orderBy) {
+				// Not a peer - rank jumps to current position + 1
+				rank = int64(i + 1)
+			}
+			// If peer, rank stays the same
+		}
+		windowValues[entry.originalIndex][wfIdx] = types.NewInt(rank)
+	}
+}
+
+// computeDenseRank computes DENSE_RANK() without gaps
+func (it *WindowIterator) computeDenseRank(partition []partitionEntry, orderBy []parser.OrderByExpr, windowValues [][]types.Value, wfIdx int) {
+	if len(partition) == 0 {
+		return
+	}
+
+	denseRank := int64(1)
+	for i, entry := range partition {
+		if i > 0 {
+			// Check if this row has same ORDER BY values as previous (peer)
+			if !it.areOrderByValuesEqual(partition[i-1].row, entry.row, orderBy) {
+				// Not a peer - dense rank increments by 1 (no gaps)
+				denseRank++
+			}
+			// If peer, rank stays the same
+		}
+		windowValues[entry.originalIndex][wfIdx] = types.NewInt(denseRank)
+	}
+}
+
+// computeRowNumber computes ROW_NUMBER() (unique sequential number)
+func (it *WindowIterator) computeRowNumber(partition []partitionEntry, windowValues [][]types.Value, wfIdx int) {
+	for i, entry := range partition {
+		windowValues[entry.originalIndex][wfIdx] = types.NewInt(int64(i + 1))
+	}
+}

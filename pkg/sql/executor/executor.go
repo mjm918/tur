@@ -1401,6 +1401,20 @@ func (e *Executor) executePlanWithCTEs(plan optimizer.PlanNode, cteData map[stri
 			}
 		}
 
+		// Check if any expressions are window functions
+		hasWindowFunc := false
+		for _, expr := range node.Expressions {
+			if _, ok := expr.(*parser.WindowFunction); ok {
+				hasWindowFunc = true
+				break
+			}
+		}
+
+		if hasWindowFunc {
+			// Use WindowIterator for window function support
+			return NewWindowIterator(inputIter, node.Expressions, colMap, e), outputCols, nil
+		}
+
 		return &ProjectionIterator{
 			child:       inputIter,
 			expressions: node.Expressions,
