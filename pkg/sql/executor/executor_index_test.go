@@ -676,3 +676,169 @@ func TestCreateIndex_Expression_Mixed(t *testing.T) {
 		t.Errorf("Expressions[0]: got %q, want 'LOWER(name)'", idx.Expressions[0])
 	}
 }
+
+// ========== Expression Index Insert/Update Tests ==========
+
+func TestExpressionIndex_Insert_UpdatesIndex(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create table
+	_, err := exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Create expression index on UPPER(name)
+	_, err = exec.Execute("CREATE INDEX idx_upper_name ON users (UPPER(name))")
+	if err != nil {
+		t.Fatalf("CREATE INDEX: %v", err)
+	}
+
+	// Insert a row
+	_, err = exec.Execute("INSERT INTO users VALUES (1, 'Alice')")
+	if err != nil {
+		t.Fatalf("INSERT: %v", err)
+	}
+
+	// Verify the index contains entry for UPPER('Alice') = 'ALICE'
+	tree := exec.trees["index:idx_upper_name"]
+	if tree == nil {
+		t.Fatal("Index tree not found")
+	}
+
+	// For non-unique index, key = encoded(exprValue, rowID)
+	// exprValue = UPPER('Alice') = 'ALICE'
+	key := record.Encode([]types.Value{types.NewText("ALICE"), types.NewInt(1)})
+
+	_, err = tree.Get(key)
+	if err != nil {
+		t.Errorf("Index entry not found for UPPER('Alice'): %v", err)
+	}
+}
+
+func TestExpressionIndex_Insert_BinaryExpr(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create table
+	_, err := exec.Execute("CREATE TABLE orders (id INT, price INT, quantity INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Create expression index on (price * quantity)
+	_, err = exec.Execute("CREATE INDEX idx_total ON orders ((price * quantity))")
+	if err != nil {
+		t.Fatalf("CREATE INDEX: %v", err)
+	}
+
+	// Insert a row: price=100, quantity=5 -> total=500
+	_, err = exec.Execute("INSERT INTO orders VALUES (1, 100, 5)")
+	if err != nil {
+		t.Fatalf("INSERT: %v", err)
+	}
+
+	// Verify the index contains entry for 100 * 5 = 500
+	tree := exec.trees["index:idx_total"]
+	if tree == nil {
+		t.Fatal("Index tree not found")
+	}
+
+	// For non-unique index, key = encoded(exprValue, rowID)
+	key := record.Encode([]types.Value{types.NewInt(500), types.NewInt(1)})
+
+	_, err = tree.Get(key)
+	if err != nil {
+		t.Errorf("Index entry not found for price*quantity=500: %v", err)
+	}
+}
+
+func TestExpressionIndex_Insert_MultipleRows(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create table
+	_, err := exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Create expression index on LOWER(name)
+	_, err = exec.Execute("CREATE INDEX idx_lower_name ON users (LOWER(name))")
+	if err != nil {
+		t.Fatalf("CREATE INDEX: %v", err)
+	}
+
+	// Insert multiple rows
+	_, err = exec.Execute("INSERT INTO users VALUES (1, 'Alice')")
+	if err != nil {
+		t.Fatalf("INSERT 1: %v", err)
+	}
+	_, err = exec.Execute("INSERT INTO users VALUES (2, 'BOB')")
+	if err != nil {
+		t.Fatalf("INSERT 2: %v", err)
+	}
+	_, err = exec.Execute("INSERT INTO users VALUES (3, 'Charlie')")
+	if err != nil {
+		t.Fatalf("INSERT 3: %v", err)
+	}
+
+	tree := exec.trees["index:idx_lower_name"]
+	if tree == nil {
+		t.Fatal("Index tree not found")
+	}
+
+	// Check each entry
+	tests := []struct {
+		name  string
+		rowID int64
+	}{
+		{"alice", 1},
+		{"bob", 2},
+		{"charlie", 3},
+	}
+
+	for _, tc := range tests {
+		key := record.Encode([]types.Value{types.NewText(tc.name), types.NewInt(tc.rowID)})
+		_, err = tree.Get(key)
+		if err != nil {
+			t.Errorf("Index entry not found for LOWER('%s'): %v", tc.name, err)
+		}
+	}
+}
+
+func TestExpressionIndex_UniqueConstraint(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create table
+	_, err := exec.Execute("CREATE TABLE users (id INT, email TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Create UNIQUE expression index on LOWER(email)
+	_, err = exec.Execute("CREATE UNIQUE INDEX idx_lower_email ON users (LOWER(email))")
+	if err != nil {
+		t.Fatalf("CREATE INDEX: %v", err)
+	}
+
+	// Insert first row
+	_, err = exec.Execute("INSERT INTO users VALUES (1, 'Alice@Example.com')")
+	if err != nil {
+		t.Fatalf("INSERT 1: %v", err)
+	}
+
+	// Insert row with same email in different case - should fail
+	_, err = exec.Execute("INSERT INTO users VALUES (2, 'alice@example.com')")
+	if err == nil {
+		t.Error("Expected unique constraint violation for case-insensitive duplicate email")
+	}
+
+	// Insert row with different email - should succeed
+	_, err = exec.Execute("INSERT INTO users VALUES (3, 'Bob@Example.com')")
+	if err != nil {
+		t.Errorf("INSERT 3 should succeed: %v", err)
+	}
+}

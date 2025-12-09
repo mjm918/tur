@@ -3,12 +3,15 @@ package executor
 import (
 	"encoding/binary"
 	"fmt"
+	"strings"
 
 	"tur/pkg/btree"
 	"tur/pkg/record"
 	"tur/pkg/schema"
+	"tur/pkg/sql/lexer"
 	"tur/pkg/sql/parser"
 	"tur/pkg/types"
+	"tur/pkg/vdbe"
 )
 
 // matchesPartialIndexPredicate evaluates whether a row matches the partial index's
@@ -76,7 +79,7 @@ func (e *Executor) updateIndexes(table *schema.TableDef, rowID uint64, values []
 			e.trees[idxTreeName] = tree
 		}
 
-		// Build index key values
+		// Build index key values from plain columns
 		var keyValues []types.Value
 		for _, colName := range idx.Columns {
 			val, ok := valMap[colName]
@@ -84,6 +87,15 @@ func (e *Executor) updateIndexes(table *schema.TableDef, rowID uint64, values []
 				val = types.NewNull()
 			}
 			keyValues = append(keyValues, val)
+		}
+
+		// Add expression values if this is an expression index
+		if idx.IsExpressionIndex() {
+			exprValues, err := evaluateIndexExpressions(idx.Expressions, valMap)
+			if err != nil {
+				return fmt.Errorf("failed to evaluate expression for index %s: %w", idx.Name, err)
+			}
+			keyValues = append(keyValues, exprValues...)
 		}
 
 		// Encode key
@@ -141,6 +153,174 @@ func (e *Executor) updateIndexes(table *schema.TableDef, rowID uint64, values []
 	return nil
 }
 
+// evaluateIndexExpressions parses and evaluates expression strings against row values
+func evaluateIndexExpressions(exprStrings []string, valMap map[string]types.Value) ([]types.Value, error) {
+	funcRegistry := vdbe.DefaultFunctionRegistry()
+	var results []types.Value
+
+	for _, exprSQL := range exprStrings {
+		// Parse the expression
+		p := parser.New(exprSQL)
+		expr, err := p.ParseExpression()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse expression %q: %w", exprSQL, err)
+		}
+
+		// Evaluate the expression
+		val, err := evaluateExpr(expr, valMap, funcRegistry)
+		if err != nil {
+			return nil, fmt.Errorf("failed to evaluate expression %q: %w", exprSQL, err)
+		}
+		results = append(results, val)
+	}
+
+	return results, nil
+}
+
+// evaluateExpr evaluates a parsed expression against row values
+func evaluateExpr(expr parser.Expression, valMap map[string]types.Value, funcRegistry *vdbe.FunctionRegistry) (types.Value, error) {
+	switch e := expr.(type) {
+	case *parser.Literal:
+		return e.Value, nil
+
+	case *parser.ColumnRef:
+		// Look up column value (case-insensitive)
+		for colName, val := range valMap {
+			if strings.EqualFold(colName, e.Name) {
+				return val, nil
+			}
+		}
+		return types.NewNull(), nil
+
+	case *parser.FunctionCall:
+		// Evaluate function arguments
+		args := make([]types.Value, len(e.Args))
+		for i, arg := range e.Args {
+			val, err := evaluateExpr(arg, valMap, funcRegistry)
+			if err != nil {
+				return types.NewNull(), err
+			}
+			args[i] = val
+		}
+
+		// Look up and call the function
+		fn := funcRegistry.Lookup(e.Name)
+		if fn == nil {
+			return types.NewNull(), fmt.Errorf("unknown function: %s", e.Name)
+		}
+		return fn.Call(args), nil
+
+	case *parser.BinaryExpr:
+		// Evaluate left and right operands
+		left, err := evaluateExpr(e.Left, valMap, funcRegistry)
+		if err != nil {
+			return types.NewNull(), err
+		}
+		right, err := evaluateExpr(e.Right, valMap, funcRegistry)
+		if err != nil {
+			return types.NewNull(), err
+		}
+
+		// Handle NULL propagation for arithmetic
+		if left.IsNull() || right.IsNull() {
+			return types.NewNull(), nil
+		}
+
+		// Evaluate based on operator
+		switch e.Op {
+		case lexer.PLUS:
+			return evalArithmetic(left, right, "+")
+		case lexer.MINUS:
+			return evalArithmetic(left, right, "-")
+		case lexer.STAR:
+			return evalArithmetic(left, right, "*")
+		case lexer.SLASH:
+			return evalArithmetic(left, right, "/")
+		default:
+			return types.NewNull(), fmt.Errorf("unsupported operator in index expression: %v", e.Op)
+		}
+
+	case *parser.UnaryExpr:
+		right, err := evaluateExpr(e.Right, valMap, funcRegistry)
+		if err != nil {
+			return types.NewNull(), err
+		}
+		if right.IsNull() {
+			return types.NewNull(), nil
+		}
+		if e.Op == lexer.MINUS {
+			switch right.Type() {
+			case types.TypeInt:
+				return types.NewInt(-right.Int()), nil
+			case types.TypeFloat:
+				return types.NewFloat(-right.Float()), nil
+			}
+		}
+		return types.NewNull(), fmt.Errorf("unsupported unary operator: %v", e.Op)
+
+	default:
+		return types.NewNull(), fmt.Errorf("unsupported expression type in index: %T", expr)
+	}
+}
+
+// evalArithmetic performs arithmetic operations on two values
+func evalArithmetic(left, right types.Value, op string) (types.Value, error) {
+	// Convert to float if either operand is float
+	if left.Type() == types.TypeFloat || right.Type() == types.TypeFloat {
+		var l, r float64
+		switch left.Type() {
+		case types.TypeInt:
+			l = float64(left.Int())
+		case types.TypeFloat:
+			l = left.Float()
+		default:
+			return types.NewNull(), nil
+		}
+		switch right.Type() {
+		case types.TypeInt:
+			r = float64(right.Int())
+		case types.TypeFloat:
+			r = right.Float()
+		default:
+			return types.NewNull(), nil
+		}
+
+		switch op {
+		case "+":
+			return types.NewFloat(l + r), nil
+		case "-":
+			return types.NewFloat(l - r), nil
+		case "*":
+			return types.NewFloat(l * r), nil
+		case "/":
+			if r == 0 {
+				return types.NewNull(), nil
+			}
+			return types.NewFloat(l / r), nil
+		}
+	}
+
+	// Integer arithmetic
+	if left.Type() == types.TypeInt && right.Type() == types.TypeInt {
+		l, r := left.Int(), right.Int()
+		switch op {
+		case "+":
+			return types.NewInt(l + r), nil
+		case "-":
+			return types.NewInt(l - r), nil
+		case "*":
+			return types.NewInt(l * r), nil
+		case "/":
+			if r == 0 {
+				return types.NewNull(), nil
+			}
+			return types.NewInt(l / r), nil
+		}
+	}
+
+	return types.NewNull(), nil
+}
+
 // deleteFromIndexes removes index entries for a deleted row
 func (e *Executor) deleteFromIndexes(table *schema.TableDef, rowID uint64, values []types.Value) error {
 	indexes := e.catalog.GetIndexesForTable(table.Name)
@@ -176,7 +356,7 @@ func (e *Executor) deleteFromIndexes(table *schema.TableDef, rowID uint64, value
 			e.trees[idxTreeName] = tree
 		}
 
-		// Build index key values
+		// Build index key values from plain columns
 		var keyValues []types.Value
 		for _, colName := range idx.Columns {
 			val, ok := valMap[colName]
@@ -184,6 +364,16 @@ func (e *Executor) deleteFromIndexes(table *schema.TableDef, rowID uint64, value
 				val = types.NewNull()
 			}
 			keyValues = append(keyValues, val)
+		}
+
+		// Add expression values if this is an expression index
+		if idx.IsExpressionIndex() {
+			exprValues, err := evaluateIndexExpressions(idx.Expressions, valMap)
+			if err != nil {
+				// If we can't evaluate expressions, skip this index
+				continue
+			}
+			keyValues = append(keyValues, exprValues...)
 		}
 
 		// Build key (same logic as updateIndexes)

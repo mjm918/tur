@@ -69,6 +69,12 @@ func (p *Parser) Parse() (Statement, error) {
 	}
 }
 
+// ParseExpression parses a single expression from the input.
+// This is useful for evaluating stored expression strings (e.g., in expression indexes).
+func (p *Parser) ParseExpression() (Expression, error) {
+	return p.parseExpression(LOWEST)
+}
+
 // parseCreate handles CREATE TABLE, CREATE INDEX, and CREATE VIEW statements
 func (p *Parser) parseCreate() (Statement, error) {
 	p.nextToken() // consume CREATE

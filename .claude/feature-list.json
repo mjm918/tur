@@ -1621,11 +1621,11 @@
         },
         {
           "task": "Evaluate expression on row insert/update",
-          "done": false
+          "done": true
         },
         {
           "task": "Index computed expression result",
-          "done": false
+          "done": true
         },
         {
           "task": "Match expressions in queries for index usage",
