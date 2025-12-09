@@ -16,6 +16,8 @@ var (
 	ErrColumnExists   = errors.New("column already exists")
 	ErrIndexExists    = errors.New("index already exists")
 	ErrIndexNotFound  = errors.New("index not found")
+	ErrViewExists     = errors.New("view already exists")
+	ErrViewNotFound   = errors.New("view not found")
 )
 
 // Constraint violation errors
@@ -233,11 +235,19 @@ func (t *TableDef) ColumnCount() int {
 	return len(t.Columns)
 }
 
+// ViewDef defines a view schema
+type ViewDef struct {
+	Name    string   // View name
+	SQL     string   // The SQL definition (SELECT statement as text)
+	Columns []string // Optional explicit column names
+}
+
 // Catalog holds all schema definitions
 type Catalog struct {
 	mu         sync.RWMutex
 	tables     map[string]*TableDef
 	indexes    map[string]*IndexDef
+	views      map[string]*ViewDef
 	statistics map[string]*TableStatistics
 }
 
@@ -246,6 +256,7 @@ func NewCatalog() *Catalog {
 	return &Catalog{
 		tables:     make(map[string]*TableDef),
 		indexes:    make(map[string]*IndexDef),
+		views:      make(map[string]*ViewDef),
 		statistics: make(map[string]*TableStatistics),
 	}
 }
@@ -479,6 +490,61 @@ func (c *Catalog) GetIndexByColumn(tableName, columnName string) *IndexDef {
 	}
 
 	return nil
+}
+
+// CreateView adds a view to the catalog
+func (c *Catalog) CreateView(view *ViewDef) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if _, exists := c.views[view.Name]; exists {
+		return ErrViewExists
+	}
+
+	c.views[view.Name] = view
+	return nil
+}
+
+// DropView removes a view from the catalog
+func (c *Catalog) DropView(name string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if _, exists := c.views[name]; !exists {
+		return ErrViewNotFound
+	}
+
+	delete(c.views, name)
+	return nil
+}
+
+// GetView returns a view definition by name
+func (c *Catalog) GetView(name string) *ViewDef {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.views[name]
+}
+
+// ListViews returns all view names in sorted order
+func (c *Catalog) ListViews() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	names := make([]string, 0, len(c.views))
+	for name := range c.views {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// ViewCount returns the number of views
+func (c *Catalog) ViewCount() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return len(c.views)
 }
 
 // GetTableStatistics returns the statistics for a table, or nil if not found

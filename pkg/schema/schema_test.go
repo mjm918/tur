@@ -970,3 +970,107 @@ func TestCatalog_RenameTable_TargetExists(t *testing.T) {
 		t.Errorf("Error = %v, want ErrTableExists", err)
 	}
 }
+
+// View tests
+
+func TestCatalog_CreateView(t *testing.T) {
+	catalog := NewCatalog()
+
+	view := &ViewDef{
+		Name:       "active_users",
+		SQL:        "SELECT id, name FROM users WHERE active = 1",
+		Columns:    []string{"id", "name"},
+	}
+
+	err := catalog.CreateView(view)
+	if err != nil {
+		t.Fatalf("CreateView error: %v", err)
+	}
+
+	// Verify view was stored
+	retrieved := catalog.GetView("active_users")
+	if retrieved == nil {
+		t.Fatal("GetView returned nil")
+	}
+
+	if retrieved.Name != "active_users" {
+		t.Errorf("Name = %q, want 'active_users'", retrieved.Name)
+	}
+
+	if retrieved.SQL != "SELECT id, name FROM users WHERE active = 1" {
+		t.Errorf("SQL = %q, unexpected", retrieved.SQL)
+	}
+
+	if len(retrieved.Columns) != 2 {
+		t.Errorf("Columns count = %d, want 2", len(retrieved.Columns))
+	}
+}
+
+func TestCatalog_CreateView_AlreadyExists(t *testing.T) {
+	catalog := NewCatalog()
+
+	view := &ViewDef{
+		Name: "my_view",
+		SQL:  "SELECT * FROM t",
+	}
+
+	_ = catalog.CreateView(view)
+
+	err := catalog.CreateView(view)
+	if err == nil {
+		t.Fatal("Expected error for duplicate view")
+	}
+	if err != ErrViewExists {
+		t.Errorf("Error = %v, want ErrViewExists", err)
+	}
+}
+
+func TestCatalog_DropView(t *testing.T) {
+	catalog := NewCatalog()
+
+	view := &ViewDef{
+		Name: "temp_view",
+		SQL:  "SELECT 1",
+	}
+	_ = catalog.CreateView(view)
+
+	err := catalog.DropView("temp_view")
+	if err != nil {
+		t.Fatalf("DropView error: %v", err)
+	}
+
+	// Verify view was removed
+	if catalog.GetView("temp_view") != nil {
+		t.Error("View still exists after DropView")
+	}
+}
+
+func TestCatalog_DropView_NotFound(t *testing.T) {
+	catalog := NewCatalog()
+
+	err := catalog.DropView("nonexistent")
+	if err == nil {
+		t.Fatal("Expected error for non-existent view")
+	}
+	if err != ErrViewNotFound {
+		t.Errorf("Error = %v, want ErrViewNotFound", err)
+	}
+}
+
+func TestCatalog_ListViews(t *testing.T) {
+	catalog := NewCatalog()
+
+	_ = catalog.CreateView(&ViewDef{Name: "view_b", SQL: "SELECT 1"})
+	_ = catalog.CreateView(&ViewDef{Name: "view_a", SQL: "SELECT 2"})
+	_ = catalog.CreateView(&ViewDef{Name: "view_c", SQL: "SELECT 3"})
+
+	views := catalog.ListViews()
+	if len(views) != 3 {
+		t.Fatalf("ListViews count = %d, want 3", len(views))
+	}
+
+	// Should be sorted
+	if views[0] != "view_a" || views[1] != "view_b" || views[2] != "view_c" {
+		t.Errorf("ListViews = %v, expected sorted order", views)
+	}
+}

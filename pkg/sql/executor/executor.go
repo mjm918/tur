@@ -92,6 +92,8 @@ func (e *Executor) Execute(sql string) (*Result, error) {
 		return e.executeRollback(s)
 	case *parser.SetOperation:
 		return e.executeSetOperation(s)
+	case *parser.CreateViewStmt:
+		return e.executeCreateView(s)
 	default:
 		return nil, fmt.Errorf("unsupported statement type: %T", stmt)
 	}
@@ -212,6 +214,138 @@ func (e *Executor) executeCreateTable(stmt *parser.CreateTableStmt) (*Result, er
 	e.rowid[stmt.TableName] = 1
 
 	return &Result{}, nil
+}
+
+// executeCreateView handles CREATE VIEW
+func (e *Executor) executeCreateView(stmt *parser.CreateViewStmt) (*Result, error) {
+	// Check if view already exists
+	if e.catalog.GetView(stmt.ViewName) != nil {
+		if stmt.IfNotExists {
+			return &Result{}, nil
+		}
+		return nil, fmt.Errorf("view %s already exists", stmt.ViewName)
+	}
+
+	// Convert the SELECT statement to SQL text
+	// We store the SQL definition so views can be expanded when queried
+	sql := selectStmtToSQL(stmt.Query)
+
+	view := &schema.ViewDef{
+		Name:    stmt.ViewName,
+		SQL:     sql,
+		Columns: stmt.Columns,
+	}
+
+	if err := e.catalog.CreateView(view); err != nil {
+		return nil, err
+	}
+
+	return &Result{}, nil
+}
+
+// selectStmtToSQL converts a SelectStmt back to SQL text
+// This is a simplified implementation that stores the structure
+func selectStmtToSQL(stmt *parser.SelectStmt) string {
+	if stmt == nil {
+		return ""
+	}
+
+	// Build a basic SQL representation
+	var sql string
+	sql = "SELECT "
+
+	// Columns
+	for i, col := range stmt.Columns {
+		if i > 0 {
+			sql += ", "
+		}
+		if col.Star {
+			sql += "*"
+		} else if col.Expr != nil {
+			sql += exprToString(col.Expr)
+			if col.Alias != "" {
+				sql += " AS " + col.Alias
+			}
+		}
+	}
+
+	// FROM
+	if stmt.From != nil {
+		sql += " FROM " + tableRefToSQL(stmt.From)
+	}
+
+	// WHERE
+	if stmt.Where != nil {
+		sql += " WHERE " + exprToString(stmt.Where)
+	}
+
+	// GROUP BY
+	if len(stmt.GroupBy) > 0 {
+		sql += " GROUP BY "
+		for i, expr := range stmt.GroupBy {
+			if i > 0 {
+				sql += ", "
+			}
+			sql += exprToString(expr)
+		}
+	}
+
+	// HAVING
+	if stmt.Having != nil {
+		sql += " HAVING " + exprToString(stmt.Having)
+	}
+
+	// ORDER BY
+	if len(stmt.OrderBy) > 0 {
+		sql += " ORDER BY "
+		for i, ob := range stmt.OrderBy {
+			if i > 0 {
+				sql += ", "
+			}
+			sql += exprToString(ob.Expr)
+			if ob.Direction == parser.OrderDesc {
+				sql += " DESC"
+			}
+		}
+	}
+
+	// LIMIT
+	if stmt.Limit != nil {
+		sql += " LIMIT " + exprToString(stmt.Limit)
+	}
+
+	// OFFSET
+	if stmt.Offset != nil {
+		sql += " OFFSET " + exprToString(stmt.Offset)
+	}
+
+	return sql
+}
+
+// tableRefToSQL converts a TableReference to SQL text
+func tableRefToSQL(ref parser.TableReference) string {
+	switch t := ref.(type) {
+	case *parser.Table:
+		if t.Alias != "" {
+			return t.Name + " AS " + t.Alias
+		}
+		return t.Name
+	case *parser.Join:
+		left := tableRefToSQL(t.Left)
+		right := tableRefToSQL(t.Right)
+		joinType := "JOIN"
+		switch t.Type {
+		case parser.JoinLeft:
+			joinType = "LEFT JOIN"
+		case parser.JoinRight:
+			joinType = "RIGHT JOIN"
+		case parser.JoinFull:
+			joinType = "FULL JOIN"
+		}
+		return left + " " + joinType + " " + right + " ON " + exprToString(t.Condition)
+	default:
+		return ""
+	}
 }
 
 // convertFKAction converts parser FK action to schema FK action

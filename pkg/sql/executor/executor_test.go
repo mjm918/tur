@@ -1796,3 +1796,88 @@ func TestExecutor_CTE_MultipleCTEs(t *testing.T) {
 		t.Errorf("Rows count = %d, want 2", len(result.Rows))
 	}
 }
+
+// CREATE VIEW tests
+
+func TestExecutor_CreateView(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create base table
+	_, err := exec.Execute("CREATE TABLE users (id INT, name TEXT, active INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Create view
+	_, err = exec.Execute("CREATE VIEW active_users AS SELECT id, name FROM users WHERE active = 1")
+	if err != nil {
+		t.Fatalf("CREATE VIEW: %v", err)
+	}
+
+	// Verify view exists in catalog
+	view := exec.catalog.GetView("active_users")
+	if view == nil {
+		t.Fatal("View 'active_users' not found in catalog")
+	}
+
+	if view.Name != "active_users" {
+		t.Errorf("View name = %q, want 'active_users'", view.Name)
+	}
+
+	// The SQL should contain the SELECT portion
+	if view.SQL == "" {
+		t.Error("View SQL should not be empty")
+	}
+}
+
+func TestExecutor_CreateView_AlreadyExists(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, _ = exec.Execute("CREATE TABLE t (id INT)")
+	_, _ = exec.Execute("CREATE VIEW v AS SELECT id FROM t")
+
+	_, err := exec.Execute("CREATE VIEW v AS SELECT id FROM t")
+	if err == nil {
+		t.Fatal("Expected error for duplicate view")
+	}
+}
+
+func TestExecutor_CreateView_IfNotExists(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, _ = exec.Execute("CREATE TABLE t (id INT)")
+	_, _ = exec.Execute("CREATE VIEW v AS SELECT id FROM t")
+
+	// Should not error with IF NOT EXISTS
+	_, err := exec.Execute("CREATE VIEW IF NOT EXISTS v AS SELECT id FROM t")
+	if err != nil {
+		t.Fatalf("CREATE VIEW IF NOT EXISTS should not error: %v", err)
+	}
+}
+
+func TestExecutor_CreateView_WithColumnList(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, _ = exec.Execute("CREATE TABLE t (id INT, name TEXT)")
+	_, err := exec.Execute("CREATE VIEW v (user_id, user_name) AS SELECT id, name FROM t")
+	if err != nil {
+		t.Fatalf("CREATE VIEW with columns: %v", err)
+	}
+
+	view := exec.catalog.GetView("v")
+	if view == nil {
+		t.Fatal("View not found")
+	}
+
+	if len(view.Columns) != 2 {
+		t.Errorf("Columns count = %d, want 2", len(view.Columns))
+	}
+
+	if view.Columns[0] != "user_id" || view.Columns[1] != "user_name" {
+		t.Errorf("Columns = %v, want [user_id, user_name]", view.Columns)
+	}
+}
