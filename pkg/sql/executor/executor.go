@@ -182,6 +182,20 @@ func (e *Executor) executeCreateTable(stmt *parser.CreateTableStmt) (*Result, er
 			})
 		}
 
+		// DEFAULT
+		if col.DefaultExpr != nil {
+			// Evaluate the default expression at table creation time
+			// to store the resolved value
+			defaultVal, err := e.evaluateExpr(col.DefaultExpr, nil, nil)
+			if err != nil {
+				return nil, fmt.Errorf("failed to evaluate DEFAULT expression for column %s: %w", col.Name, err)
+			}
+			constraints = append(constraints, schema.Constraint{
+				Type:         schema.ConstraintDefault,
+				DefaultValue: &defaultVal,
+			})
+		}
+
 		columns[i].Constraints = constraints
 	}
 
@@ -232,6 +246,11 @@ func (e *Executor) executeCreateTable(stmt *parser.CreateTableStmt) (*Result, er
 	// Auto-create unique index for PRIMARY KEY columns
 	if err := e.createPrimaryKeyIndex(table); err != nil {
 		return nil, fmt.Errorf("failed to create primary key index: %w", err)
+	}
+
+	// Auto-create unique indexes for UNIQUE constraints
+	if err := e.createUniqueConstraintIndexes(table); err != nil {
+		return nil, fmt.Errorf("failed to create unique constraint indexes: %w", err)
 	}
 
 	return &Result{}, nil
@@ -928,15 +947,21 @@ func (e *Executor) executeUpdate(stmt *parser.UpdateStmt) (*Result, error) {
 		// Encode new row
 		data := record.Encode(newValues)
 
+		// Get rowid for index updates
+		rowid := binary.BigEndian.Uint64(entry.key)
+
+		// Delete old index entries before adding new ones
+		// This is important for UNIQUE indexes where the value might not change
+		if err := e.deleteFromIndexes(table, rowid, entry.oldValues); err != nil {
+			return nil, err
+		}
+
 		// Update in B-tree (Insert handles both insert and update)
 		if err := tree.Insert(entry.key, data); err != nil {
 			return nil, fmt.Errorf("failed to update row: %w", err)
 		}
 
-		// Get rowid for index updates
-		rowid := binary.BigEndian.Uint64(entry.key)
-
-		// Update indexes
+		// Add new index entries
 		if err := e.updateIndexes(table, rowid, newValues); err != nil {
 			return nil, err
 		}
@@ -3139,18 +3164,25 @@ func (e *Executor) buildColumnMapping(stmtColumns []string, table *schema.TableD
 
 // mapInputToColumns maps input values to a full row according to column mapping.
 // If colMapping is nil, returns inputValues as-is (assumes all columns in order).
+// For missing columns, DEFAULT values are applied if available, otherwise NULL.
 func (e *Executor) mapInputToColumns(inputValues []types.Value, colMapping []int, table *schema.TableDef) []types.Value {
 	if colMapping == nil {
 		return inputValues
 	}
 
-	// Create a full row with NULLs for all columns
+	// Create a full row with DEFAULT values or NULLs for all columns
 	values := make([]types.Value, len(table.Columns))
-	for i := range values {
-		values[i] = types.NewNull()
+	for i, col := range table.Columns {
+		// Check for DEFAULT constraint
+		defaultConstraint := col.GetConstraint(schema.ConstraintDefault)
+		if defaultConstraint != nil && defaultConstraint.DefaultValue != nil {
+			values[i] = *defaultConstraint.DefaultValue
+		} else {
+			values[i] = types.NewNull()
+		}
 	}
 
-	// Map input values to their table positions
+	// Map input values to their table positions (overrides defaults)
 	for i, val := range inputValues {
 		if i < len(colMapping) {
 			values[colMapping[i]] = val
@@ -3242,6 +3274,113 @@ func (e *Executor) createPrimaryKeyIndex(table *schema.TableDef) error {
 	// Add to catalog
 	if err := e.catalog.CreateIndex(idx); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// createUniqueConstraintIndexes creates unique indexes for UNIQUE column constraints.
+// This is called automatically during CREATE TABLE.
+func (e *Executor) createUniqueConstraintIndexes(table *schema.TableDef) error {
+	// Process column-level UNIQUE constraints
+	for _, col := range table.Columns {
+		// Check if column has UNIQUE constraint
+		hasUnique := false
+		for _, constraint := range col.Constraints {
+			if constraint.Type == schema.ConstraintUnique {
+				hasUnique = true
+				break
+			}
+		}
+
+		if !hasUnique {
+			continue
+		}
+
+		// Skip if this column is already a PRIMARY KEY (PRIMARY KEY already creates unique index)
+		if col.PrimaryKey {
+			continue
+		}
+
+		// Generate index name: uq_<tablename>_<column>
+		indexName := fmt.Sprintf("uq_%s_%s", table.Name, col.Name)
+
+		// Check if index already exists (shouldn't happen, but be safe)
+		if e.catalog.GetIndex(indexName) != nil {
+			continue
+		}
+
+		// Create B-tree for the index
+		indexTree, err := btree.Create(e.pager)
+		if err != nil {
+			return fmt.Errorf("failed to create unique index btree for column %s: %w", col.Name, err)
+		}
+
+		// Store the index tree
+		idxTreeName := "index:" + indexName
+		e.trees[idxTreeName] = indexTree
+
+		// Create index definition
+		idx := &schema.IndexDef{
+			Name:      indexName,
+			TableName: table.Name,
+			Columns:   []string{col.Name},
+			Type:      schema.IndexTypeBTree,
+			Unique:    true,
+			RootPage:  indexTree.RootPage(),
+		}
+
+		// Add to catalog
+		if err := e.catalog.CreateIndex(idx); err != nil {
+			return err
+		}
+	}
+
+	// Process table-level UNIQUE constraints
+	for _, tc := range table.TableConstraints {
+		if tc.Type != schema.ConstraintUnique {
+			continue
+		}
+
+		// Generate index name: uq_<tablename> or uq_<tablename>_<col1>_<col2>...
+		var indexName string
+		if tc.Name != "" {
+			indexName = tc.Name
+		} else if len(tc.Columns) == 1 {
+			indexName = fmt.Sprintf("uq_%s_%s", table.Name, tc.Columns[0])
+		} else {
+			indexName = fmt.Sprintf("uq_%s_%s", table.Name, strings.Join(tc.Columns, "_"))
+		}
+
+		// Check if index already exists
+		if e.catalog.GetIndex(indexName) != nil {
+			continue
+		}
+
+		// Create B-tree for the index
+		indexTree, err := btree.Create(e.pager)
+		if err != nil {
+			return fmt.Errorf("failed to create unique index btree: %w", err)
+		}
+
+		// Store the index tree
+		idxTreeName := "index:" + indexName
+		e.trees[idxTreeName] = indexTree
+
+		// Create index definition
+		idx := &schema.IndexDef{
+			Name:      indexName,
+			TableName: table.Name,
+			Columns:   tc.Columns,
+			Type:      schema.IndexTypeBTree,
+			Unique:    true,
+			RootPage:  indexTree.RootPage(),
+		}
+
+		// Add to catalog
+		if err := e.catalog.CreateIndex(idx); err != nil {
+			return err
+		}
 	}
 
 	return nil

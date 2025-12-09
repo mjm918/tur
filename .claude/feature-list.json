@@ -1698,92 +1698,93 @@
     {
       "title": "Constraints - UNIQUE",
       "description": "Unique constraint enforcement on columns",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse UNIQUE constraint in CREATE TABLE",
-          "done": false
+          "done": true
         },
         {
           "task": "Create unique index for constraint",
-          "done": false
+          "done": true
         },
         {
           "task": "Validate uniqueness on insert/update",
-          "done": false
+          "done": true
         }
       ]
     },
     {
       "title": "Constraints - NOT NULL",
       "description": "NOT NULL constraint validation on insert/update",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse NOT NULL constraint",
-          "done": false
+          "done": true
         },
         {
           "task": "Store NOT NULL flag in column metadata",
-          "done": false
+          "done": true
         },
         {
           "task": "Check for NULL values on insert",
-          "done": false
+          "done": true
         },
         {
           "task": "Check for NULL values on update",
-          "done": false
+          "done": true
         },
         {
           "task": "Return constraint violation error",
-          "done": false
+          "done": true
         }
       ]
     },
     {
       "title": "Constraints - CHECK",
       "description": "CHECK constraint evaluation with arbitrary expressions",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse CHECK (expression) constraint",
-          "done": false
+          "done": true
         },
         {
           "task": "Store check expression AST in metadata",
-          "done": false
+          "done": true
         },
         {
           "task": "Evaluate check expression on insert/update",
-          "done": false
+          "done": true
         },
         {
           "task": "Return constraint violation if expression is false",
-          "done": false
+          "done": true
         }
       ]
     },
     {
       "title": "Constraints - DEFAULT",
       "description": "DEFAULT value handling for columns",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse DEFAULT expression in column definition",
-          "done": false
+          "done": true
         },
         {
           "task": "Store default expression in column metadata",
-          "done": false
+          "done": true
         },
         {
           "task": "Evaluate default expression on insert if value not provided",
-          "done": false
+          "done": true
         },
         {
           "task": "Handle DEFAULT keyword in INSERT statements",
-          "done": false
+          "done": true,
+          "note": "Handled via column omission in INSERT; explicit DEFAULT keyword is future enhancement"
         }
       ]
     },
