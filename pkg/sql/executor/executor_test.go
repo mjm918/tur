@@ -2167,3 +2167,106 @@ func TestExecutor_WindowFunction_LAG_WithPartition(t *testing.T) {
 		}
 	}
 }
+
+// =============================================================================
+// TRIGGER TESTS
+// =============================================================================
+
+func TestExecutor_CreateTrigger_Basic(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create table first
+	_, err := exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Create trigger
+	_, err = exec.Execute(`CREATE TRIGGER audit_insert BEFORE INSERT ON users
+BEGIN
+  SELECT 1;
+END`)
+	if err != nil {
+		t.Fatalf("CREATE TRIGGER: %v", err)
+	}
+
+	// Verify trigger exists in catalog
+	trigger := exec.GetCatalog().GetTrigger("audit_insert")
+	if trigger == nil {
+		t.Fatal("Trigger not found in catalog")
+	}
+	if trigger.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", trigger.TableName)
+	}
+}
+
+func TestExecutor_CreateTrigger_DuplicateError(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, _ = exec.Execute("CREATE TABLE users (id INT)")
+	_, _ = exec.Execute(`CREATE TRIGGER test_trigger BEFORE INSERT ON users BEGIN SELECT 1; END`)
+
+	// Creating same trigger again should fail
+	_, err := exec.Execute(`CREATE TRIGGER test_trigger AFTER INSERT ON users BEGIN SELECT 1; END`)
+	if err == nil {
+		t.Fatal("Expected error for duplicate trigger, got nil")
+	}
+}
+
+func TestExecutor_CreateTrigger_TableNotFound(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Try to create trigger on non-existent table
+	_, err := exec.Execute(`CREATE TRIGGER test_trigger BEFORE INSERT ON nonexistent
+BEGIN
+  SELECT 1;
+END`)
+	if err == nil {
+		t.Fatal("Expected error for non-existent table, got nil")
+	}
+}
+
+func TestExecutor_DropTrigger(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, _ = exec.Execute("CREATE TABLE users (id INT)")
+	_, _ = exec.Execute(`CREATE TRIGGER test_trigger BEFORE INSERT ON users BEGIN SELECT 1; END`)
+
+	// Drop the trigger
+	_, err := exec.Execute("DROP TRIGGER test_trigger")
+	if err != nil {
+		t.Fatalf("DROP TRIGGER: %v", err)
+	}
+
+	// Verify trigger is gone
+	trigger := exec.GetCatalog().GetTrigger("test_trigger")
+	if trigger != nil {
+		t.Fatal("Trigger should be deleted")
+	}
+}
+
+func TestExecutor_DropTrigger_NotFound(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Drop non-existent trigger should fail
+	_, err := exec.Execute("DROP TRIGGER nonexistent")
+	if err == nil {
+		t.Fatal("Expected error for non-existent trigger, got nil")
+	}
+}
+
+func TestExecutor_DropTrigger_IfExists(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// DROP TRIGGER IF EXISTS should not fail for non-existent trigger
+	_, err := exec.Execute("DROP TRIGGER IF EXISTS nonexistent")
+	if err != nil {
+		t.Fatalf("DROP TRIGGER IF EXISTS should not fail: %v", err)
+	}
+}

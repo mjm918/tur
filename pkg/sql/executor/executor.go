@@ -110,6 +110,10 @@ func (e *Executor) Execute(sql string) (*Result, error) {
 		return e.executeDropView(s)
 	case *parser.ExplainStmt:
 		return e.executeExplain(s)
+	case *parser.CreateTriggerStmt:
+		return e.executeCreateTrigger(s)
+	case *parser.DropTriggerStmt:
+		return e.executeDropTrigger(s)
 	default:
 		return nil, fmt.Errorf("unsupported statement type: %T", stmt)
 	}
@@ -294,6 +298,69 @@ func (e *Executor) executeDropView(stmt *parser.DropViewStmt) (*Result, error) {
 	}
 
 	if err := e.catalog.DropView(stmt.ViewName); err != nil {
+		return nil, err
+	}
+
+	return &Result{}, nil
+}
+
+// executeCreateTrigger handles CREATE TRIGGER
+func (e *Executor) executeCreateTrigger(stmt *parser.CreateTriggerStmt) (*Result, error) {
+	// Check if trigger already exists
+	if e.catalog.GetTrigger(stmt.TriggerName) != nil {
+		return nil, fmt.Errorf("trigger %s already exists", stmt.TriggerName)
+	}
+
+	// Check if target table exists
+	if e.catalog.GetTable(stmt.TableName) == nil {
+		return nil, fmt.Errorf("table %s not found", stmt.TableName)
+	}
+
+	// Convert parser types to schema types
+	var timing schema.TriggerTiming
+	switch stmt.Timing {
+	case parser.TriggerBefore:
+		timing = schema.TriggerBefore
+	case parser.TriggerAfter:
+		timing = schema.TriggerAfter
+	}
+
+	var event schema.TriggerEvent
+	switch stmt.Event {
+	case parser.TriggerEventInsert:
+		event = schema.TriggerInsert
+	case parser.TriggerEventUpdate:
+		event = schema.TriggerUpdate
+	case parser.TriggerEventDelete:
+		event = schema.TriggerDelete
+	}
+
+	trigger := &schema.TriggerDef{
+		Name:      stmt.TriggerName,
+		TableName: stmt.TableName,
+		Timing:    timing,
+		Event:     event,
+		SQL:       "", // TODO: Store original SQL for persistence
+	}
+
+	if err := e.catalog.CreateTrigger(trigger); err != nil {
+		return nil, err
+	}
+
+	return &Result{}, nil
+}
+
+// executeDropTrigger handles DROP TRIGGER
+func (e *Executor) executeDropTrigger(stmt *parser.DropTriggerStmt) (*Result, error) {
+	// Check if trigger exists
+	if e.catalog.GetTrigger(stmt.TriggerName) == nil {
+		if stmt.IfExists {
+			return &Result{}, nil
+		}
+		return nil, fmt.Errorf("trigger %s not found", stmt.TriggerName)
+	}
+
+	if err := e.catalog.DropTrigger(stmt.TriggerName); err != nil {
 		return nil, err
 	}
 
