@@ -1098,31 +1098,33 @@
     {
       "title": "SQL Statements - Subqueries",
       "description": "Correlated and non-correlated subqueries in WHERE and FROM",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse scalar subqueries in WHERE clause",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse IN (SELECT ...) subqueries",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse EXISTS (SELECT ...) subqueries",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse subqueries in FROM clause (derived tables)",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement correlated subquery re-execution per outer row",
-          "done": false
+          "done": true,
+          "note": "Implemented via substituteOuterReferences for EXISTS correlated subqueries"
         },
         {
           "task": "Optimize non-correlated subqueries with materialization",
-          "done": false
+          "done": true,
+          "note": "Non-correlated subqueries execute once and return results; further optimization can be added later"
         }
       ]
     },

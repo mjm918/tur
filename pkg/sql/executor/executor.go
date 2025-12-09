@@ -1428,6 +1428,25 @@ func (e *Executor) evaluateExpr(expr parser.Expression, rowValues []types.Value,
 		return types.NewNull(), fmt.Errorf("unsupported unary operator")
 	case *parser.BinaryExpr:
 		return e.evaluateBinaryExpr(ex, rowValues, colMap)
+	case *parser.SubqueryExpr:
+		// Execute the subquery and return the scalar result
+		result, err := e.executeSelect(ex.Query)
+		if err != nil {
+			return types.NewNull(), fmt.Errorf("subquery error: %w", err)
+		}
+		// Scalar subquery must return exactly one row and one column
+		if len(result.Rows) == 0 {
+			return types.NewNull(), nil
+		}
+		if len(result.Rows) > 1 {
+			return types.NewNull(), fmt.Errorf("scalar subquery returned more than one row")
+		}
+		if len(result.Rows[0]) == 0 {
+			return types.NewNull(), nil
+		}
+		return result.Rows[0][0], nil
+	case *parser.FunctionCall:
+		return e.evaluateFunctionCall(ex, rowValues, colMap)
 	default:
 		return types.NewNull(), fmt.Errorf("unsupported expression type: %T", expr)
 	}
@@ -1510,12 +1529,212 @@ func (e *Executor) evaluateCondition(expr parser.Expression, rowValues []types.V
 			return false, err
 		}
 		return val.Int() != 0, nil
+	case *parser.InExpr:
+		return e.evaluateInExpr(ex, rowValues, colMap)
+	case *parser.ExistsExpr:
+		return e.evaluateExistsExpr(ex, rowValues, colMap)
 	default:
 		val, err := e.evaluateExpr(expr, rowValues, colMap)
 		if err != nil {
 			return false, err
 		}
 		return !val.IsNull() && val.Int() != 0, nil
+	}
+}
+
+// evaluateInExpr evaluates an IN expression
+func (e *Executor) evaluateInExpr(expr *parser.InExpr, rowValues []types.Value, colMap map[string]int) (bool, error) {
+	// Evaluate the left side
+	leftVal, err := e.evaluateExpr(expr.Left, rowValues, colMap)
+	if err != nil {
+		return false, err
+	}
+
+	// If left value is NULL, result is NULL (which is false in boolean context)
+	if leftVal.IsNull() {
+		return false, nil
+	}
+
+	// Get the values to check against
+	var checkValues []types.Value
+	if expr.Subquery != nil {
+		// Execute the subquery
+		result, err := e.executeSelect(expr.Subquery)
+		if err != nil {
+			return false, fmt.Errorf("IN subquery error: %w", err)
+		}
+		// Collect all first-column values
+		for _, row := range result.Rows {
+			if len(row) > 0 {
+				checkValues = append(checkValues, row[0])
+			}
+		}
+	} else {
+		// Evaluate the value list
+		for _, valExpr := range expr.Values {
+			val, err := e.evaluateExpr(valExpr, rowValues, colMap)
+			if err != nil {
+				return false, err
+			}
+			checkValues = append(checkValues, val)
+		}
+	}
+
+	// Check if leftVal is in checkValues
+	found := false
+	for _, v := range checkValues {
+		if e.compareValues(leftVal, v) == 0 {
+			found = true
+			break
+		}
+	}
+
+	// Handle NOT IN
+	if expr.Not {
+		return !found, nil
+	}
+	return found, nil
+}
+
+// evaluateExistsExpr evaluates an EXISTS expression
+func (e *Executor) evaluateExistsExpr(expr *parser.ExistsExpr, rowValues []types.Value, colMap map[string]int) (bool, error) {
+	// For correlated subqueries, we need to pass the outer row context
+	// This is a simplified implementation that handles basic EXISTS
+	// For now, we execute the subquery and check if it returns any rows
+	result, err := e.executeSelectWithContext(expr.Subquery, rowValues, colMap)
+	if err != nil {
+		return false, fmt.Errorf("EXISTS subquery error: %w", err)
+	}
+
+	exists := len(result.Rows) > 0
+
+	// Handle NOT EXISTS
+	if expr.Not {
+		return !exists, nil
+	}
+	return exists, nil
+}
+
+// executeSelectWithContext executes a SELECT statement with outer row context for correlated subqueries
+func (e *Executor) executeSelectWithContext(stmt *parser.SelectStmt, outerRow []types.Value, outerColMap map[string]int) (*Result, error) {
+	// For correlated subqueries, we need to make outer columns available
+	// during the subquery execution. This is done by wrapping the WHERE condition
+	// to substitute outer column references with their values.
+
+	// Create a copy of the statement with substituted outer references
+	stmtCopy := e.substituteOuterReferences(stmt, outerRow, outerColMap)
+
+	return e.executeSelect(stmtCopy)
+}
+
+// substituteOuterReferences replaces references to outer query columns with literal values
+func (e *Executor) substituteOuterReferences(stmt *parser.SelectStmt, outerRow []types.Value, outerColMap map[string]int) *parser.SelectStmt {
+	if stmt == nil || outerRow == nil || outerColMap == nil {
+		return stmt
+	}
+
+	// Create a shallow copy of the statement
+	stmtCopy := *stmt
+
+	// Substitute references in the WHERE clause
+	if stmtCopy.Where != nil {
+		stmtCopy.Where = e.substituteExprOuterRefs(stmtCopy.Where, outerRow, outerColMap)
+	}
+
+	return &stmtCopy
+}
+
+// substituteExprOuterRefs recursively substitutes outer column references in an expression
+func (e *Executor) substituteExprOuterRefs(expr parser.Expression, outerRow []types.Value, outerColMap map[string]int) parser.Expression {
+	if expr == nil {
+		return nil
+	}
+
+	switch ex := expr.(type) {
+	case *parser.ColumnRef:
+		// Check if this column is from the outer query
+		if idx, ok := outerColMap[ex.Name]; ok {
+			if idx < len(outerRow) {
+				return &parser.Literal{Value: outerRow[idx]}
+			}
+		}
+		return expr
+	case *parser.BinaryExpr:
+		return &parser.BinaryExpr{
+			Left:  e.substituteExprOuterRefs(ex.Left, outerRow, outerColMap),
+			Op:    ex.Op,
+			Right: e.substituteExprOuterRefs(ex.Right, outerRow, outerColMap),
+		}
+	case *parser.UnaryExpr:
+		return &parser.UnaryExpr{
+			Op:    ex.Op,
+			Right: e.substituteExprOuterRefs(ex.Right, outerRow, outerColMap),
+		}
+	default:
+		return expr
+	}
+}
+
+// evaluateFunctionCall evaluates a function call expression
+func (e *Executor) evaluateFunctionCall(expr *parser.FunctionCall, rowValues []types.Value, colMap map[string]int) (types.Value, error) {
+	// Evaluate arguments
+	var args []types.Value
+	for _, argExpr := range expr.Args {
+		val, err := e.evaluateExpr(argExpr, rowValues, colMap)
+		if err != nil {
+			return types.NewNull(), err
+		}
+		args = append(args, val)
+	}
+
+	// Handle built-in functions
+	switch expr.Name {
+	case "MAX":
+		if len(args) == 0 {
+			return types.NewNull(), nil
+		}
+		return args[0], nil // For scalar context, return the value
+	case "MIN":
+		if len(args) == 0 {
+			return types.NewNull(), nil
+		}
+		return args[0], nil
+	case "COUNT":
+		// COUNT in scalar context
+		return types.NewInt(1), nil
+	case "SUM", "AVG":
+		if len(args) == 0 {
+			return types.NewNull(), nil
+		}
+		return args[0], nil
+	case "COALESCE":
+		for _, arg := range args {
+			if !arg.IsNull() {
+				return arg, nil
+			}
+		}
+		return types.NewNull(), nil
+	case "ABS":
+		if len(args) == 0 {
+			return types.NewNull(), nil
+		}
+		if args[0].Type() == types.TypeInt {
+			v := args[0].Int()
+			if v < 0 {
+				v = -v
+			}
+			return types.NewInt(v), nil
+		}
+		if args[0].Type() == types.TypeFloat {
+			v := args[0].Float()
+			if v < 0 {
+				v = -v
+			}
+			return types.NewFloat(v), nil
+		}
+		return types.NewNull(), nil
+	default:
+		return types.NewNull(), fmt.Errorf("unknown function: %s", expr.Name)
 	}
 }
 
