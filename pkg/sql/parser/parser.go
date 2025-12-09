@@ -1708,7 +1708,14 @@ func (p *Parser) parseWindowFunction(funcCall *FunctionCall) (Expression, error)
 		}
 	}
 
-	// TODO: Parse window frame clause (ROWS/RANGE BETWEEN ...) if needed in future
+	// Parse window frame clause (ROWS/RANGE BETWEEN ...)
+	if p.peekIs(lexer.ROWS) || p.peekIs(lexer.RANGE_KW) {
+		frame, err := p.parseWindowFrame()
+		if err != nil {
+			return nil, err
+		}
+		windowFunc.Over.Frame = frame
+	}
 
 	// Expect closing paren
 	if !p.expectPeek(lexer.RPAREN) {
@@ -1716,6 +1723,100 @@ func (p *Parser) parseWindowFunction(funcCall *FunctionCall) (Expression, error)
 	}
 
 	return windowFunc, nil
+}
+
+// parseWindowFrame parses a window frame specification
+// Syntax: ROWS|RANGE BETWEEN <start_bound> AND <end_bound>
+// <bound> ::= UNBOUNDED PRECEDING | UNBOUNDED FOLLOWING | CURRENT ROW | <n> PRECEDING | <n> FOLLOWING
+func (p *Parser) parseWindowFrame() (*WindowFrame, error) {
+	frame := &WindowFrame{}
+
+	// Parse mode: ROWS or RANGE
+	p.nextToken() // move to ROWS or RANGE
+	switch p.cur.Type {
+	case lexer.ROWS:
+		frame.Mode = FrameModeRows
+	case lexer.RANGE_KW:
+		frame.Mode = FrameModeRange
+	default:
+		return nil, fmt.Errorf("expected ROWS or RANGE, got %s", p.cur.Literal)
+	}
+
+	// Expect BETWEEN
+	if !p.expectPeek(lexer.BETWEEN) {
+		return nil, fmt.Errorf("expected BETWEEN after %s", p.cur.Literal)
+	}
+
+	// Parse start bound
+	p.nextToken() // move past BETWEEN
+	startBound, err := p.parseFrameBound()
+	if err != nil {
+		return nil, fmt.Errorf("invalid start bound: %w", err)
+	}
+	frame.StartBound = startBound
+
+	// Expect AND
+	if !p.expectPeek(lexer.AND) {
+		return nil, fmt.Errorf("expected AND after start bound")
+	}
+
+	// Parse end bound
+	p.nextToken() // move past AND
+	endBound, err := p.parseFrameBound()
+	if err != nil {
+		return nil, fmt.Errorf("invalid end bound: %w", err)
+	}
+	frame.EndBound = endBound
+
+	return frame, nil
+}
+
+// parseFrameBound parses a frame boundary
+// <bound> ::= UNBOUNDED PRECEDING | UNBOUNDED FOLLOWING | CURRENT ROW | <n> PRECEDING | <n> FOLLOWING
+func (p *Parser) parseFrameBound() (*FrameBound, error) {
+	bound := &FrameBound{}
+
+	switch p.cur.Type {
+	case lexer.UNBOUNDED:
+		// UNBOUNDED PRECEDING or UNBOUNDED FOLLOWING
+		p.nextToken() // move to PRECEDING or FOLLOWING
+		if p.cur.Type == lexer.PRECEDING {
+			bound.Type = FrameBoundUnboundedPreceding
+		} else if p.cur.Type == lexer.FOLLOWING {
+			bound.Type = FrameBoundUnboundedFollowing
+		} else {
+			return nil, fmt.Errorf("expected PRECEDING or FOLLOWING after UNBOUNDED, got %s", p.cur.Literal)
+		}
+
+	case lexer.CURRENT:
+		// CURRENT ROW
+		if !p.expectPeek(lexer.ROW) {
+			return nil, fmt.Errorf("expected ROW after CURRENT")
+		}
+		bound.Type = FrameBoundCurrentRow
+
+	case lexer.INT:
+		// <n> PRECEDING or <n> FOLLOWING
+		val, err := strconv.ParseInt(p.cur.Literal, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid integer: %s", p.cur.Literal)
+		}
+		bound.Offset = &Literal{Value: types.NewInt(val)}
+
+		p.nextToken() // move to PRECEDING or FOLLOWING
+		if p.cur.Type == lexer.PRECEDING {
+			bound.Type = FrameBoundPreceding
+		} else if p.cur.Type == lexer.FOLLOWING {
+			bound.Type = FrameBoundFollowing
+		} else {
+			return nil, fmt.Errorf("expected PRECEDING or FOLLOWING after offset, got %s", p.cur.Literal)
+		}
+
+	default:
+		return nil, fmt.Errorf("unexpected token in frame bound: %s", p.cur.Literal)
+	}
+
+	return bound, nil
 }
 
 // parseInfixExpression parses a binary expression
