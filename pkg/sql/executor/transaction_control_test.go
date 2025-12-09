@@ -132,3 +132,157 @@ func TestExecutor_NestedBeginError(t *testing.T) {
 		t.Fatal("Expected error for nested BEGIN (transaction already active)")
 	}
 }
+
+// Savepoint tests
+
+func TestExecutor_Savepoint(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Start a transaction
+	_, err := exec.Execute("BEGIN")
+	if err != nil {
+		t.Fatalf("Execute BEGIN: %v", err)
+	}
+
+	// Create a savepoint
+	result, err := exec.Execute("SAVEPOINT sp1")
+	if err != nil {
+		t.Fatalf("Execute SAVEPOINT: %v", err)
+	}
+
+	if result.RowsAffected != 0 {
+		t.Errorf("RowsAffected = %d, want 0", result.RowsAffected)
+	}
+}
+
+func TestExecutor_SavepointWithoutTransaction(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// SAVEPOINT without BEGIN should error
+	_, err := exec.Execute("SAVEPOINT sp1")
+	if err == nil {
+		t.Fatal("Expected error when SAVEPOINT without active transaction")
+	}
+}
+
+func TestExecutor_RollbackTo(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Start a transaction
+	_, err := exec.Execute("BEGIN")
+	if err != nil {
+		t.Fatalf("Execute BEGIN: %v", err)
+	}
+
+	// Create a savepoint
+	_, err = exec.Execute("SAVEPOINT sp1")
+	if err != nil {
+		t.Fatalf("Execute SAVEPOINT: %v", err)
+	}
+
+	// Rollback to savepoint
+	result, err := exec.Execute("ROLLBACK TO sp1")
+	if err != nil {
+		t.Fatalf("Execute ROLLBACK TO: %v", err)
+	}
+
+	if result.RowsAffected != 0 {
+		t.Errorf("RowsAffected = %d, want 0", result.RowsAffected)
+	}
+
+	// Transaction should still be active
+	if !exec.HasActiveTransaction() {
+		t.Error("Expected active transaction after ROLLBACK TO")
+	}
+}
+
+func TestExecutor_RollbackToNonexistent(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Start a transaction
+	_, err := exec.Execute("BEGIN")
+	if err != nil {
+		t.Fatalf("Execute BEGIN: %v", err)
+	}
+
+	// ROLLBACK TO nonexistent savepoint should error
+	_, err = exec.Execute("ROLLBACK TO nonexistent")
+	if err == nil {
+		t.Fatal("Expected error when ROLLBACK TO nonexistent savepoint")
+	}
+}
+
+func TestExecutor_RollbackToWithoutTransaction(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// ROLLBACK TO without transaction should error
+	_, err := exec.Execute("ROLLBACK TO sp1")
+	if err == nil {
+		t.Fatal("Expected error when ROLLBACK TO without active transaction")
+	}
+}
+
+func TestExecutor_Release(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Start a transaction
+	_, err := exec.Execute("BEGIN")
+	if err != nil {
+		t.Fatalf("Execute BEGIN: %v", err)
+	}
+
+	// Create a savepoint
+	_, err = exec.Execute("SAVEPOINT sp1")
+	if err != nil {
+		t.Fatalf("Execute SAVEPOINT: %v", err)
+	}
+
+	// Release savepoint
+	result, err := exec.Execute("RELEASE sp1")
+	if err != nil {
+		t.Fatalf("Execute RELEASE: %v", err)
+	}
+
+	if result.RowsAffected != 0 {
+		t.Errorf("RowsAffected = %d, want 0", result.RowsAffected)
+	}
+
+	// Transaction should still be active
+	if !exec.HasActiveTransaction() {
+		t.Error("Expected active transaction after RELEASE")
+	}
+}
+
+func TestExecutor_ReleaseNonexistent(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Start a transaction
+	_, err := exec.Execute("BEGIN")
+	if err != nil {
+		t.Fatalf("Execute BEGIN: %v", err)
+	}
+
+	// RELEASE nonexistent savepoint should error
+	_, err = exec.Execute("RELEASE nonexistent")
+	if err == nil {
+		t.Fatal("Expected error when RELEASE nonexistent savepoint")
+	}
+}
+
+func TestExecutor_ReleaseWithoutTransaction(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// RELEASE without transaction should error
+	_, err := exec.Execute("RELEASE sp1")
+	if err == nil {
+		t.Fatal("Expected error when RELEASE without active transaction")
+	}
+}

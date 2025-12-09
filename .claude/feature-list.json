@@ -1324,23 +1324,23 @@
     {
       "title": "SQL Statements - SAVEPOINT",
       "description": "Savepoint creation and rollback within transactions",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse SAVEPOINT savepoint_name",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse ROLLBACK TO savepoint_name",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse RELEASE savepoint_name",
-          "done": false
+          "done": true
         },
         {
           "task": "Wire to MVCC savepoint implementation",
-          "done": false
+          "done": true
         }
       ]
     },

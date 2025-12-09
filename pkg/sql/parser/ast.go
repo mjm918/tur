@@ -461,3 +461,24 @@ type DropViewStmt struct {
 }
 
 func (s *DropViewStmt) statementNode() {}
+
+// SavepointStmt represents a SAVEPOINT statement
+type SavepointStmt struct {
+	Name string // Savepoint name
+}
+
+func (s *SavepointStmt) statementNode() {}
+
+// RollbackToStmt represents a ROLLBACK TO [SAVEPOINT] statement
+type RollbackToStmt struct {
+	Name string // Savepoint name to rollback to
+}
+
+func (s *RollbackToStmt) statementNode() {}
+
+// ReleaseStmt represents a RELEASE [SAVEPOINT] statement
+type ReleaseStmt struct {
+	Name string // Savepoint name to release
+}
+
+func (s *ReleaseStmt) statementNode() {}
