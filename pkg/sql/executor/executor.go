@@ -80,6 +80,8 @@ func (e *Executor) Execute(sql string) (*Result, error) {
 		return e.executeAnalyze(s)
 	case *parser.AlterTableStmt:
 		return e.executeAlterTable(s)
+	case *parser.SetOperation:
+		return e.executeSetOperation(s)
 	default:
 		return nil, fmt.Errorf("unsupported statement type: %T", stmt)
 	}
@@ -1746,4 +1748,197 @@ func (e *Executor) executeAlterTableRename(stmt *parser.AlterTableStmt) (*Result
 	}
 
 	return &Result{}, nil
+}
+
+// executeSetOperation handles UNION, INTERSECT, EXCEPT operations
+func (e *Executor) executeSetOperation(stmt *parser.SetOperation) (*Result, error) {
+	// Execute left and right SELECT statements
+	leftResult, err := e.executeSelect(stmt.Left)
+	if err != nil {
+		return nil, fmt.Errorf("left query error: %w", err)
+	}
+
+	rightResult, err := e.executeSelect(stmt.Right)
+	if err != nil {
+		return nil, fmt.Errorf("right query error: %w", err)
+	}
+
+	// Use left result's columns as the output columns
+	columns := leftResult.Columns
+
+	switch stmt.Operator {
+	case parser.SetOpUnion:
+		if stmt.All {
+			// UNION ALL: Simply concatenate results
+			rows := append(leftResult.Rows, rightResult.Rows...)
+			return &Result{Columns: columns, Rows: rows}, nil
+		}
+		// UNION: Concatenate and deduplicate
+		rows := e.unionDedup(leftResult.Rows, rightResult.Rows)
+		return &Result{Columns: columns, Rows: rows}, nil
+
+	case parser.SetOpIntersect:
+		if stmt.All {
+			// INTERSECT ALL: Keep duplicates based on count in both
+			rows := e.intersectAll(leftResult.Rows, rightResult.Rows)
+			return &Result{Columns: columns, Rows: rows}, nil
+		}
+		// INTERSECT: Keep only rows present in both (deduplicated)
+		rows := e.intersect(leftResult.Rows, rightResult.Rows)
+		return &Result{Columns: columns, Rows: rows}, nil
+
+	case parser.SetOpExcept:
+		if stmt.All {
+			// EXCEPT ALL: Remove one copy for each matching right row
+			rows := e.exceptAll(leftResult.Rows, rightResult.Rows)
+			return &Result{Columns: columns, Rows: rows}, nil
+		}
+		// EXCEPT: Remove all rows present in right from left
+		rows := e.except(leftResult.Rows, rightResult.Rows)
+		return &Result{Columns: columns, Rows: rows}, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported set operation: %v", stmt.Operator)
+	}
+}
+
+// rowKey creates a string key for a row for use in maps
+func rowKey(row []types.Value) string {
+	var key string
+	for i, val := range row {
+		if i > 0 {
+			key += "|"
+		}
+		if val.IsNull() {
+			key += "NULL"
+		} else {
+			switch val.Type() {
+			case types.TypeInt:
+				key += fmt.Sprintf("I:%d", val.Int())
+			case types.TypeFloat:
+				key += fmt.Sprintf("F:%f", val.Float())
+			case types.TypeText:
+				key += fmt.Sprintf("T:%s", val.Text())
+			case types.TypeBlob:
+				key += fmt.Sprintf("B:%x", val.Blob())
+			default:
+				key += "?"
+			}
+		}
+	}
+	return key
+}
+
+// unionDedup returns the union of two result sets with duplicates removed
+func (e *Executor) unionDedup(left, right [][]types.Value) [][]types.Value {
+	seen := make(map[string]bool)
+	var result [][]types.Value
+
+	// Add all rows from left, tracking seen rows
+	for _, row := range left {
+		key := rowKey(row)
+		if !seen[key] {
+			seen[key] = true
+			result = append(result, row)
+		}
+	}
+
+	// Add rows from right that haven't been seen
+	for _, row := range right {
+		key := rowKey(row)
+		if !seen[key] {
+			seen[key] = true
+			result = append(result, row)
+		}
+	}
+
+	return result
+}
+
+// intersect returns rows present in both left and right (deduplicated)
+func (e *Executor) intersect(left, right [][]types.Value) [][]types.Value {
+	// Build set of right rows
+	rightSet := make(map[string]bool)
+	for _, row := range right {
+		rightSet[rowKey(row)] = true
+	}
+
+	// Keep left rows that are in right, deduplicating
+	seen := make(map[string]bool)
+	var result [][]types.Value
+	for _, row := range left {
+		key := rowKey(row)
+		if rightSet[key] && !seen[key] {
+			seen[key] = true
+			result = append(result, row)
+		}
+	}
+
+	return result
+}
+
+// intersectAll returns intersection preserving duplicates based on min count
+func (e *Executor) intersectAll(left, right [][]types.Value) [][]types.Value {
+	// Count occurrences in right
+	rightCounts := make(map[string]int)
+	for _, row := range right {
+		rightCounts[rowKey(row)]++
+	}
+
+	// For each left row, include if count in right > 0, decrement count
+	var result [][]types.Value
+	for _, row := range left {
+		key := rowKey(row)
+		if rightCounts[key] > 0 {
+			rightCounts[key]--
+			result = append(result, row)
+		}
+	}
+
+	return result
+}
+
+// except returns left rows not present in right (deduplicated)
+func (e *Executor) except(left, right [][]types.Value) [][]types.Value {
+	// Build set of right rows
+	rightSet := make(map[string]bool)
+	for _, row := range right {
+		rightSet[rowKey(row)] = true
+	}
+
+	// Keep left rows not in right, deduplicating
+	seen := make(map[string]bool)
+	var result [][]types.Value
+	for _, row := range left {
+		key := rowKey(row)
+		if !rightSet[key] && !seen[key] {
+			seen[key] = true
+			result = append(result, row)
+		}
+	}
+
+	return result
+}
+
+// exceptAll returns left minus right, removing one right occurrence per match
+func (e *Executor) exceptAll(left, right [][]types.Value) [][]types.Value {
+	// Count occurrences in right
+	rightCounts := make(map[string]int)
+	for _, row := range right {
+		rightCounts[rowKey(row)]++
+	}
+
+	// Include left rows, skipping one for each right occurrence
+	var result [][]types.Value
+	for _, row := range left {
+		key := rowKey(row)
+		if rightCounts[key] > 0 {
+			rightCounts[key]--
+			// Skip this row (removed by EXCEPT)
+		} else {
+			result = append(result, row)
+		}
+	}
+
+	return result
 }

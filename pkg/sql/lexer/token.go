@@ -115,6 +115,12 @@ const (
 	// Subquery keywords
 	IN_KW // IN for subqueries
 	AS_KW // AS for aliases
+
+	// Set operation keywords
+	UNION
+	INTERSECT
+	EXCEPT
+	ALL
 )
 
 // Token represents a lexical token
@@ -295,6 +301,14 @@ func (t TokenType) String() string {
 		return "IN"
 	case AS_KW:
 		return "AS"
+	case UNION:
+		return "UNION"
+	case INTERSECT:
+		return "INTERSECT"
+	case EXCEPT:
+		return "EXCEPT"
+	case ALL:
+		return "ALL"
 	default:
 		return "UNKNOWN"
 	}
@@ -364,6 +378,10 @@ var keywords = map[string]TokenType{
 	"HAVING":     HAVING,
 	"IN":         IN_KW,
 	"AS":         AS_KW,
+	"UNION":      UNION,
+	"INTERSECT":  INTERSECT,
+	"EXCEPT":     EXCEPT,
+	"ALL":        ALL,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT
