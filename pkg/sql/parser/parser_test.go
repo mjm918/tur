@@ -943,6 +943,133 @@ func TestParser_CreateIndex_Unique(t *testing.T) {
 	}
 }
 
+// Expression Index tests
+
+func TestParser_CreateIndex_Expression_Function(t *testing.T) {
+	// Expression index on UPPER(name)
+	input := "CREATE INDEX idx_users_upper_name ON users (UPPER(name))"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create, ok := stmt.(*CreateIndexStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateIndexStmt, got %T", stmt)
+	}
+
+	if create.IndexName != "idx_users_upper_name" {
+		t.Errorf("IndexName = %q, want 'idx_users_upper_name'", create.IndexName)
+	}
+	if create.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", create.TableName)
+	}
+
+	// Should have one expression
+	if len(create.Expressions) != 1 {
+		t.Fatalf("Expressions count = %d, want 1", len(create.Expressions))
+	}
+
+	// The expression should be a FunctionCall
+	fnCall, ok := create.Expressions[0].(*FunctionCall)
+	if !ok {
+		t.Fatalf("Expression should be FunctionCall, got %T", create.Expressions[0])
+	}
+	if fnCall.Name != "UPPER" {
+		t.Errorf("Function name = %q, want 'UPPER'", fnCall.Name)
+	}
+
+	// Should have no plain columns
+	if len(create.Columns) != 0 {
+		t.Errorf("Columns should be empty for expression index, got %v", create.Columns)
+	}
+}
+
+func TestParser_CreateIndex_Expression_BinaryExpr(t *testing.T) {
+	// Expression index on (price * quantity)
+	input := "CREATE INDEX idx_order_total ON orders ((price * quantity))"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create, ok := stmt.(*CreateIndexStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateIndexStmt, got %T", stmt)
+	}
+
+	if len(create.Expressions) != 1 {
+		t.Fatalf("Expressions count = %d, want 1", len(create.Expressions))
+	}
+
+	// The expression should be a BinaryExpr
+	binExpr, ok := create.Expressions[0].(*BinaryExpr)
+	if !ok {
+		t.Fatalf("Expression should be BinaryExpr, got %T", create.Expressions[0])
+	}
+	if binExpr.Op != lexer.STAR {
+		t.Errorf("Operator = %v, want STAR (*)", binExpr.Op)
+	}
+}
+
+func TestParser_CreateIndex_Mixed_ColumnsAndExpressions(t *testing.T) {
+	// Mixed index: plain column + expression
+	input := "CREATE INDEX idx_mixed ON users (name, LOWER(email))"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create, ok := stmt.(*CreateIndexStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateIndexStmt, got %T", stmt)
+	}
+
+	// Should have one plain column
+	if len(create.Columns) != 1 || create.Columns[0] != "name" {
+		t.Errorf("Columns = %v, want ['name']", create.Columns)
+	}
+
+	// Should have one expression
+	if len(create.Expressions) != 1 {
+		t.Fatalf("Expressions count = %d, want 1", len(create.Expressions))
+	}
+
+	fnCall, ok := create.Expressions[0].(*FunctionCall)
+	if !ok {
+		t.Fatalf("Expression should be FunctionCall, got %T", create.Expressions[0])
+	}
+	if fnCall.Name != "LOWER" {
+		t.Errorf("Function name = %q, want 'LOWER'", fnCall.Name)
+	}
+}
+
+func TestParser_CreateIndex_Expression_UniqueIndex(t *testing.T) {
+	// Unique expression index
+	input := "CREATE UNIQUE INDEX idx_users_lower_email ON users (LOWER(email))"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create, ok := stmt.(*CreateIndexStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateIndexStmt, got %T", stmt)
+	}
+
+	if !create.Unique {
+		t.Error("Unique = false, want true")
+	}
+
+	if len(create.Expressions) != 1 {
+		t.Fatalf("Expressions count = %d, want 1", len(create.Expressions))
+	}
+}
+
 func TestParser_DropIndex(t *testing.T) {
 	input := "DROP INDEX idx_users_email"
 	p := New(input)

@@ -1175,7 +1175,8 @@ func (p *Parser) parseDropTableBody() (*DropTableStmt, error) {
 	return stmt, nil
 }
 
-// parseCreateIndex parses: INDEX name ON table (column, ...) [WHERE expr]
+// parseCreateIndex parses: INDEX name ON table (column | expr, ...) [WHERE expr]
+// Supports both plain column indexes, expression indexes, and partial indexes.
 // Called after CREATE [UNIQUE] INDEX has been consumed and current token is INDEX
 func (p *Parser) parseCreateIndex(unique bool) (*CreateIndexStmt, error) {
 	stmt := &CreateIndexStmt{Unique: unique}
@@ -1202,12 +1203,13 @@ func (p *Parser) parseCreateIndex(unique bool) (*CreateIndexStmt, error) {
 		return nil, fmt.Errorf("expected '(', got %s", p.peek.Literal)
 	}
 
-	// Column names
-	columns, err := p.parseIdentList()
+	// Parse index elements (columns or expressions)
+	columns, expressions, err := p.parseIndexElements()
 	if err != nil {
 		return nil, err
 	}
 	stmt.Columns = columns
+	stmt.Expressions = expressions
 
 	// )
 	if !p.expectPeek(lexer.RPAREN) {
@@ -1226,6 +1228,60 @@ func (p *Parser) parseCreateIndex(unique bool) (*CreateIndexStmt, error) {
 	}
 
 	return stmt, nil
+}
+
+// parseIndexElements parses a list of index elements which can be:
+// - Plain column name: name
+// - Function call: UPPER(name), LOWER(email)
+// - Parenthesized expression: (price * quantity)
+// Returns separate lists for plain columns and expressions.
+func (p *Parser) parseIndexElements() ([]string, []Expression, error) {
+	var columns []string
+	var expressions []Expression
+
+	for {
+		p.nextToken()
+
+		// Check what kind of element this is
+		if p.curIs(lexer.LPAREN) {
+			// Parenthesized expression: ((price * quantity))
+			// The outer paren is the index list delimiter, inner is for grouping
+			expr, err := p.parseExpression(LOWEST)
+			if err != nil {
+				return nil, nil, err
+			}
+			expressions = append(expressions, expr)
+		} else if p.curIs(lexer.IDENT) {
+			// Could be either:
+			// 1. Plain column name: name
+			// 2. Function call: UPPER(name)
+			if p.peekIs(lexer.LPAREN) {
+				// Function call - parse as expression
+				expr, err := p.parseExpression(LOWEST)
+				if err != nil {
+					return nil, nil, err
+				}
+				expressions = append(expressions, expr)
+			} else {
+				// Plain column name
+				columns = append(columns, p.cur.Literal)
+			}
+		} else {
+			return nil, nil, fmt.Errorf("expected column name or expression, got %s", p.cur.Literal)
+		}
+
+		// Check for comma (more elements) or end
+		if p.peekIs(lexer.COMMA) {
+			p.nextToken() // consume comma
+		} else if p.peekIs(lexer.RPAREN) {
+			// End of list - don't consume, let caller handle it
+			break
+		} else {
+			return nil, nil, fmt.Errorf("expected ',' or ')', got %s", p.peek.Literal)
+		}
+	}
+
+	return columns, expressions, nil
 }
 
 // parseDropIndex parses: INDEX [IF EXISTS] name
