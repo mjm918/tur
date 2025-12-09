@@ -681,6 +681,97 @@ func TestHNSWParams_DefaultValues(t *testing.T) {
 	}
 }
 
+// ========== Expression Index Tests ==========
+
+func TestIndexDef_Expression_Single(t *testing.T) {
+	// Test expression index on UPPER(name)
+	idx := IndexDef{
+		Name:        "idx_users_upper_name",
+		TableName:   "users",
+		Columns:     []string{},              // No plain columns
+		Expressions: []string{"UPPER(name)"}, // Expression SQL
+		Type:        IndexTypeBTree,
+		Unique:      false,
+		RootPage:    7,
+	}
+
+	if idx.Name != "idx_users_upper_name" {
+		t.Errorf("Name: got %q, want 'idx_users_upper_name'", idx.Name)
+	}
+	if len(idx.Columns) != 0 {
+		t.Errorf("Columns: got %v, want empty", idx.Columns)
+	}
+	if len(idx.Expressions) != 1 {
+		t.Fatalf("Expressions: got %d, want 1", len(idx.Expressions))
+	}
+	if idx.Expressions[0] != "UPPER(name)" {
+		t.Errorf("Expressions[0]: got %q, want 'UPPER(name)'", idx.Expressions[0])
+	}
+	if !idx.IsExpressionIndex() {
+		t.Error("IsExpressionIndex: expected true")
+	}
+}
+
+func TestIndexDef_Expression_Multiple(t *testing.T) {
+	// Test index with multiple expressions
+	idx := IndexDef{
+		Name:        "idx_orders_computed",
+		TableName:   "orders",
+		Columns:     []string{},
+		Expressions: []string{"price * quantity", "LOWER(status)"},
+		Type:        IndexTypeBTree,
+		Unique:      false,
+		RootPage:    8,
+	}
+
+	if len(idx.Expressions) != 2 {
+		t.Fatalf("Expressions: got %d, want 2", len(idx.Expressions))
+	}
+	if idx.Expressions[0] != "price * quantity" {
+		t.Errorf("Expressions[0]: got %q, want 'price * quantity'", idx.Expressions[0])
+	}
+	if idx.Expressions[1] != "LOWER(status)" {
+		t.Errorf("Expressions[1]: got %q, want 'LOWER(status)'", idx.Expressions[1])
+	}
+}
+
+func TestIndexDef_Mixed_ColumnsAndExpressions(t *testing.T) {
+	// Test index with both plain columns and expressions
+	idx := IndexDef{
+		Name:        "idx_users_mixed",
+		TableName:   "users",
+		Columns:     []string{"status"},
+		Expressions: []string{"UPPER(name)"},
+		Type:        IndexTypeBTree,
+		Unique:      false,
+		RootPage:    9,
+	}
+
+	if len(idx.Columns) != 1 || idx.Columns[0] != "status" {
+		t.Errorf("Columns: got %v, want ['status']", idx.Columns)
+	}
+	if len(idx.Expressions) != 1 || idx.Expressions[0] != "UPPER(name)" {
+		t.Errorf("Expressions: got %v, want ['UPPER(name)']", idx.Expressions)
+	}
+	if !idx.IsExpressionIndex() {
+		t.Error("IsExpressionIndex: expected true for mixed index")
+	}
+}
+
+func TestIndexDef_IsExpressionIndex_False(t *testing.T) {
+	// Test plain column index returns false
+	idx := IndexDef{
+		Name:      "idx_users_email",
+		TableName: "users",
+		Columns:   []string{"email"},
+		Type:      IndexTypeBTree,
+	}
+
+	if idx.IsExpressionIndex() {
+		t.Error("IsExpressionIndex: expected false for plain column index")
+	}
+}
+
 // ========== Index Lookup Tests ==========
 
 func TestCatalog_GetIndexesForTable(t *testing.T) {

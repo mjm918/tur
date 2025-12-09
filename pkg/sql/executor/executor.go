@@ -422,11 +422,17 @@ func exprToString(expr parser.Expression) string {
 		left := exprToString(e.Left)
 		right := exprToString(e.Right)
 		op := tokenToOp(e.Op)
-		return fmt.Sprintf("%s %s %s", left, op, right)
+		return fmt.Sprintf("(%s %s %s)", left, op, right)
 	case *parser.UnaryExpr:
 		right := exprToString(e.Right)
 		op := tokenToOp(e.Op)
 		return fmt.Sprintf("%s%s", op, right)
+	case *parser.FunctionCall:
+		args := make([]string, len(e.Args))
+		for i, arg := range e.Args {
+			args[i] = exprToString(arg)
+		}
+		return fmt.Sprintf("%s(%s)", e.Name, strings.Join(args, ", "))
 	default:
 		return ""
 	}
@@ -512,6 +518,13 @@ func (e *Executor) executeCreateIndex(stmt *parser.CreateIndexStmt) (*Result, er
 		colIndexes[i] = idx
 	}
 
+	// Convert expressions to SQL strings for storage
+	var expressionStrings []string
+	for _, expr := range stmt.Expressions {
+		exprSQL := exprToString(expr)
+		expressionStrings = append(expressionStrings, exprSQL)
+	}
+
 	// Create B-tree for the index
 	indexTree, err := btree.Create(e.pager)
 	if err != nil {
@@ -542,6 +555,7 @@ func (e *Executor) executeCreateIndex(stmt *parser.CreateIndexStmt) (*Result, er
 	}
 
 	// Populate index from existing table data
+	// Note: Expression indexes are evaluated during insert/update via updateIndexes()
 	if tableTree != nil {
 		cursor := tableTree.Cursor()
 		defer cursor.Close()
@@ -614,12 +628,13 @@ func (e *Executor) executeCreateIndex(stmt *parser.CreateIndexStmt) (*Result, er
 
 	// Create index definition
 	idx := &schema.IndexDef{
-		Name:      stmt.IndexName,
-		TableName: stmt.TableName,
-		Columns:   stmt.Columns,
-		Type:      schema.IndexTypeBTree,
-		Unique:    stmt.Unique,
-		RootPage:  indexTree.RootPage(),
+		Name:        stmt.IndexName,
+		TableName:   stmt.TableName,
+		Columns:     stmt.Columns,
+		Expressions: expressionStrings,
+		Type:        schema.IndexTypeBTree,
+		Unique:      stmt.Unique,
+		RootPage:    indexTree.RootPage(),
 	}
 
 	// Store WHERE clause for partial indexes

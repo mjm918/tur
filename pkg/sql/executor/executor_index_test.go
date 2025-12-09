@@ -561,3 +561,118 @@ func TestPartialIndex_UniqueEnforcementOnlyForMatching(t *testing.T) {
 		t.Error("INSERT duplicate email for active account should fail")
 	}
 }
+
+// ========== Expression Index Tests ==========
+
+func TestCreateIndex_Expression_StoresMetadata(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create table
+	_, err := exec.Execute("CREATE TABLE users (id INT, name TEXT, email TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Create expression index on UPPER(name)
+	_, err = exec.Execute("CREATE INDEX idx_upper_name ON users (UPPER(name))")
+	if err != nil {
+		t.Fatalf("CREATE INDEX: %v", err)
+	}
+
+	// Verify the index was created with expression metadata
+	idx := exec.catalog.GetIndex("idx_upper_name")
+	if idx == nil {
+		t.Fatal("Index not found in catalog")
+	}
+
+	// Should have no plain columns
+	if len(idx.Columns) != 0 {
+		t.Errorf("Columns: got %v, want empty", idx.Columns)
+	}
+
+	// Should have one expression
+	if len(idx.Expressions) != 1 {
+		t.Fatalf("Expressions: got %d, want 1", len(idx.Expressions))
+	}
+
+	// The expression should be stored as SQL text
+	if idx.Expressions[0] != "UPPER(name)" {
+		t.Errorf("Expressions[0]: got %q, want 'UPPER(name)'", idx.Expressions[0])
+	}
+
+	// Should be marked as expression index
+	if !idx.IsExpressionIndex() {
+		t.Error("IsExpressionIndex: expected true")
+	}
+}
+
+func TestCreateIndex_Expression_BinaryExpr(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create table
+	_, err := exec.Execute("CREATE TABLE orders (id INT, price INT, quantity INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Create expression index on (price * quantity)
+	_, err = exec.Execute("CREATE INDEX idx_total ON orders ((price * quantity))")
+	if err != nil {
+		t.Fatalf("CREATE INDEX: %v", err)
+	}
+
+	// Verify the index was created with expression metadata
+	idx := exec.catalog.GetIndex("idx_total")
+	if idx == nil {
+		t.Fatal("Index not found in catalog")
+	}
+
+	if len(idx.Expressions) != 1 {
+		t.Fatalf("Expressions: got %d, want 1", len(idx.Expressions))
+	}
+
+	// The expression should be stored
+	expr := idx.Expressions[0]
+	// Note: The exact format may vary depending on how we serialize it
+	if expr != "(price * quantity)" && expr != "price * quantity" {
+		t.Errorf("Expressions[0]: got %q, want '(price * quantity)' or 'price * quantity'", expr)
+	}
+}
+
+func TestCreateIndex_Expression_Mixed(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create table
+	_, err := exec.Execute("CREATE TABLE users (id INT, status TEXT, name TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Create index with both plain column and expression
+	_, err = exec.Execute("CREATE INDEX idx_mixed ON users (status, LOWER(name))")
+	if err != nil {
+		t.Fatalf("CREATE INDEX: %v", err)
+	}
+
+	// Verify the index
+	idx := exec.catalog.GetIndex("idx_mixed")
+	if idx == nil {
+		t.Fatal("Index not found in catalog")
+	}
+
+	// Should have one plain column
+	if len(idx.Columns) != 1 || idx.Columns[0] != "status" {
+		t.Errorf("Columns: got %v, want ['status']", idx.Columns)
+	}
+
+	// Should have one expression
+	if len(idx.Expressions) != 1 {
+		t.Fatalf("Expressions: got %d, want 1", len(idx.Expressions))
+	}
+	if idx.Expressions[0] != "LOWER(name)" {
+		t.Errorf("Expressions[0]: got %q, want 'LOWER(name)'", idx.Expressions[0])
+	}
+}

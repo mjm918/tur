@@ -1613,11 +1613,11 @@
       "tasks": [
         {
           "task": "Parse expression in CREATE INDEX",
-          "done": false
+          "done": true
         },
         {
           "task": "Store expression AST in index metadata",
-          "done": false
+          "done": true
         },
         {
           "task": "Evaluate expression on row insert/update",
