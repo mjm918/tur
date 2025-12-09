@@ -16,6 +16,7 @@ import (
 	"tur/pkg/sql/optimizer"
 	"tur/pkg/sql/parser"
 	"tur/pkg/types"
+	"tur/pkg/vdbe"
 )
 
 // Result holds the result of executing a SQL statement
@@ -97,6 +98,8 @@ func (e *Executor) Execute(sql string) (*Result, error) {
 		return e.executeCreateView(s)
 	case *parser.DropViewStmt:
 		return e.executeDropView(s)
+	case *parser.ExplainStmt:
+		return e.executeExplain(s)
 	default:
 		return nil, fmt.Errorf("unsupported statement type: %T", stmt)
 	}
@@ -2563,4 +2566,342 @@ func (e *Executor) exceptAll(left, right [][]types.Value) [][]types.Value {
 	}
 
 	return result
+}
+
+// executeExplain handles EXPLAIN and EXPLAIN QUERY PLAN statements
+func (e *Executor) executeExplain(stmt *parser.ExplainStmt) (*Result, error) {
+	if stmt.QueryPlan {
+		return e.executeExplainQueryPlan(stmt)
+	}
+	return e.executeExplainBytecode(stmt)
+}
+
+// executeExplainBytecode outputs VDBE bytecode for EXPLAIN statement
+func (e *Executor) executeExplainBytecode(stmt *parser.ExplainStmt) (*Result, error) {
+	// Compile the inner statement to VDBE bytecode
+	// Use defer/recover to handle panics in compiler (some statements not fully supported)
+	var program *vdbe.Program
+	var compileErr error
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				compileErr = fmt.Errorf("compiler panic: %v", r)
+			}
+		}()
+		compiler := vdbe.NewCompiler(e.catalog, e.pager)
+		program, compileErr = compiler.Compile(stmt.Statement)
+	}()
+
+	if compileErr != nil || program == nil {
+		// If compilation fails, fall back to query plan mode
+		return e.executeExplainQueryPlan(stmt)
+	}
+
+	// Build result with SQLite-compatible EXPLAIN format
+	// Columns: addr, opcode, p1, p2, p3, p4, p5, comment
+	result := &Result{
+		Columns: []string{"addr", "opcode", "p1", "p2", "p3", "p4", "p5", "comment"},
+		Rows:    make([][]types.Value, 0, program.Len()),
+	}
+
+	for i := 0; i < program.Len(); i++ {
+		instr := program.Get(i)
+		if instr == nil {
+			continue
+		}
+
+		// Format P4 as string
+		var p4Str string
+		if instr.P4 != nil {
+			p4Str = fmt.Sprintf("%v", instr.P4)
+		}
+
+		// Generate comment based on opcode
+		comment := e.generateOpcodeComment(instr)
+
+		row := []types.Value{
+			types.NewInt(int64(i)),             // addr
+			types.NewText(instr.Op.String()),   // opcode
+			types.NewInt(int64(instr.P1)),      // p1
+			types.NewInt(int64(instr.P2)),      // p2
+			types.NewInt(int64(instr.P3)),      // p3
+			types.NewText(p4Str),               // p4
+			types.NewInt(int64(instr.P5)),      // p5
+			types.NewText(comment),             // comment
+		}
+		result.Rows = append(result.Rows, row)
+	}
+
+	return result, nil
+}
+
+// generateOpcodeComment generates a human-readable comment for an instruction
+func (e *Executor) generateOpcodeComment(instr *vdbe.Instruction) string {
+	switch instr.Op {
+	case vdbe.OpInit:
+		return "Start at " + fmt.Sprintf("%d", instr.P2)
+	case vdbe.OpHalt:
+		return "End of program"
+	case vdbe.OpOpenRead:
+		return fmt.Sprintf("Open cursor %d for reading", instr.P1)
+	case vdbe.OpOpenWrite:
+		return fmt.Sprintf("Open cursor %d for writing", instr.P1)
+	case vdbe.OpRewind:
+		return fmt.Sprintf("Rewind cursor %d; goto %d if empty", instr.P1, instr.P2)
+	case vdbe.OpNext:
+		return fmt.Sprintf("Advance cursor %d; goto %d if more", instr.P1, instr.P2)
+	case vdbe.OpColumn:
+		return fmt.Sprintf("Read column %d from cursor %d into r[%d]", instr.P2, instr.P1, instr.P3)
+	case vdbe.OpResultRow:
+		return fmt.Sprintf("Output r[%d..%d]", instr.P1, instr.P1+instr.P2-1)
+	case vdbe.OpClose:
+		return fmt.Sprintf("Close cursor %d", instr.P1)
+	case vdbe.OpInteger:
+		return fmt.Sprintf("r[%d] = %d", instr.P2, instr.P1)
+	case vdbe.OpString:
+		if s, ok := instr.P4.(string); ok {
+			return fmt.Sprintf("r[%d] = '%s'", instr.P2, s)
+		}
+		return fmt.Sprintf("r[%d] = string", instr.P2)
+	case vdbe.OpInsert:
+		return fmt.Sprintf("Insert into cursor %d", instr.P1)
+	case vdbe.OpGoto:
+		return fmt.Sprintf("Goto %d", instr.P2)
+	default:
+		return ""
+	}
+}
+
+// executeExplainQueryPlan outputs query plan for EXPLAIN QUERY PLAN
+func (e *Executor) executeExplainQueryPlan(stmt *parser.ExplainStmt) (*Result, error) {
+	// Build result with SQLite-compatible EXPLAIN QUERY PLAN format
+	// Columns: id, parent, notused, detail
+	result := &Result{
+		Columns: []string{"id", "parent", "notused", "detail"},
+		Rows:    make([][]types.Value, 0),
+	}
+
+	// For SELECT statements, we can generate a query plan
+	selectStmt, isSelect := stmt.Statement.(*parser.SelectStmt)
+	if isSelect {
+		return e.explainSelectPlan(selectStmt, result)
+	}
+
+	// For other statements, generate a simple plan
+	return e.explainGenericPlan(stmt.Statement, result)
+}
+
+// explainSelectPlan generates query plan for SELECT statement
+func (e *Executor) explainSelectPlan(stmt *parser.SelectStmt, result *Result) (*Result, error) {
+	rowID := 0
+
+	// Use the optimizer to build and explain the plan
+	plan, err := optimizer.BuildPlan(stmt, e.catalog)
+	if err != nil {
+		// Fall back to simple plan if optimizer fails
+		return e.explainSelectSimple(stmt, result)
+	}
+
+	// Recursively explain the plan nodes
+	e.explainPlanNode(plan, 0, &rowID, result)
+
+	return result, nil
+}
+
+// explainPlanNode recursively explains plan nodes
+func (e *Executor) explainPlanNode(node optimizer.PlanNode, parentID int, rowID *int, result *Result) {
+	currentID := *rowID
+	*rowID++
+
+	var detail string
+
+	switch n := node.(type) {
+	case *optimizer.TableScanNode:
+		detail = fmt.Sprintf("SCAN TABLE %s", n.Table.Name)
+		if n.Alias != "" && n.Alias != n.Table.Name {
+			detail += " AS " + n.Alias
+		}
+		if n.Cost > 0 {
+			detail += fmt.Sprintf(" (~%d rows)", n.Rows)
+		}
+
+	case *optimizer.IndexScanNode:
+		tableName := ""
+		if n.Table != nil {
+			tableName = n.Table.Name
+		}
+		detail = fmt.Sprintf("SEARCH TABLE %s USING INDEX %s", tableName, n.IndexName)
+
+	case *optimizer.FilterNode:
+		detail = fmt.Sprintf("FILTER")
+		// Add child
+		row := []types.Value{
+			types.NewInt(int64(currentID)),
+			types.NewInt(int64(parentID)),
+			types.NewInt(0),
+			types.NewText(detail),
+		}
+		result.Rows = append(result.Rows, row)
+		e.explainPlanNode(n.Input, currentID, rowID, result)
+		return
+
+	case *optimizer.NestedLoopJoinNode:
+		detail = fmt.Sprintf("NESTED LOOP JOIN")
+		row := []types.Value{
+			types.NewInt(int64(currentID)),
+			types.NewInt(int64(parentID)),
+			types.NewInt(0),
+			types.NewText(detail),
+		}
+		result.Rows = append(result.Rows, row)
+		e.explainPlanNode(n.Left, currentID, rowID, result)
+		e.explainPlanNode(n.Right, currentID, rowID, result)
+		return
+
+	case *optimizer.HashJoinNode:
+		detail = fmt.Sprintf("HASH JOIN")
+		row := []types.Value{
+			types.NewInt(int64(currentID)),
+			types.NewInt(int64(parentID)),
+			types.NewInt(0),
+			types.NewText(detail),
+		}
+		result.Rows = append(result.Rows, row)
+		e.explainPlanNode(n.Left, currentID, rowID, result)
+		e.explainPlanNode(n.Right, currentID, rowID, result)
+		return
+
+	case *optimizer.SortNode:
+		detail = "SORT"
+		row := []types.Value{
+			types.NewInt(int64(currentID)),
+			types.NewInt(int64(parentID)),
+			types.NewInt(0),
+			types.NewText(detail),
+		}
+		result.Rows = append(result.Rows, row)
+		e.explainPlanNode(n.Input, currentID, rowID, result)
+		return
+
+	case *optimizer.LimitNode:
+		detail = "LIMIT"
+		// Try to extract the limit value if it's a literal
+		if n.Limit != nil {
+			if lit, ok := n.Limit.(*parser.Literal); ok {
+				detail = fmt.Sprintf("LIMIT %d", lit.Value.Int())
+			}
+		}
+		if n.Offset != nil {
+			if lit, ok := n.Offset.(*parser.Literal); ok {
+				detail += fmt.Sprintf(" OFFSET %d", lit.Value.Int())
+			} else {
+				detail += " OFFSET ?"
+			}
+		}
+		row := []types.Value{
+			types.NewInt(int64(currentID)),
+			types.NewInt(int64(parentID)),
+			types.NewInt(0),
+			types.NewText(detail),
+		}
+		result.Rows = append(result.Rows, row)
+		e.explainPlanNode(n.Input, currentID, rowID, result)
+		return
+
+	case *optimizer.AggregateNode:
+		detail = "AGGREGATE"
+		row := []types.Value{
+			types.NewInt(int64(currentID)),
+			types.NewInt(int64(parentID)),
+			types.NewInt(0),
+			types.NewText(detail),
+		}
+		result.Rows = append(result.Rows, row)
+		e.explainPlanNode(n.Input, currentID, rowID, result)
+		return
+
+	case *optimizer.ProjectionNode:
+		// Skip projection node, just process child
+		e.explainPlanNode(n.Input, parentID, rowID, result)
+		*rowID-- // Don't count this as a row
+		return
+
+	default:
+		detail = fmt.Sprintf("OPERATION (%T)", node)
+	}
+
+	row := []types.Value{
+		types.NewInt(int64(currentID)),
+		types.NewInt(int64(parentID)),
+		types.NewInt(0),
+		types.NewText(detail),
+	}
+	result.Rows = append(result.Rows, row)
+}
+
+// explainSelectSimple generates a simple plan when optimizer is not available
+func (e *Executor) explainSelectSimple(stmt *parser.SelectStmt, result *Result) (*Result, error) {
+	rowID := 0
+
+	// Extract table names from FROM clause
+	tables := e.extractTableNames(stmt.From)
+
+	for _, tableName := range tables {
+		row := []types.Value{
+			types.NewInt(int64(rowID)),
+			types.NewInt(0),
+			types.NewInt(0),
+			types.NewText(fmt.Sprintf("SCAN TABLE %s", tableName)),
+		}
+		result.Rows = append(result.Rows, row)
+		rowID++
+	}
+
+	return result, nil
+}
+
+// extractTableNames extracts table names from a table reference
+func (e *Executor) extractTableNames(ref parser.TableReference) []string {
+	var names []string
+
+	switch t := ref.(type) {
+	case *parser.Table:
+		names = append(names, t.Name)
+	case *parser.Join:
+		names = append(names, e.extractTableNames(t.Left)...)
+		names = append(names, e.extractTableNames(t.Right)...)
+	case *parser.DerivedTable:
+		names = append(names, "(subquery)")
+	}
+
+	return names
+}
+
+// explainGenericPlan generates a plan for non-SELECT statements
+func (e *Executor) explainGenericPlan(stmt parser.Statement, result *Result) (*Result, error) {
+	var detail string
+
+	switch s := stmt.(type) {
+	case *parser.InsertStmt:
+		detail = fmt.Sprintf("INSERT INTO TABLE %s", s.TableName)
+	case *parser.UpdateStmt:
+		detail = fmt.Sprintf("UPDATE TABLE %s", s.TableName)
+	case *parser.DeleteStmt:
+		detail = fmt.Sprintf("DELETE FROM TABLE %s", s.TableName)
+	case *parser.CreateTableStmt:
+		detail = fmt.Sprintf("CREATE TABLE %s", s.TableName)
+	default:
+		detail = fmt.Sprintf("OPERATION (%T)", stmt)
+	}
+
+	row := []types.Value{
+		types.NewInt(0),
+		types.NewInt(0),
+		types.NewInt(0),
+		types.NewText(detail),
+	}
+	result.Rows = append(result.Rows, row)
+
+	return result, nil
 }

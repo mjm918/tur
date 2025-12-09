@@ -461,3 +461,11 @@ type DropViewStmt struct {
 }
 
 func (s *DropViewStmt) statementNode() {}
+
+// ExplainStmt represents an EXPLAIN or EXPLAIN QUERY PLAN statement
+type ExplainStmt struct {
+	QueryPlan bool      // true for EXPLAIN QUERY PLAN, false for EXPLAIN
+	Statement Statement // The statement to explain
+}
+
+func (s *ExplainStmt) statementNode() {}

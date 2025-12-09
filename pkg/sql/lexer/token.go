@@ -134,6 +134,11 @@ const (
 
 	// View keywords
 	VIEW
+
+	// Explain keywords
+	EXPLAIN
+	QUERY
+	PLAN
 )
 
 // Token represents a lexical token
@@ -336,6 +341,12 @@ func (t TokenType) String() string {
 		return "RECURSIVE"
 	case VIEW:
 		return "VIEW"
+	case EXPLAIN:
+		return "EXPLAIN"
+	case QUERY:
+		return "QUERY"
+	case PLAN:
+		return "PLAN"
 	default:
 		return "UNKNOWN"
 	}
@@ -416,6 +427,9 @@ var keywords = map[string]TokenType{
 	"WITH":        WITH,
 	"RECURSIVE":   RECURSIVE,
 	"VIEW":        VIEW,
+	"EXPLAIN":     EXPLAIN,
+	"QUERY":       QUERY,
+	"PLAN":        PLAN,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT

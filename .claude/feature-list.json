@@ -1347,27 +1347,27 @@
     {
       "title": "SQL Statements - EXPLAIN",
       "description": "EXPLAIN and EXPLAIN QUERY PLAN for query analysis",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse EXPLAIN statement_to_explain",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse EXPLAIN QUERY PLAN statement",
-          "done": false
+          "done": true
         },
         {
           "task": "Output VDBE bytecode for EXPLAIN",
-          "done": false
+          "done": true
         },
         {
           "task": "Output query plan tree for EXPLAIN QUERY PLAN",
-          "done": false
+          "done": true
         },
         {
           "task": "Show cost estimates in query plan output",
-          "done": false
+          "done": true
         }
       ]
     },

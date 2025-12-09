@@ -58,6 +58,8 @@ func (p *Parser) Parse() (Statement, error) {
 		return p.parseCommit()
 	case lexer.ROLLBACK:
 		return p.parseRollback()
+	case lexer.EXPLAIN:
+		return p.parseExplain()
 	default:
 		return nil, fmt.Errorf("unexpected token: %s", p.cur.Literal)
 	}
@@ -1962,6 +1964,31 @@ func (p *Parser) parseCreateView(ifNotExists bool) (*CreateViewStmt, error) {
 		return nil, fmt.Errorf("parsing view SELECT: %w", err)
 	}
 	stmt.Query = selectStmt
+
+	return stmt, nil
+}
+
+// parseExplain parses EXPLAIN and EXPLAIN QUERY PLAN statements
+func (p *Parser) parseExplain() (*ExplainStmt, error) {
+	stmt := &ExplainStmt{}
+
+	p.nextToken() // consume EXPLAIN
+
+	// Check for QUERY PLAN
+	if p.curIs(lexer.QUERY) {
+		if !p.expectPeek(lexer.PLAN) {
+			return nil, fmt.Errorf("expected PLAN after QUERY, got %s", p.peek.Literal)
+		}
+		stmt.QueryPlan = true
+		p.nextToken() // consume PLAN
+	}
+
+	// Parse the statement to explain
+	innerStmt, err := p.Parse()
+	if err != nil {
+		return nil, fmt.Errorf("parsing statement in EXPLAIN: %w", err)
+	}
+	stmt.Statement = innerStmt
 
 	return stmt, nil
 }

@@ -2302,3 +2302,177 @@ func TestParser_DropView_IfExists(t *testing.T) {
 		t.Error("IfExists = false, want true")
 	}
 }
+
+// ============================================================================
+// EXPLAIN Tests
+// ============================================================================
+
+func TestParser_Explain_Select(t *testing.T) {
+	input := "EXPLAIN SELECT * FROM users"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	explain, ok := stmt.(*ExplainStmt)
+	if !ok {
+		t.Fatalf("Expected *ExplainStmt, got %T", stmt)
+	}
+
+	if explain.QueryPlan {
+		t.Error("QueryPlan = true, want false (EXPLAIN without QUERY PLAN)")
+	}
+
+	// Check the inner statement is a SELECT
+	sel, ok := explain.Statement.(*SelectStmt)
+	if !ok {
+		t.Fatalf("Statement type = %T, want *SelectStmt", explain.Statement)
+	}
+
+	fromTable, ok := sel.From.(*Table)
+	if !ok {
+		t.Fatalf("From type = %T, want *Table", sel.From)
+	}
+	if fromTable.Name != "users" {
+		t.Errorf("From.Name = %q, want 'users'", fromTable.Name)
+	}
+}
+
+func TestParser_Explain_Insert(t *testing.T) {
+	input := "EXPLAIN INSERT INTO users VALUES (1, 'test')"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	explain, ok := stmt.(*ExplainStmt)
+	if !ok {
+		t.Fatalf("Expected *ExplainStmt, got %T", stmt)
+	}
+
+	insert, ok := explain.Statement.(*InsertStmt)
+	if !ok {
+		t.Fatalf("Statement type = %T, want *InsertStmt", explain.Statement)
+	}
+
+	if insert.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", insert.TableName)
+	}
+}
+
+func TestParser_Explain_Update(t *testing.T) {
+	input := "EXPLAIN UPDATE users SET name = 'test' WHERE id = 1"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	explain, ok := stmt.(*ExplainStmt)
+	if !ok {
+		t.Fatalf("Expected *ExplainStmt, got %T", stmt)
+	}
+
+	update, ok := explain.Statement.(*UpdateStmt)
+	if !ok {
+		t.Fatalf("Statement type = %T, want *UpdateStmt", explain.Statement)
+	}
+
+	if update.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", update.TableName)
+	}
+}
+
+func TestParser_Explain_Delete(t *testing.T) {
+	input := "EXPLAIN DELETE FROM users WHERE id = 1"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	explain, ok := stmt.(*ExplainStmt)
+	if !ok {
+		t.Fatalf("Expected *ExplainStmt, got %T", stmt)
+	}
+
+	delete, ok := explain.Statement.(*DeleteStmt)
+	if !ok {
+		t.Fatalf("Statement type = %T, want *DeleteStmt", explain.Statement)
+	}
+
+	if delete.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", delete.TableName)
+	}
+}
+
+func TestParser_ExplainQueryPlan_Select(t *testing.T) {
+	input := "EXPLAIN QUERY PLAN SELECT * FROM users WHERE id > 10"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	explain, ok := stmt.(*ExplainStmt)
+	if !ok {
+		t.Fatalf("Expected *ExplainStmt, got %T", stmt)
+	}
+
+	if !explain.QueryPlan {
+		t.Error("QueryPlan = false, want true (EXPLAIN QUERY PLAN)")
+	}
+
+	// Check the inner statement is a SELECT
+	sel, ok := explain.Statement.(*SelectStmt)
+	if !ok {
+		t.Fatalf("Statement type = %T, want *SelectStmt", explain.Statement)
+	}
+
+	fromTable, ok := sel.From.(*Table)
+	if !ok {
+		t.Fatalf("From type = %T, want *Table", sel.From)
+	}
+	if fromTable.Name != "users" {
+		t.Errorf("From.Name = %q, want 'users'", fromTable.Name)
+	}
+
+	// Check WHERE clause exists
+	if sel.Where == nil {
+		t.Error("Where = nil, want non-nil")
+	}
+}
+
+func TestParser_ExplainQueryPlan_Join(t *testing.T) {
+	input := "EXPLAIN QUERY PLAN SELECT * FROM users JOIN orders ON users.id = orders.user_id"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	explain, ok := stmt.(*ExplainStmt)
+	if !ok {
+		t.Fatalf("Expected *ExplainStmt, got %T", stmt)
+	}
+
+	if !explain.QueryPlan {
+		t.Error("QueryPlan = false, want true")
+	}
+
+	sel, ok := explain.Statement.(*SelectStmt)
+	if !ok {
+		t.Fatalf("Statement type = %T, want *SelectStmt", explain.Statement)
+	}
+
+	// Check that FROM is a Join
+	join, ok := sel.From.(*Join)
+	if !ok {
+		t.Fatalf("From type = %T, want *Join", sel.From)
+	}
+	if join.Type != JoinInner {
+		t.Errorf("Join type = %v, want JoinInner", join.Type)
+	}
+}
