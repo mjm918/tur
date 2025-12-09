@@ -1586,7 +1586,7 @@
       "tasks": [
         {
           "task": "Parse WHERE clause in CREATE INDEX",
-          "done": false
+          "done": true
         },
         {
           "task": "Store filter predicate in index metadata",
