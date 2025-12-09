@@ -1590,7 +1590,7 @@
         },
         {
           "task": "Store filter predicate in index metadata",
-          "done": false
+          "done": true
         },
         {
           "task": "Evaluate predicate on row insert/update",

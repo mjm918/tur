@@ -599,6 +599,11 @@ func (e *Executor) executeCreateIndex(stmt *parser.CreateIndexStmt) (*Result, er
 		RootPage:  indexTree.RootPage(),
 	}
 
+	// Store WHERE clause for partial indexes
+	if stmt.Where != nil {
+		idx.WhereClause = exprToString(stmt.Where)
+	}
+
 	// Add to catalog
 	if err := e.catalog.CreateIndex(idx); err != nil {
 		return nil, err

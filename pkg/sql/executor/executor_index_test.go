@@ -330,3 +330,100 @@ func TestUniqueIndex_MultiColumnWithNulls(t *testing.T) {
 		t.Error("INSERT with duplicate non-NULL values should fail")
 	}
 }
+
+// TestCreatePartialIndex tests creating a partial index with WHERE clause
+func TestCreatePartialIndex(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create table with an active flag
+	_, err := exec.Execute("CREATE TABLE users (id INT, email TEXT, active INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Create partial index on email for active users only
+	_, err = exec.Execute("CREATE INDEX idx_active_email ON users (email) WHERE active = 1")
+	if err != nil {
+		t.Fatalf("CREATE INDEX: %v", err)
+	}
+
+	// Verify the index was created with the WHERE clause stored
+	idx := exec.catalog.GetIndex("idx_active_email")
+	if idx == nil {
+		t.Fatal("Index not found in catalog")
+	}
+
+	if !idx.IsPartial() {
+		t.Error("IsPartial() = false, want true")
+	}
+
+	if idx.WhereClause != "active = 1" {
+		t.Errorf("WhereClause = %q, want 'active = 1'", idx.WhereClause)
+	}
+}
+
+// TestCreatePartialIndex_ComplexPredicate tests partial index with complex WHERE
+func TestCreatePartialIndex_ComplexPredicate(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE products (id INT, status TEXT, price INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Create partial index with AND predicate
+	_, err = exec.Execute("CREATE INDEX idx_available ON products (price) WHERE status = 'available' AND price > 0")
+	if err != nil {
+		t.Fatalf("CREATE INDEX: %v", err)
+	}
+
+	idx := exec.catalog.GetIndex("idx_available")
+	if idx == nil {
+		t.Fatal("Index not found")
+	}
+
+	if !idx.IsPartial() {
+		t.Error("IsPartial() = false, want true")
+	}
+
+	// The predicate should contain both conditions
+	if idx.WhereClause == "" {
+		t.Error("WhereClause should not be empty")
+	}
+}
+
+// TestCreateUniquePartialIndex tests unique partial index
+func TestCreateUniquePartialIndex(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE accounts (id INT, email TEXT, deleted INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Create unique partial index - unique constraint only on non-deleted rows
+	_, err = exec.Execute("CREATE UNIQUE INDEX idx_unique_email ON accounts (email) WHERE deleted = 0")
+	if err != nil {
+		t.Fatalf("CREATE INDEX: %v", err)
+	}
+
+	idx := exec.catalog.GetIndex("idx_unique_email")
+	if idx == nil {
+		t.Fatal("Index not found")
+	}
+
+	if !idx.Unique {
+		t.Error("Unique = false, want true")
+	}
+
+	if !idx.IsPartial() {
+		t.Error("IsPartial() = false, want true")
+	}
+
+	if idx.WhereClause != "deleted = 0" {
+		t.Errorf("WhereClause = %q, want 'deleted = 0'", idx.WhereClause)
+	}
+}
