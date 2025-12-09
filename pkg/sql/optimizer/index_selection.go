@@ -2,6 +2,9 @@
 package optimizer
 
 import (
+	"fmt"
+	"strings"
+
 	"tur/pkg/schema"
 	"tur/pkg/sql/lexer"
 	"tur/pkg/sql/parser"
@@ -10,16 +13,18 @@ import (
 
 // IndexCandidate represents an index that could be used for a query predicate
 type IndexCandidate struct {
-	Index        *schema.IndexDef  // The index definition
-	Column       string            // The column that matched (first matched column for multi-column)
-	Operator     lexer.TokenType   // The operator used in the predicate
-	Value        parser.Expression // The value being compared (for selectivity estimation)
-	PrefixLength int               // Number of index columns matched (for composite indexes)
+	Index           *schema.IndexDef  // The index definition
+	Column          string            // The column that matched (first matched column for multi-column)
+	Operator        lexer.TokenType   // The operator used in the predicate
+	Value           parser.Expression // The value being compared (for selectivity estimation)
+	PrefixLength    int               // Number of index columns matched (for composite indexes)
+	ExpressionMatch bool              // True if this is an expression index match
 }
 
 // FindCandidateIndexes analyzes a WHERE clause and returns all indexes
 // that could potentially be used to satisfy the predicates.
 // For composite indexes, it checks for prefix matching (leftmost columns first).
+// For expression indexes, it matches expressions in the WHERE clause against index expressions.
 func FindCandidateIndexes(table *schema.TableDef, where parser.Expression, catalog *schema.Catalog) []IndexCandidate {
 	if where == nil {
 		return nil
@@ -27,7 +32,11 @@ func FindCandidateIndexes(table *schema.TableDef, where parser.Expression, catal
 
 	// Extract all column predicates from the WHERE clause
 	predicates := extractPredicates(where)
-	if len(predicates) == 0 {
+
+	// Extract all expression predicates from the WHERE clause
+	exprPredicates := extractExpressionPredicates(where)
+
+	if len(predicates) == 0 && len(exprPredicates) == 0 {
 		return nil
 	}
 
@@ -49,7 +58,16 @@ func FindCandidateIndexes(table *schema.TableDef, where parser.Expression, catal
 			}
 		}
 
-		// Check if this index can be used with the predicates
+		// First, try to match expression indexes
+		if idx.IsExpressionIndex() {
+			candidate := matchExpressionIndex(idx, exprPredicates, predMap)
+			if candidate != nil {
+				candidates = append(candidates, *candidate)
+				continue
+			}
+		}
+
+		// Check if this index can be used with the column predicates
 		// For composite indexes, we need to match a prefix of columns
 		prefixLength := 0
 		var firstPred *predicate
@@ -69,11 +87,12 @@ func FindCandidateIndexes(table *schema.TableDef, where parser.Expression, catal
 		// Only add if at least the first column matches
 		if prefixLength > 0 && firstPred != nil {
 			candidates = append(candidates, IndexCandidate{
-				Index:        idx,
-				Column:       firstPred.Column,
-				Operator:     firstPred.Operator,
-				Value:        firstPred.Value,
-				PrefixLength: prefixLength,
+				Index:           idx,
+				Column:          firstPred.Column,
+				Operator:        firstPred.Operator,
+				Value:           firstPred.Value,
+				PrefixLength:    prefixLength,
+				ExpressionMatch: false,
 			})
 		}
 	}
@@ -297,4 +316,196 @@ func SelectBestAccessPath(table *schema.TableDef, where parser.Expression, catal
 		EstimatedCost:    bestCost,
 		EstimatedRows:    bestRows,
 	}
+}
+
+// expressionPredicate represents a predicate where the left side is an expression
+type expressionPredicate struct {
+	Expression parser.Expression
+	Operator   lexer.TokenType
+	Value      parser.Expression
+}
+
+// extractExpressionPredicates extracts predicates where one side is an expression (not just column ref)
+func extractExpressionPredicates(expr parser.Expression) []expressionPredicate {
+	if expr == nil {
+		return nil
+	}
+
+	switch e := expr.(type) {
+	case *parser.BinaryExpr:
+		// Check if this is a logical operator (AND/OR)
+		if e.Op == lexer.AND || e.Op == lexer.OR {
+			left := extractExpressionPredicates(e.Left)
+			right := extractExpressionPredicates(e.Right)
+			return append(left, right...)
+		}
+
+		// Check if this is a comparison operator
+		if isComparisonOperator(e.Op) {
+			// Check if left is an expression (function call or binary op), not just a column
+			if isIndexableExpression(e.Left) {
+				return []expressionPredicate{{
+					Expression: e.Left,
+					Operator:   e.Op,
+					Value:      e.Right,
+				}}
+			}
+			// Check if right is an expression
+			if isIndexableExpression(e.Right) {
+				return []expressionPredicate{{
+					Expression: e.Right,
+					Operator:   e.Op,
+					Value:      e.Left,
+				}}
+			}
+		}
+	}
+
+	return nil
+}
+
+// isIndexableExpression returns true if the expression could be matched to an expression index
+func isIndexableExpression(expr parser.Expression) bool {
+	switch expr.(type) {
+	case *parser.FunctionCall:
+		return true
+	case *parser.BinaryExpr:
+		// Binary expressions (like price * quantity) can be indexed
+		return true
+	}
+	return false
+}
+
+// matchExpressionIndex checks if an expression index matches any of the expression predicates
+func matchExpressionIndex(idx *schema.IndexDef, exprPreds []expressionPredicate, colPreds map[string]predicate) *IndexCandidate {
+	// First check if column parts match (for mixed indexes)
+	prefixLength := 0
+	var firstColPred *predicate
+	for i, col := range idx.Columns {
+		pred, exists := colPreds[col]
+		if !exists {
+			break
+		}
+		prefixLength = i + 1
+		if firstColPred == nil {
+			firstColPred = &pred
+		}
+	}
+
+	// Now check expression parts
+	for _, idxExprStr := range idx.Expressions {
+		for _, exprPred := range exprPreds {
+			if expressionsMatch(idxExprStr, exprPred.Expression) {
+				// Found a match!
+				column := ""
+				if firstColPred != nil {
+					column = firstColPred.Column
+				}
+				return &IndexCandidate{
+					Index:           idx,
+					Column:          column,
+					Operator:        exprPred.Operator,
+					Value:           exprPred.Value,
+					PrefixLength:    prefixLength + 1, // Count expression as part of prefix
+					ExpressionMatch: true,
+				}
+			}
+		}
+	}
+
+	// If no expression matched but columns did, still consider as candidate
+	if prefixLength > 0 && firstColPred != nil {
+		return &IndexCandidate{
+			Index:           idx,
+			Column:          firstColPred.Column,
+			Operator:        firstColPred.Operator,
+			Value:           firstColPred.Value,
+			PrefixLength:    prefixLength,
+			ExpressionMatch: false,
+		}
+	}
+
+	return nil
+}
+
+// expressionsMatch checks if an expression from a query matches an index expression string
+func expressionsMatch(indexExprStr string, queryExpr parser.Expression) bool {
+	// Normalize the query expression to a string
+	queryExprStr := expressionToString(queryExpr)
+
+	// Normalize both for comparison (remove extra whitespace, case-insensitive for functions)
+	normalizedIdx := normalizeExpressionString(indexExprStr)
+	normalizedQuery := normalizeExpressionString(queryExprStr)
+
+	return normalizedIdx == normalizedQuery
+}
+
+// expressionToString converts a parsed expression to a normalized string
+func expressionToString(expr parser.Expression) string {
+	if expr == nil {
+		return ""
+	}
+
+	switch e := expr.(type) {
+	case *parser.Literal:
+		return fmt.Sprintf("%v", e.Value)
+	case *parser.ColumnRef:
+		return e.Name
+	case *parser.FunctionCall:
+		args := make([]string, len(e.Args))
+		for i, arg := range e.Args {
+			args[i] = expressionToString(arg)
+		}
+		return fmt.Sprintf("%s(%s)", strings.ToUpper(e.Name), strings.Join(args, ", "))
+	case *parser.BinaryExpr:
+		left := expressionToString(e.Left)
+		right := expressionToString(e.Right)
+		op := operatorToString(e.Op)
+		return fmt.Sprintf("(%s %s %s)", left, op, right)
+	case *parser.UnaryExpr:
+		right := expressionToString(e.Right)
+		op := operatorToString(e.Op)
+		return fmt.Sprintf("%s%s", op, right)
+	default:
+		return ""
+	}
+}
+
+// operatorToString converts a token type to its string representation
+func operatorToString(op lexer.TokenType) string {
+	switch op {
+	case lexer.PLUS:
+		return "+"
+	case lexer.MINUS:
+		return "-"
+	case lexer.STAR:
+		return "*"
+	case lexer.SLASH:
+		return "/"
+	case lexer.EQ:
+		return "="
+	case lexer.NEQ:
+		return "!="
+	case lexer.LT:
+		return "<"
+	case lexer.GT:
+		return ">"
+	case lexer.LTE:
+		return "<="
+	case lexer.GTE:
+		return ">="
+	default:
+		return ""
+	}
+}
+
+// normalizeExpressionString normalizes an expression string for comparison
+func normalizeExpressionString(s string) string {
+	// Convert to uppercase for case-insensitive comparison of function names
+	s = strings.ToUpper(s)
+	// Remove all whitespace
+	s = strings.ReplaceAll(s, " ", "")
+	s = strings.ReplaceAll(s, "\t", "")
+	s = strings.ReplaceAll(s, "\n", "")
+	return s
 }

@@ -1012,3 +1012,180 @@ func TestFindCandidateIndexes_NonPartialIndex_AlwaysCandidate(t *testing.T) {
 		t.Errorf("expected idx_email, got %s", candidates[0].Index.Name)
 	}
 }
+
+// ========== Expression Index Matching Tests ==========
+
+func TestFindCandidateIndexes_ExpressionIndex_FunctionCall(t *testing.T) {
+	// Setup: Table with expression index on UPPER(name)
+	catalog := schema.NewCatalog()
+	tableDef := &schema.TableDef{
+		Name: "users",
+		Columns: []schema.ColumnDef{
+			{Name: "id", Type: types.TypeInt},
+			{Name: "name", Type: types.TypeText},
+		},
+	}
+	catalog.CreateTable(tableDef)
+
+	// Expression index on UPPER(name)
+	indexDef := &schema.IndexDef{
+		Name:        "idx_upper_name",
+		TableName:   "users",
+		Columns:     []string{}, // No plain columns
+		Expressions: []string{"UPPER(name)"},
+		Type:        schema.IndexTypeBTree,
+	}
+	catalog.CreateIndex(indexDef)
+
+	// WHERE UPPER(name) = 'ALICE'
+	whereClause := &parser.BinaryExpr{
+		Left: &parser.FunctionCall{
+			Name: "UPPER",
+			Args: []parser.Expression{&parser.ColumnRef{Name: "name"}},
+		},
+		Op:    lexer.EQ,
+		Right: &parser.Literal{Value: types.NewText("ALICE")},
+	}
+
+	// Act
+	candidates := FindCandidateIndexes(tableDef, whereClause, catalog)
+
+	// Assert
+	if len(candidates) != 1 {
+		t.Fatalf("expected 1 candidate index for expression match, got %d", len(candidates))
+	}
+	if candidates[0].Index.Name != "idx_upper_name" {
+		t.Errorf("expected index 'idx_upper_name', got '%s'", candidates[0].Index.Name)
+	}
+}
+
+func TestFindCandidateIndexes_ExpressionIndex_BinaryExpr(t *testing.T) {
+	// Setup: Table with expression index on (price * quantity)
+	catalog := schema.NewCatalog()
+	tableDef := &schema.TableDef{
+		Name: "orders",
+		Columns: []schema.ColumnDef{
+			{Name: "id", Type: types.TypeInt},
+			{Name: "price", Type: types.TypeInt},
+			{Name: "quantity", Type: types.TypeInt},
+		},
+	}
+	catalog.CreateTable(tableDef)
+
+	// Expression index on (price * quantity)
+	indexDef := &schema.IndexDef{
+		Name:        "idx_total",
+		TableName:   "orders",
+		Columns:     []string{},
+		Expressions: []string{"(price * quantity)"},
+		Type:        schema.IndexTypeBTree,
+	}
+	catalog.CreateIndex(indexDef)
+
+	// WHERE price * quantity > 1000
+	whereClause := &parser.BinaryExpr{
+		Left: &parser.BinaryExpr{
+			Left:  &parser.ColumnRef{Name: "price"},
+			Op:    lexer.STAR,
+			Right: &parser.ColumnRef{Name: "quantity"},
+		},
+		Op:    lexer.GT,
+		Right: &parser.Literal{Value: types.NewInt(1000)},
+	}
+
+	// Act
+	candidates := FindCandidateIndexes(tableDef, whereClause, catalog)
+
+	// Assert
+	if len(candidates) != 1 {
+		t.Fatalf("expected 1 candidate index for expression match, got %d", len(candidates))
+	}
+	if candidates[0].Index.Name != "idx_total" {
+		t.Errorf("expected index 'idx_total', got '%s'", candidates[0].Index.Name)
+	}
+}
+
+func TestFindCandidateIndexes_ExpressionIndex_NoMatch(t *testing.T) {
+	// Setup: Table with expression index on UPPER(name), query on LOWER(name)
+	catalog := schema.NewCatalog()
+	tableDef := &schema.TableDef{
+		Name: "users",
+		Columns: []schema.ColumnDef{
+			{Name: "id", Type: types.TypeInt},
+			{Name: "name", Type: types.TypeText},
+		},
+	}
+	catalog.CreateTable(tableDef)
+
+	// Expression index on UPPER(name)
+	indexDef := &schema.IndexDef{
+		Name:        "idx_upper_name",
+		TableName:   "users",
+		Columns:     []string{},
+		Expressions: []string{"UPPER(name)"},
+		Type:        schema.IndexTypeBTree,
+	}
+	catalog.CreateIndex(indexDef)
+
+	// WHERE LOWER(name) = 'alice' - should NOT match UPPER(name) index
+	whereClause := &parser.BinaryExpr{
+		Left: &parser.FunctionCall{
+			Name: "LOWER",
+			Args: []parser.Expression{&parser.ColumnRef{Name: "name"}},
+		},
+		Op:    lexer.EQ,
+		Right: &parser.Literal{Value: types.NewText("alice")},
+	}
+
+	// Act
+	candidates := FindCandidateIndexes(tableDef, whereClause, catalog)
+
+	// Assert: Should not find the UPPER index for a LOWER query
+	for _, c := range candidates {
+		if c.Index.Name == "idx_upper_name" {
+			t.Error("should NOT match UPPER index for LOWER predicate")
+		}
+	}
+}
+
+func TestFindCandidateIndexes_MixedColumnAndExpression(t *testing.T) {
+	// Setup: Table with mixed index (column + expression)
+	catalog := schema.NewCatalog()
+	tableDef := &schema.TableDef{
+		Name: "users",
+		Columns: []schema.ColumnDef{
+			{Name: "id", Type: types.TypeInt},
+			{Name: "status", Type: types.TypeText},
+			{Name: "name", Type: types.TypeText},
+		},
+	}
+	catalog.CreateTable(tableDef)
+
+	// Index on status (column) and LOWER(name) (expression)
+	indexDef := &schema.IndexDef{
+		Name:        "idx_status_lower_name",
+		TableName:   "users",
+		Columns:     []string{"status"},
+		Expressions: []string{"LOWER(name)"},
+		Type:        schema.IndexTypeBTree,
+	}
+	catalog.CreateIndex(indexDef)
+
+	// WHERE status = 'active' - should match the column part of the index
+	whereClause := &parser.BinaryExpr{
+		Left:  &parser.ColumnRef{Name: "status"},
+		Op:    lexer.EQ,
+		Right: &parser.Literal{Value: types.NewText("active")},
+	}
+
+	// Act
+	candidates := FindCandidateIndexes(tableDef, whereClause, catalog)
+
+	// Assert: Should find the index even though expression part isn't matched
+	if len(candidates) != 1 {
+		t.Fatalf("expected 1 candidate index, got %d", len(candidates))
+	}
+	if candidates[0].Index.Name != "idx_status_lower_name" {
+		t.Errorf("expected index 'idx_status_lower_name', got '%s'", candidates[0].Index.Name)
+	}
+}
