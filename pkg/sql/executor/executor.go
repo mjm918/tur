@@ -337,18 +337,91 @@ func (e *Executor) executeCreateIndex(stmt *parser.CreateIndexStmt) (*Result, er
 		return nil, fmt.Errorf("table %s not found", stmt.TableName)
 	}
 
-	// Validate all columns exist in the table
-	for _, colName := range stmt.Columns {
-		col, _ := table.GetColumn(colName)
-		if col == nil {
+	// Validate all columns exist in the table and build column index map
+	colIndexes := make([]int, len(stmt.Columns))
+	for i, colName := range stmt.Columns {
+		_, idx := table.GetColumn(colName)
+		if idx < 0 {
 			return nil, fmt.Errorf("column %s not found in table %s", colName, stmt.TableName)
 		}
+		colIndexes[i] = idx
 	}
 
 	// Create B-tree for the index
-	tree, err := btree.Create(e.pager)
+	indexTree, err := btree.Create(e.pager)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create index btree: %w", err)
+	}
+
+	// Store the index tree in our map
+	idxTreeName := "index:" + stmt.IndexName
+	e.trees[idxTreeName] = indexTree
+
+	// Get the table's B-tree to scan existing data
+	tableTree := e.trees[stmt.TableName]
+	if tableTree == nil && table.RootPage != 0 {
+		tableTree = btree.Open(e.pager, table.RootPage)
+		e.trees[stmt.TableName] = tableTree
+	}
+
+	// Populate index from existing table data
+	if tableTree != nil {
+		cursor := tableTree.Cursor()
+		defer cursor.Close()
+
+		for cursor.First(); cursor.Valid(); cursor.Next() {
+			key := cursor.Key()
+			value := cursor.Value()
+
+			// Extract rowid from key (8 bytes, big-endian)
+			if len(key) < 8 {
+				continue
+			}
+			rowID := binary.BigEndian.Uint64(key)
+
+			// Decode row values
+			values := record.Decode(value)
+
+			// Build index key from the indexed column values
+			var keyValues []types.Value
+			for _, colIdx := range colIndexes {
+				if colIdx < len(values) {
+					keyValues = append(keyValues, values[colIdx])
+				} else {
+					keyValues = append(keyValues, types.NewNull())
+				}
+			}
+
+			// Encode key and value based on uniqueness
+			var indexKey []byte
+			var indexValue []byte
+
+			if stmt.Unique {
+				// Unique index: Key = Columns, Value = RowID
+				indexKey = record.Encode(keyValues)
+
+				// Check for uniqueness violation
+				existingVal, err := indexTree.Get(indexKey)
+				if err == nil && existingVal != nil {
+					return nil, fmt.Errorf("UNIQUE constraint failed: duplicate key in index %s", stmt.IndexName)
+				}
+
+				// Encode RowID as value
+				buf := make([]byte, 8)
+				binary.BigEndian.PutUint64(buf, rowID)
+				indexValue = buf
+			} else {
+				// Non-unique index: Key = Columns + RowID, Value = empty
+				keyValues = append(keyValues, types.NewInt(int64(rowID)))
+				indexKey = record.Encode(keyValues)
+				indexValue = []byte{}
+			}
+
+			// Insert into index
+			if err := indexTree.Insert(indexKey, indexValue); err != nil {
+				return nil, fmt.Errorf("failed to build index %s: %w", stmt.IndexName, err)
+			}
+		}
 	}
 
 	// Create index definition
@@ -358,7 +431,7 @@ func (e *Executor) executeCreateIndex(stmt *parser.CreateIndexStmt) (*Result, er
 		Columns:   stmt.Columns,
 		Type:      schema.IndexTypeBTree,
 		Unique:    stmt.Unique,
-		RootPage:  tree.RootPage(),
+		RootPage:  indexTree.RootPage(),
 	}
 
 	// Add to catalog

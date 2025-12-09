@@ -1187,31 +1187,31 @@
     {
       "title": "SQL Statements - CREATE INDEX",
       "description": "CREATE INDEX for B-tree indexes on table columns",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse CREATE INDEX index_name ON table (columns)",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse UNIQUE keyword for unique indexes",
-          "done": false
+          "done": true
         },
         {
           "task": "Allocate root page for new index B-tree",
-          "done": false
+          "done": true
         },
         {
           "task": "Scan table and build index entries",
-          "done": false
+          "done": true
         },
         {
           "task": "Add index entry to schema catalog",
-          "done": false
+          "done": true
         },
         {
           "task": "Handle index creation on non-empty tables",
-          "done": false
+          "done": true
         }
       ]
     },
