@@ -1582,7 +1582,7 @@
     {
       "title": "Indexes - Partial Indexes",
       "description": "Indexes with WHERE clause for selective indexing",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse WHERE clause in CREATE INDEX",
@@ -1602,7 +1602,7 @@
         },
         {
           "task": "Consider partial index in query optimization",
-          "done": false
+          "done": true
         }
       ]
     },

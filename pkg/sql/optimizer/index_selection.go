@@ -5,6 +5,7 @@ import (
 	"tur/pkg/schema"
 	"tur/pkg/sql/lexer"
 	"tur/pkg/sql/parser"
+	"tur/pkg/types"
 )
 
 // IndexCandidate represents an index that could be used for a query predicate
@@ -41,6 +42,13 @@ func FindCandidateIndexes(table *schema.TableDef, where parser.Expression, catal
 
 	var candidates []IndexCandidate
 	for _, idx := range indexes {
+		// For partial indexes, check if query implies the index predicate
+		if idx.IsPartial() {
+			if !queryImpliesPartialIndexPredicate(idx, predicates) {
+				continue // Skip this partial index
+			}
+		}
+
 		// Check if this index can be used with the predicates
 		// For composite indexes, we need to match a prefix of columns
 		prefixLength := 0
@@ -71,6 +79,85 @@ func FindCandidateIndexes(table *schema.TableDef, where parser.Expression, catal
 	}
 
 	return candidates
+}
+
+// queryImpliesPartialIndexPredicate checks if the query's predicates
+// imply (are at least as restrictive as) the partial index predicate.
+// For example, if index has WHERE active = 1, query must include active = 1.
+func queryImpliesPartialIndexPredicate(idx *schema.IndexDef, queryPredicates []predicate) bool {
+	if !idx.IsPartial() {
+		return true
+	}
+
+	// Parse the index predicate
+	whereSQL := "SELECT 1 FROM _dummy WHERE " + idx.WhereClause
+	p := parser.New(whereSQL)
+	stmt, err := p.Parse()
+	if err != nil {
+		return false // Can't parse = can't use
+	}
+
+	selectStmt, ok := stmt.(*parser.SelectStmt)
+	if !ok || selectStmt.Where == nil {
+		return false
+	}
+
+	// Extract predicates from the index's WHERE clause
+	indexPredicates := extractPredicates(selectStmt.Where)
+
+	// Build a map of query predicates for quick lookup
+	queryPredMap := make(map[string]predicate)
+	for _, pred := range queryPredicates {
+		queryPredMap[pred.Column] = pred
+	}
+
+	// Check that every predicate in the index is implied by a query predicate
+	for _, indexPred := range indexPredicates {
+		queryPred, exists := queryPredMap[indexPred.Column]
+		if !exists {
+			return false // Query doesn't have this predicate
+		}
+
+		// For now, check simple equality: same column, same operator, same value
+		if indexPred.Operator != queryPred.Operator {
+			return false
+		}
+
+		// Compare values
+		if !predicateValuesMatch(indexPred.Value, queryPred.Value) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// predicateValuesMatch checks if two predicate values are equal
+func predicateValuesMatch(a, b parser.Expression) bool {
+	litA, okA := a.(*parser.Literal)
+	litB, okB := b.(*parser.Literal)
+	if !okA || !okB {
+		return false
+	}
+
+	// Compare the values
+	valA := litA.Value
+	valB := litB.Value
+
+	if valA.Type() != valB.Type() {
+		return false
+	}
+
+	switch valA.Type() {
+	case types.TypeInt:
+		return valA.Int() == valB.Int()
+	case types.TypeFloat:
+		return valA.Float() == valB.Float()
+	case types.TypeText:
+		return valA.Text() == valB.Text()
+	default:
+		return false
+	}
 }
 
 // predicate represents a simple column comparison predicate
