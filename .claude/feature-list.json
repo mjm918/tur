@@ -1536,46 +1536,46 @@
     {
       "title": "Indexes - Multi-column B-tree Indexes",
       "description": "Support composite indexes on multiple columns",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse multi-column index definition",
-          "done": false
+          "done": true
         },
         {
           "task": "Construct composite key from multiple columns",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement prefix matching for index scans",
-          "done": false
+          "done": true
         },
         {
           "task": "Optimize queries using index prefixes",
-          "done": false
+          "done": true
         }
       ]
     },
     {
       "title": "Indexes - Unique Indexes",
       "description": "Unique constraint enforcement via indexes",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Mark index as unique in metadata",
-          "done": false
+          "done": true
         },
         {
           "task": "Check for duplicates before index insertion",
-          "done": false
+          "done": true
         },
         {
           "task": "Return unique constraint violation error",
-          "done": false
+          "done": true
         },
         {
           "task": "Handle NULL values in unique indexes (allow multiple NULLs)",
-          "done": false
+          "done": true
         }
       ]
     },
