@@ -341,6 +341,22 @@ type DropTriggerStmt struct {
 
 func (s *DropTriggerStmt) statementNode() {}
 
+// RaiseType represents the type of RAISE function
+type RaiseType int
+
+const (
+	RaiseAbort  RaiseType = iota // RAISE(ABORT, 'message')
+	RaiseIgnore                  // RAISE(IGNORE)
+)
+
+// RaiseExpr represents a RAISE expression used in triggers
+type RaiseExpr struct {
+	Type    RaiseType // ABORT or IGNORE
+	Message string    // Error message (empty for IGNORE)
+}
+
+func (r *RaiseExpr) expressionNode() {}
+
 // PragmaStmt represents a PRAGMA statement
 type PragmaStmt struct {
 	Name  string     // PRAGMA name (e.g., cache_size, journal_mode)

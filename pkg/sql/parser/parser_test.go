@@ -3076,3 +3076,82 @@ func TestParser_DropTrigger_IfExists(t *testing.T) {
 		t.Errorf("TriggerName = %q, want 'audit_insert'", drop.TriggerName)
 	}
 }
+
+func TestParser_RaiseAbort(t *testing.T) {
+	input := "SELECT RAISE(ABORT, 'Price must be positive')"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel := stmt.(*SelectStmt)
+	if len(sel.Columns) != 1 {
+		t.Fatalf("Columns count = %d, want 1", len(sel.Columns))
+	}
+
+	raise, ok := sel.Columns[0].Expr.(*RaiseExpr)
+	if !ok {
+		t.Fatalf("Expr = %T, want *RaiseExpr", sel.Columns[0].Expr)
+	}
+
+	if raise.Type != RaiseAbort {
+		t.Errorf("Type = %v, want RaiseAbort", raise.Type)
+	}
+	if raise.Message != "Price must be positive" {
+		t.Errorf("Message = %q, want 'Price must be positive'", raise.Message)
+	}
+}
+
+func TestParser_RaiseIgnore(t *testing.T) {
+	input := "SELECT RAISE(IGNORE)"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel := stmt.(*SelectStmt)
+	raise, ok := sel.Columns[0].Expr.(*RaiseExpr)
+	if !ok {
+		t.Fatalf("Expr = %T, want *RaiseExpr", sel.Columns[0].Expr)
+	}
+
+	if raise.Type != RaiseIgnore {
+		t.Errorf("Type = %v, want RaiseIgnore", raise.Type)
+	}
+	if raise.Message != "" {
+		t.Errorf("Message = %q, want empty", raise.Message)
+	}
+}
+
+func TestParser_CreateTrigger_WithRaise(t *testing.T) {
+	input := `CREATE TRIGGER check_price BEFORE INSERT ON products
+BEGIN
+  SELECT RAISE(ABORT, 'Price must be positive') WHERE NEW.price <= 0;
+END`
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	trigger := stmt.(*CreateTriggerStmt)
+	if len(trigger.Actions) != 1 {
+		t.Fatalf("Actions count = %d, want 1", len(trigger.Actions))
+	}
+
+	sel, ok := trigger.Actions[0].(*SelectStmt)
+	if !ok {
+		t.Fatalf("Actions[0] = %T, want *SelectStmt", trigger.Actions[0])
+	}
+
+	raise, ok := sel.Columns[0].Expr.(*RaiseExpr)
+	if !ok {
+		t.Fatalf("Columns[0].Expr = %T, want *RaiseExpr", sel.Columns[0].Expr)
+	}
+
+	if raise.Type != RaiseAbort {
+		t.Errorf("Type = %v, want RaiseAbort", raise.Type)
+	}
+}

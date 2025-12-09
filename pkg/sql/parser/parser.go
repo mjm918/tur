@@ -1506,6 +1506,8 @@ func (p *Parser) parsePrefixExpression() (Expression, error) {
 		return &Literal{Value: types.NewInt(1)}, nil
 	case lexer.FALSE_KW:
 		return &Literal{Value: types.NewInt(0)}, nil
+	case lexer.RAISE:
+		return p.parseRaiseExpression()
 	case lexer.EXISTS:
 		// EXISTS (SELECT ...)
 		return p.parseExistsExpression(false)
@@ -2570,4 +2572,40 @@ func (p *Parser) parseDropTrigger() (*DropTriggerStmt, error) {
 	stmt.TriggerName = p.cur.Literal
 
 	return stmt, nil
+}
+
+// parseRaiseExpression parses: RAISE(ABORT, 'message') or RAISE(IGNORE)
+func (p *Parser) parseRaiseExpression() (*RaiseExpr, error) {
+	// Current token is RAISE
+	if !p.expectPeek(lexer.LPAREN) {
+		return nil, fmt.Errorf("expected '(' after RAISE, got %s", p.peek.Literal)
+	}
+
+	p.nextToken() // move to ABORT or IGNORE
+
+	raise := &RaiseExpr{}
+
+	switch p.cur.Type {
+	case lexer.ABORT:
+		raise.Type = RaiseAbort
+		// Expect comma and message
+		if !p.expectPeek(lexer.COMMA) {
+			return nil, fmt.Errorf("expected ',' after ABORT, got %s", p.peek.Literal)
+		}
+		if !p.expectPeek(lexer.STRING) {
+			return nil, fmt.Errorf("expected error message string, got %s", p.peek.Literal)
+		}
+		raise.Message = p.cur.Literal
+	case lexer.IGNORE:
+		raise.Type = RaiseIgnore
+		// No message for IGNORE
+	default:
+		return nil, fmt.Errorf("expected ABORT or IGNORE in RAISE, got %s", p.cur.Literal)
+	}
+
+	if !p.expectPeek(lexer.RPAREN) {
+		return nil, fmt.Errorf("expected ')' after RAISE arguments, got %s", p.peek.Literal)
+	}
+
+	return raise, nil
 }
