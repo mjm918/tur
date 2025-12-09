@@ -1741,3 +1741,96 @@ func TestParser_Select_WhereGroupByHavingOrderBy(t *testing.T) {
 		t.Fatalf("OrderBy count = %d, want 1", len(sel.OrderBy))
 	}
 }
+
+// ========== Transaction Control Tests ==========
+
+func TestParser_Begin(t *testing.T) {
+	input := "BEGIN"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	begin, ok := stmt.(*BeginStmt)
+	if !ok {
+		t.Fatalf("Expected *BeginStmt, got %T", stmt)
+	}
+
+	// BEGIN without TRANSACTION should work
+	_ = begin
+}
+
+func TestParser_BeginTransaction(t *testing.T) {
+	input := "BEGIN TRANSACTION"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	_, ok := stmt.(*BeginStmt)
+	if !ok {
+		t.Fatalf("Expected *BeginStmt, got %T", stmt)
+	}
+}
+
+func TestParser_Commit(t *testing.T) {
+	input := "COMMIT"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	commit, ok := stmt.(*CommitStmt)
+	if !ok {
+		t.Fatalf("Expected *CommitStmt, got %T", stmt)
+	}
+
+	_ = commit
+}
+
+func TestParser_CommitTransaction(t *testing.T) {
+	input := "COMMIT TRANSACTION"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	_, ok := stmt.(*CommitStmt)
+	if !ok {
+		t.Fatalf("Expected *CommitStmt, got %T", stmt)
+	}
+}
+
+func TestParser_Rollback(t *testing.T) {
+	input := "ROLLBACK"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	rollback, ok := stmt.(*RollbackStmt)
+	if !ok {
+		t.Fatalf("Expected *RollbackStmt, got %T", stmt)
+	}
+
+	_ = rollback
+}
+
+func TestParser_RollbackTransaction(t *testing.T) {
+	input := "ROLLBACK TRANSACTION"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	_, ok := stmt.(*RollbackStmt)
+	if !ok {
+		t.Fatalf("Expected *RollbackStmt, got %T", stmt)
+	}
+}

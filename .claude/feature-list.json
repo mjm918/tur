@@ -1283,35 +1283,36 @@
     {
       "title": "SQL Statements - BEGIN/COMMIT/ROLLBACK",
       "description": "Transaction control statements integrated with MVCC",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse BEGIN [TRANSACTION]",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse COMMIT [TRANSACTION]",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse ROLLBACK [TRANSACTION]",
-          "done": false
+          "done": true
         },
         {
           "task": "Wire BEGIN to MVCC transaction start",
-          "done": false
+          "done": true
         },
         {
           "task": "Wire COMMIT to MVCC transaction commit",
-          "done": false
+          "done": true
         },
         {
           "task": "Wire ROLLBACK to MVCC transaction abort",
-          "done": false
+          "done": true
         },
         {
           "task": "Handle nested transactions (error or savepoint)",
-          "done": false
+          "done": true,
+          "note": "Nested BEGIN returns error 'cannot start a transaction within a transaction'"
         }
       ]
     },

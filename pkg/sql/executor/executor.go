@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"tur/pkg/btree"
+	"tur/pkg/mvcc"
 	"tur/pkg/pager"
 	"tur/pkg/record"
 	"tur/pkg/schema"
@@ -25,19 +26,22 @@ type Result struct {
 
 // Executor executes SQL statements
 type Executor struct {
-	pager   *pager.Pager
-	catalog *schema.Catalog
-	trees   map[string]*btree.BTree // table name -> btree
-	rowid   map[string]uint64       // table name -> next rowid
+	pager     *pager.Pager
+	catalog   *schema.Catalog
+	trees     map[string]*btree.BTree // table name -> btree
+	rowid     map[string]uint64       // table name -> next rowid
+	txManager *mvcc.TransactionManager
+	currentTx *mvcc.Transaction // current active transaction (nil if none)
 }
 
 // New creates a new Executor
 func New(p *pager.Pager) *Executor {
 	return &Executor{
-		pager:   p,
-		catalog: schema.NewCatalog(),
-		trees:   make(map[string]*btree.BTree),
-		rowid:   make(map[string]uint64),
+		pager:     p,
+		catalog:   schema.NewCatalog(),
+		trees:     make(map[string]*btree.BTree),
+		rowid:     make(map[string]uint64),
+		txManager: mvcc.NewTransactionManager(),
 	}
 }
 
@@ -80,6 +84,12 @@ func (e *Executor) Execute(sql string) (*Result, error) {
 		return e.executeAnalyze(s)
 	case *parser.AlterTableStmt:
 		return e.executeAlterTable(s)
+	case *parser.BeginStmt:
+		return e.executeBegin(s)
+	case *parser.CommitStmt:
+		return e.executeCommit(s)
+	case *parser.RollbackStmt:
+		return e.executeRollback(s)
 	default:
 		return nil, fmt.Errorf("unsupported statement type: %T", stmt)
 	}
@@ -1744,6 +1754,58 @@ func (e *Executor) executeAlterTableRename(stmt *parser.AlterTableStmt) (*Result
 	if err := e.catalog.RenameTable(stmt.TableName, stmt.NewName); err != nil {
 		return nil, fmt.Errorf("failed to rename table: %w", err)
 	}
+
+	return &Result{}, nil
+}
+
+// HasActiveTransaction returns true if there is an active transaction
+func (e *Executor) HasActiveTransaction() bool {
+	return e.currentTx != nil && e.currentTx.IsActive()
+}
+
+// executeBegin handles BEGIN [TRANSACTION]
+func (e *Executor) executeBegin(_ *parser.BeginStmt) (*Result, error) {
+	// Check if there's already an active transaction
+	if e.HasActiveTransaction() {
+		return nil, fmt.Errorf("cannot start a transaction within a transaction")
+	}
+
+	// Start a new transaction
+	e.currentTx = e.txManager.Begin()
+
+	return &Result{}, nil
+}
+
+// executeCommit handles COMMIT [TRANSACTION]
+func (e *Executor) executeCommit(_ *parser.CommitStmt) (*Result, error) {
+	// Check if there's an active transaction
+	if !e.HasActiveTransaction() {
+		return nil, fmt.Errorf("cannot commit: no transaction is active")
+	}
+
+	// Commit the transaction
+	if err := e.txManager.Commit(e.currentTx); err != nil {
+		return nil, fmt.Errorf("commit failed: %w", err)
+	}
+
+	e.currentTx = nil
+
+	return &Result{}, nil
+}
+
+// executeRollback handles ROLLBACK [TRANSACTION]
+func (e *Executor) executeRollback(_ *parser.RollbackStmt) (*Result, error) {
+	// Check if there's an active transaction
+	if !e.HasActiveTransaction() {
+		return nil, fmt.Errorf("cannot rollback: no transaction is active")
+	}
+
+	// Rollback the transaction
+	if err := e.txManager.Rollback(e.currentTx); err != nil {
+		return nil, fmt.Errorf("rollback failed: %w", err)
+	}
+
+	e.currentTx = nil
 
 	return &Result{}, nil
 }

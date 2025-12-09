@@ -50,6 +50,12 @@ func (p *Parser) Parse() (Statement, error) {
 		return p.parseAnalyze()
 	case lexer.ALTER:
 		return p.parseAlter()
+	case lexer.BEGIN:
+		return p.parseBegin()
+	case lexer.COMMIT:
+		return p.parseCommit()
+	case lexer.ROLLBACK:
+		return p.parseRollback()
 	default:
 		return nil, fmt.Errorf("unexpected token: %s", p.cur.Literal)
 	}
@@ -1666,4 +1672,34 @@ func (p *Parser) parseAlterTableRename(tableName string) (*AlterTableStmt, error
 	stmt.NewName = p.cur.Literal
 
 	return stmt, nil
+}
+
+// parseBegin parses: BEGIN [TRANSACTION]
+func (p *Parser) parseBegin() (*BeginStmt, error) {
+	// consume BEGIN
+	// Optional TRANSACTION keyword
+	if p.peekIs(lexer.TRANSACTION) {
+		p.nextToken()
+	}
+	return &BeginStmt{}, nil
+}
+
+// parseCommit parses: COMMIT [TRANSACTION]
+func (p *Parser) parseCommit() (*CommitStmt, error) {
+	// consume COMMIT
+	// Optional TRANSACTION keyword
+	if p.peekIs(lexer.TRANSACTION) {
+		p.nextToken()
+	}
+	return &CommitStmt{}, nil
+}
+
+// parseRollback parses: ROLLBACK [TRANSACTION]
+func (p *Parser) parseRollback() (*RollbackStmt, error) {
+	// consume ROLLBACK
+	// Optional TRANSACTION keyword
+	if p.peekIs(lexer.TRANSACTION) {
+		p.nextToken()
+	}
+	return &RollbackStmt{}, nil
 }

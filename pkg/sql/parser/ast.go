@@ -426,3 +426,18 @@ type DerivedTable struct {
 }
 
 func (d *DerivedTable) tableRefNode() {}
+
+// BeginStmt represents a BEGIN [TRANSACTION] statement
+type BeginStmt struct{}
+
+func (s *BeginStmt) statementNode() {}
+
+// CommitStmt represents a COMMIT [TRANSACTION] statement
+type CommitStmt struct{}
+
+func (s *CommitStmt) statementNode() {}
+
+// RollbackStmt represents a ROLLBACK [TRANSACTION] statement
+type RollbackStmt struct{}
+
+func (s *RollbackStmt) statementNode() {}
