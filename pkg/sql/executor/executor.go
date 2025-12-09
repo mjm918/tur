@@ -444,11 +444,26 @@ func (e *Executor) executeCreateIndex(stmt *parser.CreateIndexStmt) (*Result, er
 	return &Result{}, nil
 }
 
-// executeDropIndex handles DROP INDEX
+// executeDropIndex handles DROP INDEX [IF EXISTS] index_name
 func (e *Executor) executeDropIndex(stmt *parser.DropIndexStmt) (*Result, error) {
+	// Check if index exists
+	indexDef := e.catalog.GetIndex(stmt.IndexName)
+	if indexDef == nil {
+		// If index doesn't exist and IF EXISTS is specified, silently succeed
+		if stmt.IfExists {
+			return &Result{}, nil
+		}
+		return nil, fmt.Errorf("index not found")
+	}
+
+	// Drop the index from catalog
 	if err := e.catalog.DropIndex(stmt.IndexName); err != nil {
 		return nil, err
 	}
+
+	// Clean up in-memory B-tree structure
+	idxTreeName := "index:" + stmt.IndexName
+	delete(e.trees, idxTreeName)
 
 	return &Result{}, nil
 }

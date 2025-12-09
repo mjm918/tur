@@ -1192,12 +1192,22 @@ func (p *Parser) parseCreateIndex(unique bool) (*CreateIndexStmt, error) {
 	return stmt, nil
 }
 
-// parseDropIndex parses: INDEX name
+// parseDropIndex parses: INDEX [IF EXISTS] name
 // Called after DROP has been consumed and current token is INDEX
 func (p *Parser) parseDropIndex() (*DropIndexStmt, error) {
 	stmt := &DropIndexStmt{}
 
-	// Current token is INDEX, move to index name
+	// Check for optional IF EXISTS
+	if p.peekIs(lexer.IF) {
+		p.nextToken() // consume INDEX, now at IF
+		if !p.expectPeek(lexer.EXISTS) {
+			return nil, fmt.Errorf("expected EXISTS after IF, got %s", p.peek.Literal)
+		}
+		stmt.IfExists = true
+		// now at EXISTS, need to move to index name
+	}
+
+	// Current token is INDEX or EXISTS, move to index name
 	if !p.expectPeek(lexer.IDENT) {
 		return nil, fmt.Errorf("expected index name, got %s", p.peek.Literal)
 	}

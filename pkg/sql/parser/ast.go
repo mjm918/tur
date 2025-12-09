@@ -165,6 +165,7 @@ func (s *CreateIndexStmt) statementNode() {}
 // DropIndexStmt represents a DROP INDEX statement
 type DropIndexStmt struct {
 	IndexName string
+	IfExists  bool
 }
 
 func (s *DropIndexStmt) statementNode() {}

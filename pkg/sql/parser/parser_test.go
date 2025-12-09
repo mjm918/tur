@@ -959,6 +959,32 @@ func TestParser_DropIndex(t *testing.T) {
 	if drop.IndexName != "idx_users_email" {
 		t.Errorf("IndexName = %q, want 'idx_users_email'", drop.IndexName)
 	}
+
+	if drop.IfExists {
+		t.Error("IfExists = true, want false")
+	}
+}
+
+func TestParser_DropIndex_IfExists(t *testing.T) {
+	input := "DROP INDEX IF EXISTS idx_users_email"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	drop, ok := stmt.(*DropIndexStmt)
+	if !ok {
+		t.Fatalf("Expected *DropIndexStmt, got %T", stmt)
+	}
+
+	if drop.IndexName != "idx_users_email" {
+		t.Errorf("IndexName = %q, want 'idx_users_email'", drop.IndexName)
+	}
+
+	if !drop.IfExists {
+		t.Error("IfExists = false, want true")
+	}
 }
 
 // UPDATE statement tests

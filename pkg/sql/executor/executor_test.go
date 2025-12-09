@@ -972,6 +972,60 @@ func TestExecutor_DropIndex_NotFound(t *testing.T) {
 	}
 }
 
+func TestExecutor_DropIndex_IfExists_WhenExists(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, email TEXT)")
+	exec.Execute("CREATE INDEX idx_users_email ON users (email)")
+
+	// DROP INDEX IF EXISTS on existing index should succeed
+	_, err := exec.Execute("DROP INDEX IF EXISTS idx_users_email")
+	if err != nil {
+		t.Fatalf("DROP INDEX IF EXISTS: %v", err)
+	}
+
+	// Verify index no longer exists
+	if exec.catalog.GetIndex("idx_users_email") != nil {
+		t.Error("Index should not exist after DROP")
+	}
+}
+
+func TestExecutor_DropIndex_IfExists_WhenNotExists(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// DROP INDEX IF EXISTS on non-existing index should NOT error
+	_, err := exec.Execute("DROP INDEX IF EXISTS nonexistent")
+	if err != nil {
+		t.Errorf("DROP INDEX IF EXISTS should not error for nonexistent index, got: %v", err)
+	}
+}
+
+func TestExecutor_DropIndex_CleansUpBTree(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	exec.Execute("CREATE TABLE users (id INT, email TEXT)")
+	exec.Execute("CREATE INDEX idx_users_email ON users (email)")
+
+	// Verify index tree exists in executor's trees map
+	if _, exists := exec.trees["index:idx_users_email"]; !exists {
+		t.Fatal("Index tree should exist before DROP")
+	}
+
+	// Drop the index
+	_, err := exec.Execute("DROP INDEX idx_users_email")
+	if err != nil {
+		t.Fatalf("DROP INDEX: %v", err)
+	}
+
+	// Verify index tree is removed from executor's trees map
+	if _, exists := exec.trees["index:idx_users_email"]; exists {
+		t.Error("Index tree should be removed after DROP")
+	}
+}
+
 // UPDATE tests
 
 func TestExecutor_Update_Simple(t *testing.T) {
