@@ -148,16 +148,6 @@ const (
 	OVER
 	PARTITION
 	ROWS
-	RANGE_KW
-	UNBOUNDED
-	PRECEDING
-	FOLLOWING
-	CURRENT
-
-	// Window function keywords
-	OVER
-	PARTITION
-	ROWS
 	RANGE_KW // RANGE is used for window frame mode
 	BETWEEN
 	UNBOUNDED
@@ -377,22 +367,6 @@ func (t TokenType) String() string {
 		return "SAVEPOINT"
 	case RELEASE:
 		return "RELEASE"
-	case OVER:
-		return "OVER"
-	case PARTITION:
-		return "PARTITION"
-	case ROWS:
-		return "ROWS"
-	case RANGE_KW:
-		return "RANGE"
-	case UNBOUNDED:
-		return "UNBOUNDED"
-	case PRECEDING:
-		return "PRECEDING"
-	case FOLLOWING:
-		return "FOLLOWING"
-	case CURRENT:
-		return "CURRENT"
 	case OVER:
 		return "OVER"
 	case PARTITION:

@@ -96,7 +96,7 @@ func BuildPlanWithCTEs(stmt *parser.SelectStmt, catalog *schema.Catalog, ctes ma
 		}
 	}
 
-	// 6. Apply LIMIT/OFFSET
+	// 7. Apply LIMIT/OFFSET
 	if stmt.Limit != nil || stmt.Offset != nil {
 		node = &LimitNode{
 			Input:  node,

@@ -1012,9 +1012,9 @@ type WindowIterator struct {
 
 // windowFuncInfo holds info about a window function in the expression list
 type windowFuncInfo struct {
-	exprIndex  int                   // Index in expressions slice
-	winFunc    *parser.WindowFunction
-	funcName   string
+	exprIndex int // Index in expressions slice
+	winFunc   *parser.WindowFunction
+	funcName  string
 }
 
 // NewWindowIterator creates a new WindowIterator
@@ -1035,9 +1035,9 @@ func NewWindowIterator(child RowIterator, expressions []parser.Expression, colMa
 				funcName = fc.Name
 			}
 			it.windowFuncInfos = append(it.windowFuncInfos, windowFuncInfo{
-				exprIndex:  i,
-				winFunc:    wf,
-				funcName:   funcName,
+				exprIndex: i,
+				winFunc:   wf,
+				funcName:  funcName,
 			})
 		}
 	}
@@ -1303,14 +1303,14 @@ func (it *WindowIterator) computeRowNumber(partition []partitionEntry, windowVal
 // WindowFunctionIterator computes window functions over a set of rows
 // It materializes all input rows, sorts/partitions them, and computes window function values
 type WindowFunctionIterator struct {
-	executor       *Executor
-	expressions    []parser.Expression      // All SELECT expressions
-	windowFuncs    []*parser.WindowFunction // Window functions to compute
-	colMap         map[string]int           // Input column mapping
-	inputRows      [][]types.Value          // Materialized input rows
-	computedRows   [][]types.Value          // Output rows with computed window values
-	index          int                      // Current row index
-	prepared       bool                     // Whether we've computed window values
+	executor     *Executor
+	expressions  []parser.Expression      // All SELECT expressions
+	windowFuncs  []*parser.WindowFunction // Window functions to compute
+	colMap       map[string]int           // Input column mapping
+	inputRows    [][]types.Value          // Materialized input rows
+	computedRows [][]types.Value          // Output rows with computed window values
+	index        int                      // Current row index
+	prepared     bool                     // Whether we've computed window values
 }
 
 func NewWindowFunctionIterator(
@@ -1383,14 +1383,27 @@ func (it *WindowFunctionIterator) computeWindowValues() {
 		windowResults[i] = make(map[int]types.Value)
 	}
 
+	// Get sorted indices from the first window function (used for output order)
+	var sortedIndices []int
+	if len(it.windowFuncs) > 0 && it.windowFuncs[0].Over != nil {
+		sortedIndices = it.sortRowsForWindow(it.windowFuncs[0].Over)
+	} else {
+		sortedIndices = make([]int, len(it.inputRows))
+		for i := range sortedIndices {
+			sortedIndices[i] = i
+		}
+	}
+
 	// Process each window function
 	for wfIdx, wf := range it.windowFuncs {
 		it.computeSingleWindowFunction(wf, wfIdx, windowResults)
 	}
 
 	// Build output rows by evaluating all expressions
+	// Output rows in the sorted order of the first window function
 	it.computedRows = make([][]types.Value, len(it.inputRows))
-	for i, inputRow := range it.inputRows {
+	for outIdx, origIdx := range sortedIndices {
+		inputRow := it.inputRows[origIdx]
 		outputRow := make([]types.Value, len(it.expressions))
 		for j, expr := range it.expressions {
 			// Check if this is a window function
@@ -1398,7 +1411,7 @@ func (it *WindowFunctionIterator) computeWindowValues() {
 				// Find which window function index this is
 				for wfIdx, wf2 := range it.windowFuncs {
 					if wf == wf2 {
-						outputRow[j] = windowResults[i][wfIdx]
+						outputRow[j] = windowResults[origIdx][wfIdx]
 						break
 					}
 				}
@@ -1412,7 +1425,7 @@ func (it *WindowFunctionIterator) computeWindowValues() {
 				}
 			}
 		}
-		it.computedRows[i] = outputRow
+		it.computedRows[outIdx] = outputRow
 	}
 }
 
@@ -1443,6 +1456,12 @@ func (it *WindowFunctionIterator) computeSingleWindowFunction(
 		it.computeLag(funcCall, wf.Over, sortedIndices, wfIdx, windowResults)
 	case "LEAD":
 		it.computeLead(funcCall, wf.Over, sortedIndices, wfIdx, windowResults)
+	case "ROW_NUMBER":
+		it.computeRowNumber(wf.Over, sortedIndices, wfIdx, windowResults)
+	case "RANK":
+		it.computeRank(wf.Over, sortedIndices, wfIdx, windowResults)
+	case "DENSE_RANK":
+		it.computeDenseRank(wf.Over, sortedIndices, wfIdx, windowResults)
 	default:
 		// Unknown window function, set NULL
 		for i := range windowResults {
@@ -1657,5 +1676,164 @@ func (it *WindowFunctionIterator) computeLead(
 			// Beyond partition end - use default
 			windowResults[origIdx][wfIdx] = defaultVal
 		}
+	}
+}
+
+// computeRowNumber computes ROW_NUMBER() for each row within partitions
+func (it *WindowFunctionIterator) computeRowNumber(
+	spec *parser.WindowSpec,
+	sortedIndices []int,
+	wfIdx int,
+	windowResults []map[int]types.Value,
+) {
+	if len(sortedIndices) == 0 {
+		return
+	}
+
+	// Track partition boundaries and assign row numbers
+	rowNum := int64(0)
+	for i := 0; i < len(sortedIndices); i++ {
+		// Check if new partition starts
+		isNewPartition := i == 0
+		if !isNewPartition && spec != nil && len(spec.PartitionBy) > 0 {
+			currRow := it.inputRows[sortedIndices[i]]
+			prevRow := it.inputRows[sortedIndices[i-1]]
+			for _, partExpr := range spec.PartitionBy {
+				valCurr, _ := it.executor.evaluateExpr(partExpr, currRow, it.colMap)
+				valPrev, _ := it.executor.evaluateExpr(partExpr, prevRow, it.colMap)
+				if it.executor.compareValues(valCurr, valPrev) != 0 {
+					isNewPartition = true
+					break
+				}
+			}
+		}
+
+		if isNewPartition {
+			rowNum = 1
+		} else {
+			rowNum++
+		}
+
+		origIdx := sortedIndices[i]
+		windowResults[origIdx][wfIdx] = types.NewInt(rowNum)
+	}
+}
+
+// computeRank computes RANK() for each row within partitions
+// RANK assigns the same rank to rows with equal ORDER BY values, with gaps
+func (it *WindowFunctionIterator) computeRank(
+	spec *parser.WindowSpec,
+	sortedIndices []int,
+	wfIdx int,
+	windowResults []map[int]types.Value,
+) {
+	if len(sortedIndices) == 0 {
+		return
+	}
+
+	rowNum := int64(0)  // Position counter (always increments)
+	rankVal := int64(0) // Current rank value (only changes when order values change)
+
+	for i := 0; i < len(sortedIndices); i++ {
+		// Check if new partition starts
+		isNewPartition := i == 0
+		if !isNewPartition && spec != nil && len(spec.PartitionBy) > 0 {
+			currRow := it.inputRows[sortedIndices[i]]
+			prevRow := it.inputRows[sortedIndices[i-1]]
+			for _, partExpr := range spec.PartitionBy {
+				valCurr, _ := it.executor.evaluateExpr(partExpr, currRow, it.colMap)
+				valPrev, _ := it.executor.evaluateExpr(partExpr, prevRow, it.colMap)
+				if it.executor.compareValues(valCurr, valPrev) != 0 {
+					isNewPartition = true
+					break
+				}
+			}
+		}
+
+		if isNewPartition {
+			rowNum = 1
+			rankVal = 1
+		} else {
+			rowNum++
+			// Check if ORDER BY values changed from previous row
+			orderChanged := false
+			if spec != nil && len(spec.OrderBy) > 0 {
+				currRow := it.inputRows[sortedIndices[i]]
+				prevRow := it.inputRows[sortedIndices[i-1]]
+				for _, ob := range spec.OrderBy {
+					valCurr, _ := it.executor.evaluateExpr(ob.Expr, currRow, it.colMap)
+					valPrev, _ := it.executor.evaluateExpr(ob.Expr, prevRow, it.colMap)
+					if it.executor.compareValues(valCurr, valPrev) != 0 {
+						orderChanged = true
+						break
+					}
+				}
+			}
+			if orderChanged {
+				rankVal = rowNum // Gap in ranks
+			}
+			// If order values are same, rankVal stays the same (tie)
+		}
+
+		origIdx := sortedIndices[i]
+		windowResults[origIdx][wfIdx] = types.NewInt(rankVal)
+	}
+}
+
+// computeDenseRank computes DENSE_RANK() for each row within partitions
+// DENSE_RANK assigns the same rank to rows with equal ORDER BY values, without gaps
+func (it *WindowFunctionIterator) computeDenseRank(
+	spec *parser.WindowSpec,
+	sortedIndices []int,
+	wfIdx int,
+	windowResults []map[int]types.Value,
+) {
+	if len(sortedIndices) == 0 {
+		return
+	}
+
+	rankVal := int64(0) // Current rank value
+
+	for i := 0; i < len(sortedIndices); i++ {
+		// Check if new partition starts
+		isNewPartition := i == 0
+		if !isNewPartition && spec != nil && len(spec.PartitionBy) > 0 {
+			currRow := it.inputRows[sortedIndices[i]]
+			prevRow := it.inputRows[sortedIndices[i-1]]
+			for _, partExpr := range spec.PartitionBy {
+				valCurr, _ := it.executor.evaluateExpr(partExpr, currRow, it.colMap)
+				valPrev, _ := it.executor.evaluateExpr(partExpr, prevRow, it.colMap)
+				if it.executor.compareValues(valCurr, valPrev) != 0 {
+					isNewPartition = true
+					break
+				}
+			}
+		}
+
+		if isNewPartition {
+			rankVal = 1
+		} else {
+			// Check if ORDER BY values changed from previous row
+			orderChanged := false
+			if spec != nil && len(spec.OrderBy) > 0 {
+				currRow := it.inputRows[sortedIndices[i]]
+				prevRow := it.inputRows[sortedIndices[i-1]]
+				for _, ob := range spec.OrderBy {
+					valCurr, _ := it.executor.evaluateExpr(ob.Expr, currRow, it.colMap)
+					valPrev, _ := it.executor.evaluateExpr(ob.Expr, prevRow, it.colMap)
+					if it.executor.compareValues(valCurr, valPrev) != 0 {
+						orderChanged = true
+						break
+					}
+				}
+			}
+			if orderChanged {
+				rankVal++ // No gap, just increment by 1
+			}
+			// If order values are same, rankVal stays the same (tie)
+		}
+
+		origIdx := sortedIndices[i]
+		windowResults[origIdx][wfIdx] = types.NewInt(rankVal)
 	}
 }

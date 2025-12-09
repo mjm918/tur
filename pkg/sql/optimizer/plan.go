@@ -286,9 +286,9 @@ func (n *CTEScanNode) EstimatedRows() int64 {
 // WindowNode represents a window function computation
 // It wraps the input plan, sorts/partitions the data, and computes window functions
 type WindowNode struct {
-	Input           PlanNode              // Input plan
+	Input           PlanNode                 // Input plan
 	WindowFunctions []*parser.WindowFunction // Window function expressions
-	AllExpressions  []parser.Expression   // All SELECT expressions (including window functions)
+	AllExpressions  []parser.Expression      // All SELECT expressions (including window functions)
 }
 
 func (n *WindowNode) EstimatedCost() float64 {

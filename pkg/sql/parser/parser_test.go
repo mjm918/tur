@@ -2560,7 +2560,7 @@ func TestParser_WindowFunction_DenseRankWithOrderBy(t *testing.T) {
 	}
 }
 
-func TestParser_WindowFunction_WithPartitionBy(t *testing.T) {
+func TestParser_WindowFunction_RANK_WithPartitionBy(t *testing.T) {
 	input := "SELECT name, RANK() OVER (PARTITION BY dept ORDER BY score DESC) FROM users"
 	p := New(input)
 	stmt, err := p.Parse()
