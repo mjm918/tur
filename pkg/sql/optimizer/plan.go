@@ -283,6 +283,18 @@ func (n *CTEScanNode) EstimatedRows() int64 {
 	return n.Rows
 }
 
+// DualNode represents a dummy single-row source for queries without FROM clause
+// (e.g., SELECT 1+1, SELECT function())
+type DualNode struct{}
+
+func (n *DualNode) EstimatedCost() float64 {
+	return 0.001 // Negligible cost
+}
+
+func (n *DualNode) EstimatedRows() int64 {
+	return 1 // Always produces exactly one row
+}
+
 // WindowNode represents a window function computation
 // It wraps the input plan, sorts/partitions the data, and computes window functions
 type WindowNode struct {

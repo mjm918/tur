@@ -995,6 +995,29 @@ func (it *CTEScanIterator) Close() {
 	// Nothing to clean up - rows are just references to in-memory data
 }
 
+// DualIterator returns a single empty row for queries without FROM clause
+// (e.g., SELECT 1+1, SELECT function())
+type DualIterator struct {
+	done bool
+}
+
+func (it *DualIterator) Next() bool {
+	if it.done {
+		return false
+	}
+	it.done = true
+	return true
+}
+
+func (it *DualIterator) Value() []types.Value {
+	// Return empty row - projection will add the computed values
+	return []types.Value{}
+}
+
+func (it *DualIterator) Close() {
+	// Nothing to clean up
+}
+
 // WindowIterator computes window functions over an input iterator
 // It materializes all input rows, then computes window function values
 type WindowIterator struct {

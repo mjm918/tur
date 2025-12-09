@@ -21,10 +21,17 @@ func BuildPlan(stmt *parser.SelectStmt, catalog *schema.Catalog) (PlanNode, erro
 // BuildPlanWithCTEs converts AST to a PlanNode tree, with CTE support
 func BuildPlanWithCTEs(stmt *parser.SelectStmt, catalog *schema.Catalog, ctes map[string]*CTEInfo) (PlanNode, error) {
 	// 1. Build FROM clause (TableScan or Join)
-	// stmt.From is a TableReference interface
-	node, err := buildTableReferenceWithCTEs(stmt.From, catalog, ctes)
-	if err != nil {
-		return nil, err
+	// stmt.From may be nil for queries like SELECT 1+1 or SELECT function()
+	var node PlanNode
+	var err error
+	if stmt.From == nil {
+		// No FROM clause - use DualNode to produce single row
+		node = &DualNode{}
+	} else {
+		node, err = buildTableReferenceWithCTEs(stmt.From, catalog, ctes)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// 2. Apply WHERE clause (Filter)

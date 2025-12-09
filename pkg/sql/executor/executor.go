@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"tur/pkg/btree"
+	"tur/pkg/hnsw"
 	"tur/pkg/mvcc"
 	"tur/pkg/pager"
 	"tur/pkg/record"
@@ -28,12 +29,13 @@ type Result struct {
 
 // Executor executes SQL statements
 type Executor struct {
-	pager     *pager.Pager
-	catalog   *schema.Catalog
-	trees     map[string]*btree.BTree // table name -> btree
-	rowid     map[string]uint64       // table name -> next rowid
-	txManager *mvcc.TransactionManager
-	currentTx *mvcc.Transaction // current active transaction (nil if none)
+	pager       *pager.Pager
+	catalog     *schema.Catalog
+	trees       map[string]*btree.BTree     // table name -> btree
+	rowid       map[string]uint64           // table name -> next rowid
+	txManager   *mvcc.TransactionManager
+	currentTx   *mvcc.Transaction       // current active transaction (nil if none)
+	hnswIndexes map[string]*hnsw.Index  // HNSW index name -> index
 }
 
 // New creates a new Executor
@@ -1655,6 +1657,10 @@ func (e *Executor) executePlanWithCTEs(plan optimizer.PlanNode, cteData map[stri
 			executor: e,
 		}, outputCols, nil
 
+	case *optimizer.DualNode:
+		// DualNode produces a single row with no columns (for SELECT without FROM)
+		return &DualIterator{}, nil, nil
+
 	case *optimizer.SubqueryScanNode:
 		// Execute the subquery plan (used for views and derived tables)
 		subIter, subCols, err := e.executePlanWithCTEs(node.SubqueryPlan, cteData)
@@ -2055,8 +2061,8 @@ func (e *Executor) evaluateFunctionCall(expr *parser.FunctionCall, rowValues []t
 		args = append(args, val)
 	}
 
-	// Handle built-in functions
-	switch expr.Name {
+	// Handle built-in functions (case-insensitive)
+	switch strings.ToUpper(expr.Name) {
 	case "MAX":
 		if len(args) == 0 {
 			return types.NewNull(), nil
@@ -2101,6 +2107,8 @@ func (e *Executor) evaluateFunctionCall(expr *parser.FunctionCall, rowValues []t
 			return types.NewFloat(v), nil
 		}
 		return types.NewNull(), nil
+	case "VECTOR_QUANTIZE":
+		return e.executeVectorQuantize(args)
 	default:
 		return types.NewNull(), fmt.Errorf("unknown function: %s", expr.Name)
 	}

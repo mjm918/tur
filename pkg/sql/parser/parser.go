@@ -793,16 +793,15 @@ func (p *Parser) parseSelectBody() (*SelectStmt, error) {
 	}
 	stmt.Columns = cols
 
-	// From
-	if !p.expectPeek(lexer.FROM) {
-		return nil, fmt.Errorf("expected FROM, got %s", p.peek.Literal)
+	// FROM clause is optional (allows SELECT 1+1, SELECT function() without FROM)
+	if p.peekIs(lexer.FROM) {
+		p.nextToken() // consume FROM
+		tableRef, err := p.parseTableReference()
+		if err != nil {
+			return nil, err
+		}
+		stmt.From = tableRef
 	}
-
-	tableRef, err := p.parseTableReference()
-	if err != nil {
-		return nil, err
-	}
-	stmt.From = tableRef
 
 	// Optional WHERE
 	if p.peekIs(lexer.WHERE) {
