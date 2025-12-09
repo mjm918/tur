@@ -1894,7 +1894,13 @@ func (p *Parser) parseCTE() (CTE, error) {
 	if err != nil {
 		return cte, err
 	}
-	cte.Query = selectStmt
+
+	// Check for set operations (UNION ALL for recursive CTE)
+	query, err := p.parseSetOperations(selectStmt)
+	if err != nil {
+		return cte, err
+	}
+	cte.Query = query
 
 	if !p.expectPeek(lexer.RPAREN) {
 		return cte, fmt.Errorf("expected ')' after CTE SELECT")

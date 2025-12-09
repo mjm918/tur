@@ -1206,14 +1206,38 @@ func (e *Executor) executeSelectWithCTEs(stmt *parser.SelectStmt, cteData map[st
 		cteData = make(map[string]*cteResult)
 		for _, cte := range stmt.With.CTEs {
 			// Execute the CTE query
-			result, err := e.executeSelectWithCTEs(cte.Query, cteData)
+			var result *Result
+			var err error
+
+			switch q := cte.Query.(type) {
+			case *parser.SelectStmt:
+				result, err = e.executeSelectWithCTEs(q, cteData)
+			case *parser.SetOperation:
+				if stmt.With.Recursive {
+					result, err = e.executeRecursiveCTE(cte, q, cteData)
+				} else {
+					result, err = e.executeSetOperationWithCTEs(q, cteData)
+				}
+			default:
+				err = fmt.Errorf("unsupported CTE query type: %T", cte.Query)
+			}
+
 			if err != nil {
 				return nil, fmt.Errorf("error executing CTE %s: %w", cte.Name, err)
 			}
 
+			// Apply defined column names
+			columns := result.Columns
+			if len(cte.Columns) > 0 {
+				if len(cte.Columns) != len(columns) {
+					return nil, fmt.Errorf("CTE %s column definition mismatch: defined %d, query returned %d", cte.Name, len(cte.Columns), len(columns))
+				}
+				columns = cte.Columns
+			}
+
 			// Store materialized results
 			cteData[cte.Name] = &cteResult{
-				columns: result.Columns,
+				columns: columns,
 				rows:    result.Rows,
 			}
 		}

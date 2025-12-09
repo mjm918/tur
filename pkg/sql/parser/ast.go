@@ -273,9 +273,9 @@ func (w *WindowFunction) expressionNode() {}
 
 // CTE represents a Common Table Expression
 type CTE struct {
-	Name    string      // CTE name
-	Columns []string    // Optional column list
-	Query   *SelectStmt // The SELECT query defining the CTE
+	Name    string    // CTE name
+	Columns []string  // Optional column list
+	Query   Statement // The query defining the CTE (SelectStmt or SetOperation)
 }
 
 // WithClause represents a WITH clause containing CTEs
