@@ -1246,42 +1246,42 @@
     {
       "title": "SQL Statements - CREATE VIEW",
       "description": "CREATE VIEW for virtual tables based on SELECT queries",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse CREATE VIEW view_name AS SELECT ...",
-          "done": false
+          "done": true
         },
         {
           "task": "Store view definition (SQL text) in schema catalog",
-          "done": false
+          "done": true
         },
         {
           "task": "Expand view references during query compilation",
-          "done": false
+          "done": true
         },
         {
           "task": "Validate view definition is valid SELECT",
-          "done": false
+          "done": true
         }
       ]
     },
     {
       "title": "SQL Statements - DROP VIEW",
       "description": "DROP VIEW to remove views",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse DROP VIEW view_name",
-          "done": false
+          "done": true
         },
         {
           "task": "Remove view entry from schema catalog",
-          "done": false
+          "done": true
         },
         {
           "task": "Check for dependent views",
-          "done": false
+          "done": true
         }
       ]
     },
