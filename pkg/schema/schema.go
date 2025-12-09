@@ -150,13 +150,19 @@ func DefaultHNSWParams() *HNSWParams {
 
 // IndexDef defines an index schema
 type IndexDef struct {
-	Name       string      // Index name
-	TableName  string      // Table the index belongs to
-	Columns    []string    // Column names in the index (order matters for multi-column)
-	Type       IndexType   // Type of index (B-tree or HNSW)
-	Unique     bool        // Whether the index enforces uniqueness
-	RootPage   uint32      // B-tree root page number for this index
-	HNSWParams *HNSWParams // HNSW-specific parameters (nil for non-HNSW indexes)
+	Name        string      // Index name
+	TableName   string      // Table the index belongs to
+	Columns     []string    // Column names in the index (order matters for multi-column)
+	Type        IndexType   // Type of index (B-tree or HNSW)
+	Unique      bool        // Whether the index enforces uniqueness
+	RootPage    uint32      // B-tree root page number for this index
+	HNSWParams  *HNSWParams // HNSW-specific parameters (nil for non-HNSW indexes)
+	WhereClause string      // SQL predicate for partial indexes (empty for full indexes)
+}
+
+// IsPartial returns true if this is a partial index (has a WHERE clause)
+func (idx *IndexDef) IsPartial() bool {
+	return idx.WhereClause != ""
 }
 
 // ColumnDef defines a table column

@@ -1074,3 +1074,87 @@ func TestCatalog_ListViews(t *testing.T) {
 		t.Errorf("ListViews = %v, expected sorted order", views)
 	}
 }
+
+// ========== Partial Index Tests ==========
+
+func TestIndexDef_PartialIndex(t *testing.T) {
+	// Test partial index with WHERE clause stored as SQL string
+	idx := IndexDef{
+		Name:            "idx_active_users_email",
+		TableName:       "users",
+		Columns:         []string{"email"},
+		Type:            IndexTypeBTree,
+		Unique:          true,
+		RootPage:        5,
+		WhereClause:     "active = 1",
+	}
+
+	if idx.Name != "idx_active_users_email" {
+		t.Errorf("Name: got %q, want 'idx_active_users_email'", idx.Name)
+	}
+	if idx.WhereClause != "active = 1" {
+		t.Errorf("WhereClause: got %q, want 'active = 1'", idx.WhereClause)
+	}
+	if !idx.IsPartial() {
+		t.Error("IsPartial(): expected true for index with WHERE clause")
+	}
+}
+
+func TestIndexDef_NonPartialIndex(t *testing.T) {
+	// Test that regular index has no WHERE clause
+	idx := IndexDef{
+		Name:      "idx_users_email",
+		TableName: "users",
+		Columns:   []string{"email"},
+		Type:      IndexTypeBTree,
+	}
+
+	if idx.WhereClause != "" {
+		t.Errorf("WhereClause: got %q, want empty string", idx.WhereClause)
+	}
+	if idx.IsPartial() {
+		t.Error("IsPartial(): expected false for index without WHERE clause")
+	}
+}
+
+func TestCatalog_CreatePartialIndex(t *testing.T) {
+	catalog := NewCatalog()
+
+	// Create table first
+	table := &TableDef{
+		Name: "users",
+		Columns: []ColumnDef{
+			{Name: "id", Type: types.TypeInt},
+			{Name: "email", Type: types.TypeText},
+			{Name: "active", Type: types.TypeInt},
+		},
+	}
+	_ = catalog.CreateTable(table)
+
+	// Create partial index
+	idx := &IndexDef{
+		Name:        "idx_active_users_email",
+		TableName:   "users",
+		Columns:     []string{"email"},
+		Type:        IndexTypeBTree,
+		Unique:      true,
+		WhereClause: "active = 1",
+	}
+
+	err := catalog.CreateIndex(idx)
+	if err != nil {
+		t.Fatalf("CreateIndex error: %v", err)
+	}
+
+	// Retrieve and verify
+	retrieved := catalog.GetIndex("idx_active_users_email")
+	if retrieved == nil {
+		t.Fatal("GetIndex returned nil")
+	}
+	if retrieved.WhereClause != "active = 1" {
+		t.Errorf("WhereClause: got %q, want 'active = 1'", retrieved.WhereClause)
+	}
+	if !retrieved.IsPartial() {
+		t.Error("IsPartial(): expected true")
+	}
+}

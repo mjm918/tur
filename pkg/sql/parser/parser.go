@@ -1175,7 +1175,7 @@ func (p *Parser) parseDropTableBody() (*DropTableStmt, error) {
 	return stmt, nil
 }
 
-// parseCreateIndex parses: INDEX name ON table (column, ...)
+// parseCreateIndex parses: INDEX name ON table (column, ...) [WHERE expr]
 // Called after CREATE [UNIQUE] INDEX has been consumed and current token is INDEX
 func (p *Parser) parseCreateIndex(unique bool) (*CreateIndexStmt, error) {
 	stmt := &CreateIndexStmt{Unique: unique}
@@ -1212,6 +1212,17 @@ func (p *Parser) parseCreateIndex(unique bool) (*CreateIndexStmt, error) {
 	// )
 	if !p.expectPeek(lexer.RPAREN) {
 		return nil, fmt.Errorf("expected ')' or ',', got %s", p.peek.Literal)
+	}
+
+	// Optional WHERE clause for partial indexes
+	if p.peekIs(lexer.WHERE) {
+		p.nextToken() // consume WHERE
+		p.nextToken() // move to first token of expression
+		whereExpr, err := p.parseExpression(LOWEST)
+		if err != nil {
+			return nil, fmt.Errorf("invalid WHERE clause: %v", err)
+		}
+		stmt.Where = whereExpr
 	}
 
 	return stmt, nil

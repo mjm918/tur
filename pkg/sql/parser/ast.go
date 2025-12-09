@@ -155,10 +155,11 @@ func (s *DropTableStmt) statementNode() {}
 
 // CreateIndexStmt represents a CREATE INDEX statement
 type CreateIndexStmt struct {
-	IndexName string   // Name of the index
-	TableName string   // Table to create index on
-	Columns   []string // Column names to index
-	Unique    bool     // Whether this is a UNIQUE index
+	IndexName string     // Name of the index
+	TableName string     // Table to create index on
+	Columns   []string   // Column names to index
+	Unique    bool       // Whether this is a UNIQUE index
+	Where     Expression // Optional WHERE clause for partial indexes (nil if none)
 }
 
 func (s *CreateIndexStmt) statementNode() {}

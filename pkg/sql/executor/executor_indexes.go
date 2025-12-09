@@ -7,8 +7,41 @@ import (
 	"tur/pkg/btree"
 	"tur/pkg/record"
 	"tur/pkg/schema"
+	"tur/pkg/sql/parser"
 	"tur/pkg/types"
 )
+
+// matchesPartialIndexPredicate evaluates whether a row matches the partial index's
+// WHERE clause. Returns true if the index is not partial or if the row matches.
+func (e *Executor) matchesPartialIndexPredicate(idx *schema.IndexDef, table *schema.TableDef, values []types.Value) (bool, error) {
+	// Non-partial indexes match all rows
+	if !idx.IsPartial() {
+		return true, nil
+	}
+
+	// Parse the WHERE clause SQL using a SELECT statement
+	// We need a FROM clause, so use a dummy table name
+	whereSQL := "SELECT 1 FROM _dummy WHERE " + idx.WhereClause
+	p := parser.New(whereSQL)
+	stmt, err := p.Parse()
+	if err != nil {
+		return false, fmt.Errorf("failed to parse partial index predicate: %w", err)
+	}
+
+	selectStmt, ok := stmt.(*parser.SelectStmt)
+	if !ok || selectStmt.Where == nil {
+		return false, fmt.Errorf("invalid partial index predicate")
+	}
+
+	// Build column index map
+	colMap := make(map[string]int)
+	for i, col := range table.Columns {
+		colMap[col.Name] = i
+	}
+
+	// Evaluate the predicate
+	return e.evaluateCondition(selectStmt.Where, values, colMap)
+}
 
 // updateIndexes updates all indexes for the table with the new row
 func (e *Executor) updateIndexes(table *schema.TableDef, rowID uint64, values []types.Value) error {
@@ -26,6 +59,15 @@ func (e *Executor) updateIndexes(table *schema.TableDef, rowID uint64, values []
 	}
 
 	for _, idx := range indexes {
+		// For partial indexes, check if row matches the predicate
+		matches, err := e.matchesPartialIndexPredicate(idx, table, values)
+		if err != nil {
+			return fmt.Errorf("failed to evaluate partial index predicate: %w", err)
+		}
+		if !matches {
+			// Row doesn't match partial index predicate, skip indexing
+			continue
+		}
 		// Get B-tree for index
 		idxTreeName := "index:" + idx.Name
 		tree := e.trees[idxTreeName]
@@ -115,6 +157,17 @@ func (e *Executor) deleteFromIndexes(table *schema.TableDef, rowID uint64, value
 	}
 
 	for _, idx := range indexes {
+		// For partial indexes, check if row matches the predicate
+		// Only need to delete if the row was in the index
+		matches, err := e.matchesPartialIndexPredicate(idx, table, values)
+		if err != nil {
+			return fmt.Errorf("failed to evaluate partial index predicate: %w", err)
+		}
+		if !matches {
+			// Row didn't match partial index predicate, wasn't in index
+			continue
+		}
+
 		// Get B-tree for index
 		idxTreeName := "index:" + idx.Name
 		tree := e.trees[idxTreeName]

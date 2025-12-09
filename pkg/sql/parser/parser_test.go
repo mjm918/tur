@@ -2693,3 +2693,116 @@ func TestParser_WindowFunction_LEAD(t *testing.T) {
 		t.Errorf("OrderBy direction = %v, want OrderDesc", wf.Over.OrderBy[0].Direction)
 	}
 }
+
+// ========== Partial Index Tests ==========
+
+func TestParser_CreateIndex_PartialIndex_SimpleWhere(t *testing.T) {
+	input := "CREATE INDEX idx_active_users ON users (email) WHERE active = 1"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create, ok := stmt.(*CreateIndexStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateIndexStmt, got %T", stmt)
+	}
+
+	if create.IndexName != "idx_active_users" {
+		t.Errorf("IndexName = %q, want 'idx_active_users'", create.IndexName)
+	}
+	if create.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", create.TableName)
+	}
+	if len(create.Columns) != 1 || create.Columns[0] != "email" {
+		t.Errorf("Columns = %v, want ['email']", create.Columns)
+	}
+
+	// Check WHERE clause exists
+	if create.Where == nil {
+		t.Fatal("Where = nil, want non-nil expression")
+	}
+
+	// Check it's a binary expression: active = 1
+	binExpr, ok := create.Where.(*BinaryExpr)
+	if !ok {
+		t.Fatalf("Where type = %T, want *BinaryExpr", create.Where)
+	}
+	if binExpr.Op != lexer.EQ {
+		t.Errorf("Where.Op = %v, want EQ", binExpr.Op)
+	}
+
+	leftCol, ok := binExpr.Left.(*ColumnRef)
+	if !ok {
+		t.Fatalf("Where.Left type = %T, want *ColumnRef", binExpr.Left)
+	}
+	if leftCol.Name != "active" {
+		t.Errorf("Where.Left.Name = %q, want 'active'", leftCol.Name)
+	}
+
+	rightLit, ok := binExpr.Right.(*Literal)
+	if !ok {
+		t.Fatalf("Where.Right type = %T, want *Literal", binExpr.Right)
+	}
+	if rightLit.Value.Int() != 1 {
+		t.Errorf("Where.Right.Value = %v, want 1", rightLit.Value)
+	}
+}
+
+func TestParser_CreateIndex_PartialIndex_ComplexWhere(t *testing.T) {
+	input := "CREATE INDEX idx_recent_orders ON orders (customer_id) WHERE status = 'pending' AND total > 100"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create := stmt.(*CreateIndexStmt)
+
+	if create.Where == nil {
+		t.Fatal("Where = nil, want non-nil expression")
+	}
+
+	// Check it's a binary expression with AND
+	binExpr, ok := create.Where.(*BinaryExpr)
+	if !ok {
+		t.Fatalf("Where type = %T, want *BinaryExpr", create.Where)
+	}
+	if binExpr.Op != lexer.AND {
+		t.Errorf("Where.Op = %v, want AND", binExpr.Op)
+	}
+}
+
+func TestParser_CreateIndex_PartialIndex_UniqueWithWhere(t *testing.T) {
+	input := "CREATE UNIQUE INDEX idx_unique_email ON users (email) WHERE deleted = 0"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create := stmt.(*CreateIndexStmt)
+
+	if !create.Unique {
+		t.Error("Unique = false, want true")
+	}
+	if create.Where == nil {
+		t.Fatal("Where = nil, want non-nil expression")
+	}
+}
+
+func TestParser_CreateIndex_NoWhere(t *testing.T) {
+	// Ensure existing syntax still works (no WHERE clause)
+	input := "CREATE INDEX idx_name ON users (name)"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create := stmt.(*CreateIndexStmt)
+	if create.Where != nil {
+		t.Errorf("Where = %v, want nil", create.Where)
+	}
+}

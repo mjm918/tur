@@ -833,3 +833,182 @@ func TestFindCandidateIndexes_FullMultiColumnMatch(t *testing.T) {
 		t.Error("should find composite index with full prefix length 2")
 	}
 }
+
+// ========== Partial Index Tests ==========
+
+func TestFindCandidateIndexes_PartialIndex_QueryMatchesPredicate(t *testing.T) {
+	// Setup: Partial index on email WHERE active = 1
+	catalog := schema.NewCatalog()
+	tableDef := &schema.TableDef{
+		Name: "users",
+		Columns: []schema.ColumnDef{
+			{Name: "id", Type: types.TypeInt},
+			{Name: "email", Type: types.TypeText},
+			{Name: "active", Type: types.TypeInt},
+		},
+	}
+	catalog.CreateTable(tableDef)
+
+	// Partial index: ON users (email) WHERE active = 1
+	partialIndex := &schema.IndexDef{
+		Name:        "idx_active_email",
+		TableName:   "users",
+		Columns:     []string{"email"},
+		Type:        schema.IndexTypeBTree,
+		WhereClause: "active = 1",
+	}
+	catalog.CreateIndex(partialIndex)
+
+	// Query: WHERE email = 'test@test.com' AND active = 1
+	// This query implies the partial index predicate, so the index should be usable
+	whereClause := &parser.BinaryExpr{
+		Left: &parser.BinaryExpr{
+			Left:  &parser.ColumnRef{Name: "email"},
+			Op:    lexer.EQ,
+			Right: &parser.Literal{Value: types.NewText("test@test.com")},
+		},
+		Op: lexer.AND,
+		Right: &parser.BinaryExpr{
+			Left:  &parser.ColumnRef{Name: "active"},
+			Op:    lexer.EQ,
+			Right: &parser.Literal{Value: types.NewInt(1)},
+		},
+	}
+
+	candidates := FindCandidateIndexes(tableDef, whereClause, catalog)
+
+	// Should find the partial index because query includes active = 1
+	if len(candidates) != 1 {
+		t.Fatalf("expected 1 candidate, got %d", len(candidates))
+	}
+	if candidates[0].Index.Name != "idx_active_email" {
+		t.Errorf("expected idx_active_email, got %s", candidates[0].Index.Name)
+	}
+}
+
+func TestFindCandidateIndexes_PartialIndex_QueryDoesNotMatchPredicate(t *testing.T) {
+	// Setup: Partial index on email WHERE active = 1
+	catalog := schema.NewCatalog()
+	tableDef := &schema.TableDef{
+		Name: "users",
+		Columns: []schema.ColumnDef{
+			{Name: "id", Type: types.TypeInt},
+			{Name: "email", Type: types.TypeText},
+			{Name: "active", Type: types.TypeInt},
+		},
+	}
+	catalog.CreateTable(tableDef)
+
+	partialIndex := &schema.IndexDef{
+		Name:        "idx_active_email",
+		TableName:   "users",
+		Columns:     []string{"email"},
+		Type:        schema.IndexTypeBTree,
+		WhereClause: "active = 1",
+	}
+	catalog.CreateIndex(partialIndex)
+
+	// Query: WHERE email = 'test@test.com' (without active = 1)
+	// This query does NOT imply the partial index predicate
+	whereClause := &parser.BinaryExpr{
+		Left:  &parser.ColumnRef{Name: "email"},
+		Op:    lexer.EQ,
+		Right: &parser.Literal{Value: types.NewText("test@test.com")},
+	}
+
+	candidates := FindCandidateIndexes(tableDef, whereClause, catalog)
+
+	// Should NOT find the partial index because query doesn't include active = 1
+	for _, c := range candidates {
+		if c.Index.Name == "idx_active_email" {
+			t.Error("partial index should not be candidate when predicate is not implied")
+		}
+	}
+}
+
+func TestFindCandidateIndexes_PartialIndex_QueryWithDifferentPredicateValue(t *testing.T) {
+	// Setup: Partial index on email WHERE active = 1
+	catalog := schema.NewCatalog()
+	tableDef := &schema.TableDef{
+		Name: "users",
+		Columns: []schema.ColumnDef{
+			{Name: "id", Type: types.TypeInt},
+			{Name: "email", Type: types.TypeText},
+			{Name: "active", Type: types.TypeInt},
+		},
+	}
+	catalog.CreateTable(tableDef)
+
+	partialIndex := &schema.IndexDef{
+		Name:        "idx_active_email",
+		TableName:   "users",
+		Columns:     []string{"email"},
+		Type:        schema.IndexTypeBTree,
+		WhereClause: "active = 1",
+	}
+	catalog.CreateIndex(partialIndex)
+
+	// Query: WHERE email = 'test@test.com' AND active = 0
+	// This query CONTRADICTS the partial index predicate
+	whereClause := &parser.BinaryExpr{
+		Left: &parser.BinaryExpr{
+			Left:  &parser.ColumnRef{Name: "email"},
+			Op:    lexer.EQ,
+			Right: &parser.Literal{Value: types.NewText("test@test.com")},
+		},
+		Op: lexer.AND,
+		Right: &parser.BinaryExpr{
+			Left:  &parser.ColumnRef{Name: "active"},
+			Op:    lexer.EQ,
+			Right: &parser.Literal{Value: types.NewInt(0)},
+		},
+	}
+
+	candidates := FindCandidateIndexes(tableDef, whereClause, catalog)
+
+	// Should NOT find the partial index because active = 0 doesn't match active = 1
+	for _, c := range candidates {
+		if c.Index.Name == "idx_active_email" {
+			t.Error("partial index should not be candidate when predicate value differs")
+		}
+	}
+}
+
+func TestFindCandidateIndexes_NonPartialIndex_AlwaysCandidate(t *testing.T) {
+	// Setup: Regular (non-partial) index on email
+	catalog := schema.NewCatalog()
+	tableDef := &schema.TableDef{
+		Name: "users",
+		Columns: []schema.ColumnDef{
+			{Name: "id", Type: types.TypeInt},
+			{Name: "email", Type: types.TypeText},
+			{Name: "active", Type: types.TypeInt},
+		},
+	}
+	catalog.CreateTable(tableDef)
+
+	regularIndex := &schema.IndexDef{
+		Name:      "idx_email",
+		TableName: "users",
+		Columns:   []string{"email"},
+		Type:      schema.IndexTypeBTree,
+	}
+	catalog.CreateIndex(regularIndex)
+
+	// Query: WHERE email = 'test@test.com'
+	whereClause := &parser.BinaryExpr{
+		Left:  &parser.ColumnRef{Name: "email"},
+		Op:    lexer.EQ,
+		Right: &parser.Literal{Value: types.NewText("test@test.com")},
+	}
+
+	candidates := FindCandidateIndexes(tableDef, whereClause, catalog)
+
+	// Should find the regular index
+	if len(candidates) != 1 {
+		t.Fatalf("expected 1 candidate, got %d", len(candidates))
+	}
+	if candidates[0].Index.Name != "idx_email" {
+		t.Errorf("expected idx_email, got %s", candidates[0].Index.Name)
+	}
+}
