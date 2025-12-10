@@ -512,6 +512,13 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Function: builtinToTimestamp,
 	})
 
+	// Register AGE function (variadic: 1 or 2 arguments)
+	r.Register(&ScalarFunction{
+		Name:     "AGE",
+		NumArgs:  -1,
+		Function: builtinAge,
+	})
+
 	return r
 }
 
@@ -2324,4 +2331,249 @@ func builtinToTimestamp(args []types.Value) types.Value {
 	}
 
 	return types.NewTimestamp(year, month, day, hour, minute, second, 0)
+}
+
+// builtinDateTrunc implements DATE_TRUNC(field, source)
+// Truncates a date/timestamp to the specified precision.
+// Returns the same type as the input (DATE, TIMESTAMP, or TIMESTAMPTZ).
+// If any argument is NULL, returns NULL.
+func builtinDateTrunc(args []types.Value) types.Value {
+	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+
+	field := strings.ToLower(args[0].Text())
+
+	var t time.Time
+	inputType := args[1].Type()
+
+	switch inputType {
+	case types.TypeDate:
+		year, month, day := args[1].DateValue()
+		t = time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	case types.TypeTimestamp:
+		t = args[1].TimestampValue()
+	case types.TypeTimestampTZ:
+		t = args[1].TimestampTZValue()
+	default:
+		return types.NewNull()
+	}
+
+	var truncated time.Time
+	switch field {
+	case "year":
+		truncated = time.Date(t.Year(), 1, 1, 0, 0, 0, 0, time.UTC)
+	case "quarter":
+		q := (int(t.Month())-1)/3*3 + 1
+		truncated = time.Date(t.Year(), time.Month(q), 1, 0, 0, 0, 0, time.UTC)
+	case "month":
+		truncated = time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
+	case "week":
+		// Truncate to Monday of the current week (ISO week)
+		weekday := int(t.Weekday())
+		if weekday == 0 {
+			weekday = 7 // Sunday = 7 in ISO
+		}
+		truncated = time.Date(t.Year(), t.Month(), t.Day()-(weekday-1), 0, 0, 0, 0, time.UTC)
+	case "day":
+		truncated = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+	case "hour":
+		truncated = time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, time.UTC)
+	case "minute":
+		truncated = time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, time.UTC)
+	case "second":
+		truncated = time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), 0, time.UTC)
+	default:
+		return types.NewNull()
+	}
+
+	// Return same type as input
+	switch inputType {
+	case types.TypeDate:
+		return types.NewDate(truncated.Year(), int(truncated.Month()), truncated.Day())
+	case types.TypeTimestamp:
+		return types.NewTimestamp(truncated.Year(), int(truncated.Month()), truncated.Day(),
+			truncated.Hour(), truncated.Minute(), truncated.Second(), 0)
+	case types.TypeTimestampTZ:
+		return types.NewTimestampTZ(truncated)
+	default:
+		return types.NewNull()
+	}
+}
+
+// builtinExtract implements EXTRACT(field FROM source)
+// Extracts a field from a date/time value and returns it as a float.
+// Supports: year, month, day, hour, minute, second, quarter, week, dow, doy, epoch.
+// If any argument is NULL, returns NULL.
+func builtinExtract(args []types.Value) types.Value {
+	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+
+	field := strings.ToLower(args[0].Text())
+
+	var t time.Time
+	var microseconds int
+
+	switch args[1].Type() {
+	case types.TypeDate:
+		year, month, day := args[1].DateValue()
+		t = time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	case types.TypeTime:
+		hour, min, sec, usec := args[1].TimeValue()
+		t = time.Date(0, 1, 1, hour, min, sec, usec*1000, time.UTC)
+		microseconds = usec
+	case types.TypeTimestamp:
+		t = args[1].TimestampValue()
+		microseconds = t.Nanosecond() / 1000
+	case types.TypeTimestampTZ:
+		t = args[1].TimestampTZValue()
+		microseconds = t.Nanosecond() / 1000
+	default:
+		return types.NewNull()
+	}
+
+	var result float64
+	switch field {
+	case "year":
+		result = float64(t.Year())
+	case "month":
+		result = float64(t.Month())
+	case "day":
+		result = float64(t.Day())
+	case "hour":
+		result = float64(t.Hour())
+	case "minute":
+		result = float64(t.Minute())
+	case "second":
+		result = float64(t.Second()) + float64(microseconds)/1000000.0
+	case "millisecond":
+		result = float64(t.Second()*1000) + float64(microseconds)/1000.0
+	case "microsecond":
+		result = float64(t.Second()*1000000) + float64(microseconds)
+	case "quarter":
+		result = float64((int(t.Month())-1)/3 + 1)
+	case "week":
+		_, week := t.ISOWeek()
+		result = float64(week)
+	case "dow", "dayofweek":
+		result = float64(t.Weekday()) // 0=Sunday
+	case "doy", "dayofyear":
+		result = float64(t.YearDay())
+	case "epoch":
+		result = float64(t.Unix()) + float64(t.Nanosecond())/1e9
+	case "timezone":
+		_, offset := t.Zone()
+		result = float64(offset)
+	default:
+		return types.NewNull()
+	}
+
+	return types.NewFloat(result)
+}
+
+// builtinDatePart implements DATE_PART(field, source)
+// Alias for EXTRACT - extracts a field from a date/time value.
+// If any argument is NULL, returns NULL.
+func builtinDatePart(args []types.Value) types.Value {
+	return builtinExtract(args)
+}
+
+// builtinAge implements AGE(timestamp1[, timestamp2])
+// Returns INTERVAL representing the difference between timestamps.
+// AGE(ts1, ts2) returns ts1 - ts2
+// AGE(ts) returns current_date - ts
+// Properly handles variable-length months and month boundaries.
+// Supports DATE, TIMESTAMP, and TIMESTAMPTZ inputs.
+// Returns NULL for NULL inputs.
+func builtinAge(args []types.Value) types.Value {
+	if len(args) == 0 || args[0].IsNull() {
+		return types.NewNull()
+	}
+
+	var t1, t2 time.Time
+
+	// Get first timestamp
+	switch args[0].Type() {
+	case types.TypeDate:
+		year, month, day := args[0].DateValue()
+		t1 = time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	case types.TypeTimestamp:
+		t1 = args[0].TimestampValue()
+	case types.TypeTimestampTZ:
+		t1 = args[0].TimestampTZValue()
+	default:
+		return types.NewNull()
+	}
+
+	// Get second timestamp (or use current date for single-arg form)
+	if len(args) == 1 {
+		// Single argument: AGE(timestamp) = current_date - timestamp
+		now := time.Now().UTC()
+		t2 = t1
+		t1 = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	} else {
+		if args[1].IsNull() {
+			return types.NewNull()
+		}
+		switch args[1].Type() {
+		case types.TypeDate:
+			year, month, day := args[1].DateValue()
+			t2 = time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+		case types.TypeTimestamp:
+			t2 = args[1].TimestampValue()
+		case types.TypeTimestampTZ:
+			t2 = args[1].TimestampTZValue()
+		default:
+			return types.NewNull()
+		}
+	}
+
+	// Calculate the difference
+	// Approach: Calculate years and months first, then remaining days/time
+	negative := false
+	if t1.Before(t2) {
+		t1, t2 = t2, t1
+		negative = true
+	}
+
+	years := t1.Year() - t2.Year()
+	months := int(t1.Month()) - int(t2.Month())
+	days := t1.Day() - t2.Day()
+
+	// Handle day underflow
+	if days < 0 {
+		months--
+		// Add days from the previous month
+		prevMonth := t1.AddDate(0, 0, -t1.Day())
+		days += prevMonth.Day()
+	}
+
+	// Handle month underflow
+	if months < 0 {
+		years--
+		months += 12
+	}
+
+	totalMonths := int64(years*12 + months)
+
+	// Calculate time difference within the day
+	hourDiff := t1.Hour() - t2.Hour()
+	minDiff := t1.Minute() - t2.Minute()
+	secDiff := t1.Second() - t2.Second()
+	nsecDiff := t1.Nanosecond() - t2.Nanosecond()
+
+	// Convert to microseconds
+	totalMicroseconds := int64(days)*24*3600*1000000 +
+		int64(hourDiff)*3600*1000000 +
+		int64(minDiff)*60*1000000 +
+		int64(secDiff)*1000000 +
+		int64(nsecDiff)/1000
+
+	if negative {
+		totalMonths = -totalMonths
+		totalMicroseconds = -totalMicroseconds
+	}
+
+	return types.NewInterval(totalMonths, totalMicroseconds)
 }
