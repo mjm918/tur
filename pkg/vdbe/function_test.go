@@ -2,7 +2,9 @@
 package vdbe
 
 import (
+	"math"
 	"testing"
+	"time"
 
 	"tur/pkg/types"
 )
@@ -879,5 +881,930 @@ func TestVectorDistance_InvalidBlob(t *testing.T) {
 	result := vectorDistance.Call(args)
 	if !result.IsNull() {
 		t.Error("VECTOR_DISTANCE with invalid blob should return NULL")
+	}
+}
+
+func TestConcat(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	concat := registry.Lookup("CONCAT")
+	if concat == nil {
+		t.Fatal("CONCAT function not found")
+	}
+
+	tests := []struct {
+		args   []types.Value
+		expect string
+	}{
+		{[]types.Value{types.NewText("Hello"), types.NewText(" "), types.NewText("World")}, "Hello World"},
+		{[]types.Value{types.NewText("A"), types.NewText("B")}, "AB"},
+		{[]types.Value{types.NewText("Hello"), types.NewNull(), types.NewText("World")}, "HelloWorld"}, // NULL skipped
+		{[]types.Value{types.NewInt(42), types.NewText(" items")}, "42 items"}, // Number coercion
+		{[]types.Value{}, ""}, // Empty
+	}
+
+	for i, tc := range tests {
+		result := concat.Call(tc.args)
+		if result.Type() != types.TypeText {
+			t.Errorf("test %d: expected text, got %v", i, result.Type())
+			continue
+		}
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestConcatWS(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	concatWS := registry.Lookup("CONCAT_WS")
+	if concatWS == nil {
+		t.Fatal("CONCAT_WS function not found")
+	}
+
+	tests := []struct {
+		args   []types.Value
+		expect string
+		isNull bool
+	}{
+		{[]types.Value{types.NewText(","), types.NewText("a"), types.NewText("b"), types.NewText("c")}, "a,b,c", false},
+		{[]types.Value{types.NewText("-"), types.NewText("Hello"), types.NewText("World")}, "Hello-World", false},
+		{[]types.Value{types.NewText(","), types.NewText("a"), types.NewNull(), types.NewText("c")}, "a,c", false}, // NULL skipped
+		{[]types.Value{types.NewNull(), types.NewText("a"), types.NewText("b")}, "", true}, // NULL separator = NULL result
+	}
+
+	for i, tc := range tests {
+		result := concatWS.Call(tc.args)
+		if tc.isNull {
+			if !result.IsNull() {
+				t.Errorf("test %d: expected NULL", i)
+			}
+			continue
+		}
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestTrim(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	trim := registry.Lookup("TRIM")
+	if trim == nil {
+		t.Fatal("TRIM function not found")
+	}
+
+	tests := []struct {
+		args   []types.Value
+		expect string
+	}{
+		{[]types.Value{types.NewText("  hello  ")}, "hello"},
+		{[]types.Value{types.NewText("\t\nhello\n\t")}, "hello"},
+		{[]types.Value{types.NewText("xxxhelloxxx"), types.NewText("x")}, "hello"},
+		{[]types.Value{types.NewText("hello")}, "hello"},
+		{[]types.Value{types.NewText("")}, ""},
+	}
+
+	for i, tc := range tests {
+		result := trim.Call(tc.args)
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestLTrim(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	ltrim := registry.Lookup("LTRIM")
+	if ltrim == nil {
+		t.Fatal("LTRIM function not found")
+	}
+
+	tests := []struct {
+		args   []types.Value
+		expect string
+	}{
+		{[]types.Value{types.NewText("  hello  ")}, "hello  "},
+		{[]types.Value{types.NewText("xxxhello"), types.NewText("x")}, "hello"},
+	}
+
+	for i, tc := range tests {
+		result := ltrim.Call(tc.args)
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestRTrim(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	rtrim := registry.Lookup("RTRIM")
+	if rtrim == nil {
+		t.Fatal("RTRIM function not found")
+	}
+
+	tests := []struct {
+		args   []types.Value
+		expect string
+	}{
+		{[]types.Value{types.NewText("  hello  ")}, "  hello"},
+		{[]types.Value{types.NewText("helloxxx"), types.NewText("x")}, "hello"},
+	}
+
+	for i, tc := range tests {
+		result := rtrim.Call(tc.args)
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestLeft(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	left := registry.Lookup("LEFT")
+	if left == nil {
+		t.Fatal("LEFT function not found")
+	}
+
+	tests := []struct {
+		str    string
+		n      int64
+		expect string
+	}{
+		{"hello", 2, "he"},
+		{"hello", 10, "hello"},
+		{"hello", 0, ""},
+		{"日本語", 2, "日本"},
+	}
+
+	for i, tc := range tests {
+		result := left.Call([]types.Value{types.NewText(tc.str), types.NewInt(tc.n)})
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestRight(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	right := registry.Lookup("RIGHT")
+	if right == nil {
+		t.Fatal("RIGHT function not found")
+	}
+
+	tests := []struct {
+		str    string
+		n      int64
+		expect string
+	}{
+		{"hello", 2, "lo"},
+		{"hello", 10, "hello"},
+		{"hello", 0, ""},
+		{"日本語", 2, "本語"},
+	}
+
+	for i, tc := range tests {
+		result := right.Call([]types.Value{types.NewText(tc.str), types.NewInt(tc.n)})
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestRepeat(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	repeat := registry.Lookup("REPEAT")
+	if repeat == nil {
+		t.Fatal("REPEAT function not found")
+	}
+
+	tests := []struct {
+		str    string
+		n      int64
+		expect string
+	}{
+		{"ab", 3, "ababab"},
+		{"x", 5, "xxxxx"},
+		{"hello", 0, ""},
+		{"", 5, ""},
+	}
+
+	for i, tc := range tests {
+		result := repeat.Call([]types.Value{types.NewText(tc.str), types.NewInt(tc.n)})
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestSpace(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	space := registry.Lookup("SPACE")
+	if space == nil {
+		t.Fatal("SPACE function not found")
+	}
+
+	tests := []struct {
+		n      int64
+		expect string
+	}{
+		{5, "     "},
+		{0, ""},
+		{1, " "},
+	}
+
+	for i, tc := range tests {
+		result := space.Call([]types.Value{types.NewInt(tc.n)})
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q (len %d), got %q (len %d)", i, tc.expect, len(tc.expect), result.Text(), len(result.Text()))
+		}
+	}
+}
+
+func TestReplace(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	replace := registry.Lookup("REPLACE")
+	if replace == nil {
+		t.Fatal("REPLACE function not found")
+	}
+
+	tests := []struct {
+		str, from, to string
+		expect        string
+	}{
+		{"hello world", "world", "Go", "hello Go"},
+		{"aaa", "a", "b", "bbb"},
+		{"hello", "x", "y", "hello"},
+		{"", "a", "b", ""},
+	}
+
+	for i, tc := range tests {
+		args := []types.Value{types.NewText(tc.str), types.NewText(tc.from), types.NewText(tc.to)}
+		result := replace.Call(args)
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestReverse(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	reverse := registry.Lookup("REVERSE")
+	if reverse == nil {
+		t.Fatal("REVERSE function not found")
+	}
+
+	tests := []struct {
+		input  string
+		expect string
+	}{
+		{"hello", "olleh"},
+		{"", ""},
+		{"a", "a"},
+		{"日本語", "語本日"},
+	}
+
+	for i, tc := range tests {
+		result := reverse.Call([]types.Value{types.NewText(tc.input)})
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestInitcap(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	initcap := registry.Lookup("INITCAP")
+	if initcap == nil {
+		t.Fatal("INITCAP function not found")
+	}
+
+	tests := []struct {
+		input  string
+		expect string
+	}{
+		{"hello world", "Hello World"},
+		{"HELLO WORLD", "Hello World"},
+		{"hello-world", "Hello-World"},
+		{"", ""},
+	}
+
+	for i, tc := range tests {
+		result := initcap.Call([]types.Value{types.NewText(tc.input)})
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestQuote(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	quote := registry.Lookup("QUOTE")
+	if quote == nil {
+		t.Fatal("QUOTE function not found")
+	}
+
+	tests := []struct {
+		input  string
+		expect string
+	}{
+		{"hello", "'hello'"},
+		{"it's", "'it''s'"},
+		{"", "''"},
+	}
+
+	for i, tc := range tests {
+		result := quote.Call([]types.Value{types.NewText(tc.input)})
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestLPad(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	lpad := registry.Lookup("LPAD")
+	if lpad == nil {
+		t.Fatal("LPAD function not found")
+	}
+
+	tests := []struct {
+		str    string
+		length int64
+		pad    string
+		expect string
+	}{
+		{"hello", 10, " ", "     hello"},
+		{"hello", 10, "xy", "xyxyxhello"},
+		{"hello", 3, " ", "hel"},
+		{"hello", 5, " ", "hello"},
+	}
+
+	for i, tc := range tests {
+		args := []types.Value{types.NewText(tc.str), types.NewInt(tc.length), types.NewText(tc.pad)}
+		result := lpad.Call(args)
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestRPad(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	rpad := registry.Lookup("RPAD")
+	if rpad == nil {
+		t.Fatal("RPAD function not found")
+	}
+
+	tests := []struct {
+		str    string
+		length int64
+		pad    string
+		expect string
+	}{
+		{"hello", 10, " ", "hello     "},
+		{"hello", 10, "xy", "helloxyxyx"},
+		{"hello", 3, " ", "hel"},
+		{"hello", 5, " ", "hello"},
+	}
+
+	for i, tc := range tests {
+		args := []types.Value{types.NewText(tc.str), types.NewInt(tc.length), types.NewText(tc.pad)}
+		result := rpad.Call(args)
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestPosition(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	position := registry.Lookup("POSITION")
+	if position == nil {
+		t.Fatal("POSITION function not found")
+	}
+
+	tests := []struct {
+		substr, str string
+		expect      int64
+	}{
+		{"lo", "hello", 4},
+		{"x", "hello", 0},
+		{"", "hello", 1},
+		{"hello", "hello", 1},
+	}
+
+	for i, tc := range tests {
+		result := position.Call([]types.Value{types.NewText(tc.substr), types.NewText(tc.str)})
+		if result.Int() != tc.expect {
+			t.Errorf("test %d: expected %d, got %d", i, tc.expect, result.Int())
+		}
+	}
+}
+
+func TestInstr(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	instr := registry.Lookup("INSTR")
+	if instr == nil {
+		t.Fatal("INSTR function not found")
+	}
+
+	tests := []struct {
+		substr, str string
+		expect      int64
+	}{
+		{"lo", "hello", 4},
+		{"x", "hello", 0},
+		{"", "hello", 1},
+		{"hello", "hello", 1},
+	}
+
+	for i, tc := range tests {
+		result := instr.Call([]types.Value{types.NewText(tc.substr), types.NewText(tc.str)})
+		if result.Int() != tc.expect {
+			t.Errorf("test %d: expected %d, got %d", i, tc.expect, result.Int())
+		}
+	}
+}
+
+func TestFormat(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	format := registry.Lookup("FORMAT")
+	if format == nil {
+		t.Fatal("FORMAT function not found")
+	}
+
+	tests := []struct {
+		number   float64
+		decimals int64
+		locale   string
+		expect   string
+	}{
+		{1234567.89, 2, "", "1,234,567.89"},
+		{1234567.89, 0, "", "1,234,568"},
+		{1234567.89, 2, "de_DE", "1.234.567,89"},
+		{1234567.89, 2, "fr_FR", "1 234 567,89"},
+		{1234.5, 2, "", "1,234.50"},
+		{0.5, 2, "", "0.50"},
+	}
+
+	for i, tc := range tests {
+		var args []types.Value
+		args = []types.Value{types.NewFloat(tc.number), types.NewInt(tc.decimals)}
+		if tc.locale != "" {
+			args = append(args, types.NewText(tc.locale))
+		}
+		result := format.Call(args)
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: FORMAT(%f, %d, %q) expected %q, got %q", i, tc.number, tc.decimals, tc.locale, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestASCII(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	ascii := registry.Lookup("ASCII")
+	if ascii == nil {
+		t.Fatal("ASCII function not found")
+	}
+
+	tests := []struct {
+		input  string
+		expect int64
+	}{
+		{"A", 65},
+		{"a", 97},
+		{"0", 48},
+		{"", 0},
+	}
+
+	for i, tc := range tests {
+		result := ascii.Call([]types.Value{types.NewText(tc.input)})
+		if result.Int() != tc.expect {
+			t.Errorf("test %d: expected %d, got %d", i, tc.expect, result.Int())
+		}
+	}
+}
+
+func TestCHR(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	chr := registry.Lookup("CHR")
+	if chr == nil {
+		t.Fatal("CHR function not found")
+	}
+
+	tests := []struct {
+		input  int64
+		expect string
+	}{
+		{65, "A"},
+		{97, "a"},
+		{48, "0"},
+	}
+
+	for i, tc := range tests {
+		result := chr.Call([]types.Value{types.NewInt(tc.input)})
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestCHAR(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	char := registry.Lookup("CHAR")
+	if char == nil {
+		t.Fatal("CHAR function not found")
+	}
+
+	tests := []struct {
+		input  int64
+		expect string
+	}{
+		{65, "A"},
+		{97, "a"},
+		{48, "0"},
+	}
+
+	for i, tc := range tests {
+		result := char.Call([]types.Value{types.NewInt(tc.input)})
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestMod(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	mod := registry.Lookup("MOD")
+	if mod == nil {
+		t.Fatal("MOD function not found")
+	}
+
+	tests := []struct {
+		a, b   int64
+		expect int64
+	}{
+		{10, 3, 1},
+		{10, 5, 0},
+		{-10, 3, -1},
+		{10, -3, 1},
+	}
+
+	for i, tc := range tests {
+		result := mod.Call([]types.Value{types.NewInt(tc.a), types.NewInt(tc.b)})
+		if result.Int() != tc.expect {
+			t.Errorf("test %d: MOD(%d, %d) expected %d, got %d", i, tc.a, tc.b, tc.expect, result.Int())
+		}
+	}
+}
+
+func TestPower(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	power := registry.Lookup("POWER")
+	if power == nil {
+		t.Fatal("POWER function not found")
+	}
+
+	tests := []struct {
+		base, exp float64
+		expect    float64
+	}{
+		{2, 3, 8},
+		{10, 2, 100},
+		{2, -1, 0.5},
+		{4, 0.5, 2},
+	}
+
+	for i, tc := range tests {
+		result := power.Call([]types.Value{types.NewFloat(tc.base), types.NewFloat(tc.exp)})
+		if math.Abs(result.Float()-tc.expect) > 0.0001 {
+			t.Errorf("test %d: POWER(%f, %f) expected %f, got %f", i, tc.base, tc.exp, tc.expect, result.Float())
+		}
+	}
+}
+
+func TestSqrt(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	sqrt := registry.Lookup("SQRT")
+	if sqrt == nil {
+		t.Fatal("SQRT function not found")
+	}
+
+	tests := []struct {
+		input  float64
+		expect float64
+	}{
+		{4, 2},
+		{9, 3},
+		{0, 0},
+		{2, 1.41421356},
+	}
+
+	for i, tc := range tests {
+		result := sqrt.Call([]types.Value{types.NewFloat(tc.input)})
+		if math.Abs(result.Float()-tc.expect) > 0.0001 {
+			t.Errorf("test %d: SQRT(%f) expected %f, got %f", i, tc.input, tc.expect, result.Float())
+		}
+	}
+}
+
+func TestExp(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	exp := registry.Lookup("EXP")
+	if exp == nil {
+		t.Fatal("EXP function not found")
+	}
+
+	tests := []struct {
+		input  float64
+		expect float64
+	}{
+		{0, 1},
+		{1, math.E},
+		{2, math.E * math.E},
+	}
+
+	for i, tc := range tests {
+		result := exp.Call([]types.Value{types.NewFloat(tc.input)})
+		if math.Abs(result.Float()-tc.expect) > 0.0001 {
+			t.Errorf("test %d: EXP(%f) expected %f, got %f", i, tc.input, tc.expect, result.Float())
+		}
+	}
+}
+
+func TestLn(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	ln := registry.Lookup("LN")
+	if ln == nil {
+		t.Fatal("LN function not found")
+	}
+
+	tests := []struct {
+		input  float64
+		expect float64
+	}{
+		{1, 0},
+		{math.E, 1},
+		{math.E * math.E, 2},
+	}
+
+	for i, tc := range tests {
+		result := ln.Call([]types.Value{types.NewFloat(tc.input)})
+		if math.Abs(result.Float()-tc.expect) > 0.0001 {
+			t.Errorf("test %d: LN(%f) expected %f, got %f", i, tc.input, tc.expect, result.Float())
+		}
+	}
+}
+
+func TestLog10(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	log10 := registry.Lookup("LOG10")
+	if log10 == nil {
+		t.Fatal("LOG10 function not found")
+	}
+
+	tests := []struct {
+		input  float64
+		expect float64
+	}{
+		{1, 0},
+		{10, 1},
+		{100, 2},
+	}
+
+	for i, tc := range tests {
+		result := log10.Call([]types.Value{types.NewFloat(tc.input)})
+		if math.Abs(result.Float()-tc.expect) > 0.0001 {
+			t.Errorf("test %d: LOG10(%f) expected %f, got %f", i, tc.input, tc.expect, result.Float())
+		}
+	}
+}
+
+func TestLogBase(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	logFn := registry.Lookup("LOG")
+	if logFn == nil {
+		t.Fatal("LOG function not found")
+	}
+
+	// LOG with 2 args: LOG(base, value)
+	tests := []struct {
+		base, value float64
+		expect      float64
+	}{
+		{2, 8, 3},
+		{10, 100, 2},
+	}
+
+	for i, tc := range tests {
+		result := logFn.Call([]types.Value{types.NewFloat(tc.base), types.NewFloat(tc.value)})
+		if math.Abs(result.Float()-tc.expect) > 0.0001 {
+			t.Errorf("test %d: LOG(%f, %f) expected %f, got %f", i, tc.base, tc.value, tc.expect, result.Float())
+		}
+	}
+}
+
+func TestCeil(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	ceil := registry.Lookup("CEIL")
+	if ceil == nil {
+		t.Fatal("CEIL function not found")
+	}
+
+	tests := []struct {
+		input  float64
+		expect float64
+	}{
+		{3.2, 4.0},
+		{3.8, 4.0},
+		{-3.2, -3.0},
+		{-3.8, -3.0},
+		{3.0, 3.0},
+	}
+
+	for i, tc := range tests {
+		result := ceil.Call([]types.Value{types.NewFloat(tc.input)})
+		if result.Float() != tc.expect {
+			t.Errorf("test %d: CEIL(%f) expected %f, got %f", i, tc.input, tc.expect, result.Float())
+		}
+	}
+}
+
+func TestFloor(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	floor := registry.Lookup("FLOOR")
+	if floor == nil {
+		t.Fatal("FLOOR function not found")
+	}
+
+	tests := []struct {
+		input  float64
+		expect float64
+	}{
+		{3.2, 3.0},
+		{3.8, 3.0},
+		{-3.2, -4.0},
+		{-3.8, -4.0},
+		{3.0, 3.0},
+	}
+
+	for i, tc := range tests {
+		result := floor.Call([]types.Value{types.NewFloat(tc.input)})
+		if result.Float() != tc.expect {
+			t.Errorf("test %d: FLOOR(%f) expected %f, got %f", i, tc.input, tc.expect, result.Float())
+		}
+	}
+}
+
+func TestTrunc(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	trunc := registry.Lookup("TRUNC")
+	if trunc == nil {
+		t.Fatal("TRUNC function not found")
+	}
+
+	tests := []struct {
+		input    float64
+		decimals int64
+		expect   float64
+	}{
+		{3.789, 0, 3.0},
+		{3.789, 2, 3.78},
+		{-3.789, 0, -3.0},
+		{-3.789, 2, -3.78},
+		{1234.5678, -2, 1200.0},
+	}
+
+	for i, tc := range tests {
+		var args []types.Value
+		if tc.decimals == 0 && i < 2 {
+			args = []types.Value{types.NewFloat(tc.input)}
+		} else {
+			args = []types.Value{types.NewFloat(tc.input), types.NewInt(tc.decimals)}
+		}
+		result := trunc.Call(args)
+		if result.Float() != tc.expect {
+			t.Errorf("test %d: TRUNC(%f, %d) expected %f, got %f", i, tc.input, tc.decimals, tc.expect, result.Float())
+		}
+	}
+}
+
+func TestNow(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	now := registry.Lookup("NOW")
+	if now == nil {
+		t.Fatal("NOW function not found")
+	}
+
+	before := time.Now()
+	result := now.Call([]types.Value{})
+	after := time.Now()
+
+	if result.Type() != types.TypeTimestampTZ {
+		t.Fatalf("expected TIMESTAMPTZ, got %v", result.Type())
+	}
+
+	ts := result.TimestampTZValue()
+	if ts.Before(before) || ts.After(after) {
+		t.Errorf("NOW() returned %v, expected between %v and %v", ts, before, after)
+	}
+}
+
+func TestCurrentDate(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	currentDate := registry.Lookup("CURRENT_DATE")
+	if currentDate == nil {
+		t.Fatal("CURRENT_DATE function not found")
+	}
+
+	result := currentDate.Call([]types.Value{})
+	if result.Type() != types.TypeDate {
+		t.Fatalf("expected DATE, got %v", result.Type())
+	}
+
+	year, month, day := result.DateValue()
+	now := time.Now()
+	if year != now.Year() || month != int(now.Month()) || day != now.Day() {
+		t.Errorf("CURRENT_DATE returned %d-%d-%d, expected today", year, month, day)
+	}
+}
+
+func TestCurrentTime(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	currentTime := registry.Lookup("CURRENT_TIME")
+	if currentTime == nil {
+		t.Fatal("CURRENT_TIME function not found")
+	}
+
+	result := currentTime.Call([]types.Value{})
+	if result.Type() != types.TypeTimeTZ {
+		t.Fatalf("expected TIMETZ, got %v", result.Type())
+	}
+}
+
+func TestCurrentTimestamp(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	currentTimestamp := registry.Lookup("CURRENT_TIMESTAMP")
+	if currentTimestamp == nil {
+		t.Fatal("CURRENT_TIMESTAMP function not found")
+	}
+
+	before := time.Now()
+	result := currentTimestamp.Call([]types.Value{})
+	after := time.Now()
+
+	if result.Type() != types.TypeTimestampTZ {
+		t.Fatalf("expected TIMESTAMPTZ, got %v", result.Type())
+	}
+
+	ts := result.TimestampTZValue()
+	if ts.Before(before) || ts.After(after) {
+		t.Errorf("CURRENT_TIMESTAMP() returned %v, expected between %v and %v", ts, before, after)
+	}
+}
+
+func TestLocaltime(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	localtime := registry.Lookup("LOCALTIME")
+	if localtime == nil {
+		t.Fatal("LOCALTIME function not found")
+	}
+
+	now := time.Now().Local()
+	result := localtime.Call([]types.Value{})
+
+	if result.Type() != types.TypeTimestamp {
+		t.Fatalf("expected TIMESTAMP, got %v", result.Type())
+	}
+
+	ts := result.TimestampValue()
+	// Since NewTimestamp stores in UTC but with local time components,
+	// we need to verify the time components match local time
+	if ts.Year() != now.Year() || ts.Month() != now.Month() || ts.Day() != now.Day() ||
+		ts.Hour() != now.Hour() || ts.Minute() != now.Minute() {
+		t.Errorf("LOCALTIME() returned %v, expected local time components to match %v", ts, now)
+	}
+}
+
+func TestLocaltimestamp(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	localtimestamp := registry.Lookup("LOCALTIMESTAMP")
+	if localtimestamp == nil {
+		t.Fatal("LOCALTIMESTAMP function not found")
+	}
+
+	now := time.Now().Local()
+	result := localtimestamp.Call([]types.Value{})
+
+	if result.Type() != types.TypeTimestamp {
+		t.Fatalf("expected TIMESTAMP, got %v", result.Type())
+	}
+
+	ts := result.TimestampValue()
+	// Since NewTimestamp stores in UTC but with local time components,
+	// we need to verify the time components match local time
+	if ts.Year() != now.Year() || ts.Month() != now.Month() || ts.Day() != now.Day() ||
+		ts.Hour() != now.Hour() || ts.Minute() != now.Minute() {
+		t.Errorf("LOCALTIMESTAMP() returned %v, expected local time components to match %v", ts, now)
 	}
 }

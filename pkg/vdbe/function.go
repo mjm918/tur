@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
+	"unicode"
 
 	"tur/pkg/types"
 )
@@ -114,6 +116,286 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Name:     "VECTOR_DISTANCE",
 		NumArgs:  2,
 		Function: builtinVectorDistance,
+	})
+
+	// Register CONCAT function (variadic)
+	r.Register(&ScalarFunction{
+		Name:     "CONCAT",
+		NumArgs:  -1,
+		Function: builtinConcat,
+	})
+
+	// Register CONCAT_WS function (variadic)
+	r.Register(&ScalarFunction{
+		Name:     "CONCAT_WS",
+		NumArgs:  -1,
+		Function: builtinConcatWS,
+	})
+
+	// Register TRIM function (1 or 2 arguments)
+	r.Register(&ScalarFunction{
+		Name:     "TRIM",
+		NumArgs:  -1,
+		Function: builtinTrim,
+	})
+
+	// Register LTRIM function (1 or 2 arguments)
+	r.Register(&ScalarFunction{
+		Name:     "LTRIM",
+		NumArgs:  -1,
+		Function: builtinLTrim,
+	})
+
+	// Register RTRIM function (1 or 2 arguments)
+	r.Register(&ScalarFunction{
+		Name:     "RTRIM",
+		NumArgs:  -1,
+		Function: builtinRTrim,
+	})
+
+	// Register LEFT function
+	r.Register(&ScalarFunction{
+		Name:     "LEFT",
+		NumArgs:  2,
+		Function: builtinLeft,
+	})
+
+	// Register RIGHT function
+	r.Register(&ScalarFunction{
+		Name:     "RIGHT",
+		NumArgs:  2,
+		Function: builtinRight,
+	})
+
+	// Register REPEAT function
+	r.Register(&ScalarFunction{
+		Name:     "REPEAT",
+		NumArgs:  2,
+		Function: builtinRepeat,
+	})
+
+	// Register SPACE function
+	r.Register(&ScalarFunction{
+		Name:     "SPACE",
+		NumArgs:  1,
+		Function: builtinSpace,
+	})
+
+	// Register REPLACE function
+	r.Register(&ScalarFunction{
+		Name:     "REPLACE",
+		NumArgs:  3,
+		Function: builtinReplace,
+	})
+
+	// Register REVERSE function
+	r.Register(&ScalarFunction{
+		Name:     "REVERSE",
+		NumArgs:  1,
+		Function: builtinReverse,
+	})
+
+	// Register INITCAP function
+	r.Register(&ScalarFunction{
+		Name:     "INITCAP",
+		NumArgs:  1,
+		Function: builtinInitcap,
+	})
+
+	// Register QUOTE function
+	r.Register(&ScalarFunction{
+		Name:     "QUOTE",
+		NumArgs:  1,
+		Function: builtinQuote,
+	})
+
+	// Register LPAD function
+	r.Register(&ScalarFunction{
+		Name:     "LPAD",
+		NumArgs:  3,
+		Function: builtinLPad,
+	})
+
+	// Register RPAD function
+	r.Register(&ScalarFunction{
+		Name:     "RPAD",
+		NumArgs:  3,
+		Function: builtinRPad,
+	})
+
+	// Register POSITION function
+	r.Register(&ScalarFunction{
+		Name:     "POSITION",
+		NumArgs:  2,
+		Function: builtinPosition,
+	})
+
+	// Register INSTR function (alias for POSITION)
+	r.Register(&ScalarFunction{
+		Name:     "INSTR",
+		NumArgs:  2,
+		Function: builtinPosition,
+	})
+
+	// Register ASCII function
+	r.Register(&ScalarFunction{
+		Name:     "ASCII",
+		NumArgs:  1,
+		Function: builtinASCII,
+	})
+
+	// Register CHR function
+	r.Register(&ScalarFunction{
+		Name:     "CHR",
+		NumArgs:  1,
+		Function: builtinCHR,
+	})
+
+	// Register CHAR function (alias for CHR)
+	r.Register(&ScalarFunction{
+		Name:     "CHAR",
+		NumArgs:  1,
+		Function: builtinCHR,
+	})
+
+	// Register MOD function
+	r.Register(&ScalarFunction{
+		Name:     "MOD",
+		NumArgs:  2,
+		Function: builtinMod,
+	})
+
+	// Register POWER function
+	r.Register(&ScalarFunction{
+		Name:     "POWER",
+		NumArgs:  2,
+		Function: builtinPower,
+	})
+
+	// Register POW function (alias for POWER)
+	r.Register(&ScalarFunction{
+		Name:     "POW",
+		NumArgs:  2,
+		Function: builtinPower,
+	})
+
+	// Register SQRT function
+	r.Register(&ScalarFunction{
+		Name:     "SQRT",
+		NumArgs:  1,
+		Function: builtinSqrt,
+	})
+
+	// Register EXP function
+	r.Register(&ScalarFunction{
+		Name:     "EXP",
+		NumArgs:  1,
+		Function: builtinExp,
+	})
+
+	// Register LN function
+	r.Register(&ScalarFunction{
+		Name:     "LN",
+		NumArgs:  1,
+		Function: builtinLn,
+	})
+
+	// Register LOG10 function
+	r.Register(&ScalarFunction{
+		Name:     "LOG10",
+		NumArgs:  1,
+		Function: builtinLog10,
+	})
+
+	// Register LOG function (1 or 2 arguments)
+	r.Register(&ScalarFunction{
+		Name:     "LOG",
+		NumArgs:  -1, // Variadic: 1 or 2 arguments
+		Function: builtinLog,
+	})
+
+	// Register CEIL function
+	r.Register(&ScalarFunction{
+		Name:     "CEIL",
+		NumArgs:  1,
+		Function: builtinCeil,
+	})
+
+	// Register CEILING function (alias for CEIL)
+	r.Register(&ScalarFunction{
+		Name:     "CEILING",
+		NumArgs:  1,
+		Function: builtinCeil,
+	})
+
+	// Register FLOOR function
+	r.Register(&ScalarFunction{
+		Name:     "FLOOR",
+		NumArgs:  1,
+		Function: builtinFloor,
+	})
+
+	// Register TRUNC function
+	r.Register(&ScalarFunction{
+		Name:     "TRUNC",
+		NumArgs:  -1, // 1 or 2 arguments
+		Function: builtinTrunc,
+	})
+
+	// Register TRUNCATE function (alias for TRUNC)
+	r.Register(&ScalarFunction{
+		Name:     "TRUNCATE",
+		NumArgs:  -1, // 1 or 2 arguments
+		Function: builtinTrunc,
+	})
+
+	// Register FORMAT function
+	r.Register(&ScalarFunction{
+		Name:     "FORMAT",
+		NumArgs:  -1, // 2 or 3 arguments
+		Function: builtinFormat,
+	})
+
+	// Register NOW function
+	r.Register(&ScalarFunction{
+		Name:     "NOW",
+		NumArgs:  0,
+		Function: builtinNow,
+	})
+
+	// Register CURRENT_TIMESTAMP function (alias for NOW)
+	r.Register(&ScalarFunction{
+		Name:     "CURRENT_TIMESTAMP",
+		NumArgs:  0,
+		Function: builtinNow,
+	})
+
+	// Register CURRENT_DATE function
+	r.Register(&ScalarFunction{
+		Name:     "CURRENT_DATE",
+		NumArgs:  0,
+		Function: builtinCurrentDate,
+	})
+
+	// Register CURRENT_TIME function
+	r.Register(&ScalarFunction{
+		Name:     "CURRENT_TIME",
+		NumArgs:  0,
+		Function: builtinCurrentTime,
+	})
+
+	// Register LOCALTIME function
+	r.Register(&ScalarFunction{
+		Name:     "LOCALTIME",
+		NumArgs:  0,
+		Function: builtinLocaltime,
+	})
+
+	// Register LOCALTIMESTAMP function
+	r.Register(&ScalarFunction{
+		Name:     "LOCALTIMESTAMP",
+		NumArgs:  0,
+		Function: builtinLocaltimestamp,
 	})
 
 	return r
@@ -413,4 +695,832 @@ func extractVector(val types.Value) (*types.Vector, error) {
 	default:
 		return nil, fmt.Errorf("unsupported type for vector: %v", val.Type())
 	}
+}
+
+// valueToString converts a Value to its string representation.
+// Used by CONCAT and CONCAT_WS functions.
+func valueToString(v types.Value) string {
+	switch v.Type() {
+	case types.TypeText:
+		return v.Text()
+	case types.TypeInt:
+		return fmt.Sprintf("%d", v.Int())
+	case types.TypeFloat:
+		return fmt.Sprintf("%g", v.Float())
+	default:
+		return ""
+	}
+}
+
+// builtinConcat implements CONCAT(val1, val2, ...)
+// Concatenates all non-NULL arguments into a single string.
+// NULL values are skipped.
+func builtinConcat(args []types.Value) types.Value {
+	var sb strings.Builder
+	for _, arg := range args {
+		if arg.IsNull() {
+			continue
+		}
+		sb.WriteString(valueToString(arg))
+	}
+	return types.NewText(sb.String())
+}
+
+// builtinConcatWS implements CONCAT_WS(separator, val1, val2, ...)
+// Concatenates all non-NULL arguments with the given separator.
+// If separator is NULL, returns NULL.
+// NULL values in the arguments are skipped.
+func builtinConcatWS(args []types.Value) types.Value {
+	if len(args) < 1 {
+		return types.NewNull()
+	}
+	if args[0].IsNull() {
+		return types.NewNull()
+	}
+	sep := args[0].Text()
+
+	var parts []string
+	for _, arg := range args[1:] {
+		if arg.IsNull() {
+			continue
+		}
+		parts = append(parts, valueToString(arg))
+	}
+	return types.NewText(strings.Join(parts, sep))
+}
+
+// builtinTrim implements TRIM(string[, chars])
+// Removes leading and trailing characters from a string.
+// If chars is not specified, removes whitespace (space, tab, newline, carriage return).
+// If chars is specified, removes those characters.
+func builtinTrim(args []types.Value) types.Value {
+	if len(args) < 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	str := args[0].Text()
+	if len(args) >= 2 && !args[1].IsNull() {
+		return types.NewText(strings.Trim(str, args[1].Text()))
+	}
+	return types.NewText(strings.TrimSpace(str))
+}
+
+// builtinLTrim implements LTRIM(string[, chars])
+// Removes leading characters from a string.
+// If chars is not specified, removes whitespace (space, tab, newline, carriage return).
+// If chars is specified, removes those characters.
+func builtinLTrim(args []types.Value) types.Value {
+	if len(args) < 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	str := args[0].Text()
+	if len(args) >= 2 && !args[1].IsNull() {
+		return types.NewText(strings.TrimLeft(str, args[1].Text()))
+	}
+	return types.NewText(strings.TrimLeft(str, " \t\n\r"))
+}
+
+// builtinRTrim implements RTRIM(string[, chars])
+// Removes trailing characters from a string.
+// If chars is not specified, removes whitespace (space, tab, newline, carriage return).
+// If chars is specified, removes those characters.
+func builtinRTrim(args []types.Value) types.Value {
+	if len(args) < 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	str := args[0].Text()
+	if len(args) >= 2 && !args[1].IsNull() {
+		return types.NewText(strings.TrimRight(str, args[1].Text()))
+	}
+	return types.NewText(strings.TrimRight(str, " \t\n\r"))
+}
+
+// builtinLeft implements LEFT(string, n)
+// Returns the leftmost n characters from string.
+func builtinLeft(args []types.Value) types.Value {
+	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+	runes := []rune(args[0].Text())
+	n := int(args[1].Int())
+	if n < 0 {
+		n = 0
+	}
+	if n > len(runes) {
+		n = len(runes)
+	}
+	return types.NewText(string(runes[:n]))
+}
+
+// builtinRight implements RIGHT(string, n)
+// Returns the rightmost n characters from string.
+func builtinRight(args []types.Value) types.Value {
+	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+	runes := []rune(args[0].Text())
+	n := int(args[1].Int())
+	if n < 0 {
+		n = 0
+	}
+	if n > len(runes) {
+		n = len(runes)
+	}
+	return types.NewText(string(runes[len(runes)-n:]))
+}
+
+// builtinRepeat implements REPEAT(string, n)
+// Returns a string consisting of string repeated n times.
+func builtinRepeat(args []types.Value) types.Value {
+	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+	n := int(args[1].Int())
+	if n < 0 {
+		n = 0
+	}
+	return types.NewText(strings.Repeat(args[0].Text(), n))
+}
+
+// builtinSpace implements SPACE(n)
+// Returns a string consisting of n space characters.
+func builtinSpace(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	n := int(args[0].Int())
+	if n < 0 {
+		n = 0
+	}
+	return types.NewText(strings.Repeat(" ", n))
+}
+
+// builtinReplace implements REPLACE(string, from, to)
+// Replaces all occurrences of 'from' substring with 'to' substring.
+// If any argument is NULL, returns NULL.
+func builtinReplace(args []types.Value) types.Value {
+	if len(args) != 3 {
+		return types.NewNull()
+	}
+	for _, arg := range args {
+		if arg.IsNull() {
+			return types.NewNull()
+		}
+	}
+	return types.NewText(strings.ReplaceAll(args[0].Text(), args[1].Text(), args[2].Text()))
+}
+
+// builtinReverse implements REVERSE(string)
+// Reverses the characters in a string.
+// Properly handles Unicode characters (runes).
+// If argument is NULL, returns NULL.
+func builtinReverse(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	runes := []rune(args[0].Text())
+	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+		runes[i], runes[j] = runes[j], runes[i]
+	}
+	return types.NewText(string(runes))
+}
+
+// builtinInitcap implements INITCAP(string)
+// Converts the first letter of each word to uppercase and the rest to lowercase.
+// A word is defined as a sequence of letters or numbers.
+// If argument is NULL, returns NULL.
+func builtinInitcap(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	str := args[0].Text()
+	runes := []rune(strings.ToLower(str))
+	inWord := false
+	for i, r := range runes {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			if !inWord {
+				runes[i] = unicode.ToUpper(r)
+				inWord = true
+			}
+		} else {
+			inWord = false
+		}
+	}
+	return types.NewText(string(runes))
+}
+
+// builtinQuote implements QUOTE(value)
+// Returns a string that is the value of the argument enclosed in single quotes.
+// Single quotes within the string are escaped by doubling them.
+// If argument is NULL, returns the string "NULL" (without quotes).
+func builtinQuote(args []types.Value) types.Value {
+	if len(args) != 1 {
+		return types.NewNull()
+	}
+	if args[0].IsNull() {
+		return types.NewText("NULL")
+	}
+	str := args[0].Text()
+	escaped := strings.ReplaceAll(str, "'", "''")
+	return types.NewText("'" + escaped + "'")
+}
+
+// builtinLPad implements LPAD(string, length, pad)
+// Pads the left side of a string with a specified pad string until it reaches the desired length.
+// If the string is already longer than the desired length, it is truncated.
+// If pad is empty, returns the string as-is (potentially truncated).
+// If any argument is NULL, returns NULL.
+func builtinLPad(args []types.Value) types.Value {
+	if len(args) < 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+	runes := []rune(args[0].Text())
+	length := int(args[1].Int())
+	pad := " "
+	if len(args) >= 3 && !args[2].IsNull() {
+		pad = args[2].Text()
+	}
+	if pad == "" {
+		return types.NewText(string(runes))
+	}
+	if length <= len(runes) {
+		return types.NewText(string(runes[:length]))
+	}
+	padRunes := []rune(pad)
+	needed := length - len(runes)
+	var result []rune
+	for i := 0; i < needed; i++ {
+		result = append(result, padRunes[i%len(padRunes)])
+	}
+	result = append(result, runes...)
+	return types.NewText(string(result))
+}
+
+// builtinRPad implements RPAD(string, length, pad)
+// Pads the right side of a string with a specified pad string until it reaches the desired length.
+// If the string is already longer than the desired length, it is truncated.
+// If pad is empty, returns the string as-is (potentially truncated).
+// If any argument is NULL, returns NULL.
+func builtinRPad(args []types.Value) types.Value {
+	if len(args) < 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+	runes := []rune(args[0].Text())
+	length := int(args[1].Int())
+	pad := " "
+	if len(args) >= 3 && !args[2].IsNull() {
+		pad = args[2].Text()
+	}
+	if pad == "" {
+		return types.NewText(string(runes))
+	}
+	if length <= len(runes) {
+		return types.NewText(string(runes[:length]))
+	}
+	padRunes := []rune(pad)
+	needed := length - len(runes)
+	result := append([]rune{}, runes...)
+	for i := 0; i < needed; i++ {
+		result = append(result, padRunes[i%len(padRunes)])
+	}
+	return types.NewText(string(result))
+}
+
+// builtinPosition implements POSITION(substr, str)
+// Returns the 1-based position of the first occurrence of substr in str.
+// Returns 0 if substr is not found.
+// Returns 1 if substr is empty (SQLite behavior).
+// If any argument is NULL, returns NULL.
+func builtinPosition(args []types.Value) types.Value {
+	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+	substr := args[0].Text()
+	str := args[1].Text()
+	
+	// Empty substring returns 1 (SQLite behavior)
+	if substr == "" {
+		return types.NewInt(1)
+	}
+	
+	idx := strings.Index(str, substr)
+	if idx < 0 {
+		return types.NewInt(0)
+	}
+	// Convert byte index to rune index (1-based)
+	runeIdx := len([]rune(str[:idx])) + 1
+	return types.NewInt(int64(runeIdx))
+}
+
+// builtinASCII implements ASCII(str)
+// Returns the ASCII code of the first character in str.
+// Returns 0 if str is empty.
+// If argument is NULL, returns NULL.
+func builtinASCII(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	str := args[0].Text()
+	if len(str) == 0 {
+		return types.NewInt(0)
+	}
+	return types.NewInt(int64(str[0]))
+}
+
+// builtinCHR implements CHR(code)
+// Returns the character with the given ASCII/Unicode code.
+// If argument is NULL, returns NULL.
+func builtinCHR(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	code := args[0].Int()
+	return types.NewText(string(rune(code)))
+}
+
+// builtinMod implements MOD(x, y)
+// Returns the remainder of x divided by y.
+// If any argument is NULL, returns NULL.
+func builtinMod(args []types.Value) types.Value {
+	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+
+	var x, y float64
+
+	// Convert first argument to float
+	switch args[0].Type() {
+	case types.TypeInt:
+		x = float64(args[0].Int())
+	case types.TypeFloat:
+		x = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+
+	// Convert second argument to float
+	switch args[1].Type() {
+	case types.TypeInt:
+		y = float64(args[1].Int())
+	case types.TypeFloat:
+		y = args[1].Float()
+	default:
+		return types.NewNull()
+	}
+
+	// Check for division by zero
+	if y == 0 {
+		return types.NewNull()
+	}
+
+	// For integers, return integer result
+	if args[0].Type() == types.TypeInt && args[1].Type() == types.TypeInt {
+		result := int64(x) % int64(y)
+		return types.NewInt(result)
+	}
+
+	// For floats, use math.Mod
+	return types.NewFloat(math.Mod(x, y))
+}
+
+// builtinPower implements POWER(x, y)
+// Returns x raised to the power of y.
+// If any argument is NULL, returns NULL.
+func builtinPower(args []types.Value) types.Value {
+	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+
+	var x, y float64
+
+	// Convert first argument to float
+	switch args[0].Type() {
+	case types.TypeInt:
+		x = float64(args[0].Int())
+	case types.TypeFloat:
+		x = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+
+	// Convert second argument to float
+	switch args[1].Type() {
+	case types.TypeInt:
+		y = float64(args[1].Int())
+	case types.TypeFloat:
+		y = args[1].Float()
+	default:
+		return types.NewNull()
+	}
+
+	return types.NewFloat(math.Pow(x, y))
+}
+
+// builtinSqrt implements SQRT(x)
+// Returns the square root of x.
+// If argument is NULL or negative, returns NULL.
+func builtinSqrt(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+
+	var x float64
+
+	switch args[0].Type() {
+	case types.TypeInt:
+		x = float64(args[0].Int())
+	case types.TypeFloat:
+		x = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+
+	// SQRT of negative number is NULL
+	if x < 0 {
+		return types.NewNull()
+	}
+
+	return types.NewFloat(math.Sqrt(x))
+}
+
+// builtinExp implements EXP(x)
+// Returns e raised to the power of x (e^x).
+// If argument is NULL, returns NULL.
+func builtinExp(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	
+	var x float64
+	
+	switch args[0].Type() {
+	case types.TypeInt:
+		x = float64(args[0].Int())
+	case types.TypeFloat:
+		x = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+	
+	return types.NewFloat(math.Exp(x))
+}
+
+// builtinLn implements LN(x)
+// Returns the natural logarithm (base e) of x.
+// If argument is NULL or x <= 0, returns NULL.
+func builtinLn(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	
+	var x float64
+	
+	switch args[0].Type() {
+	case types.TypeInt:
+		x = float64(args[0].Int())
+	case types.TypeFloat:
+		x = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+	
+	// LN of non-positive number is NULL
+	if x <= 0 {
+		return types.NewNull()
+	}
+	
+	return types.NewFloat(math.Log(x))
+}
+
+// builtinLog10 implements LOG10(x)
+// Returns the base-10 logarithm of x.
+// If argument is NULL or x <= 0, returns NULL.
+func builtinLog10(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	
+	var x float64
+	
+	switch args[0].Type() {
+	case types.TypeInt:
+		x = float64(args[0].Int())
+	case types.TypeFloat:
+		x = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+	
+	// LOG10 of non-positive number is NULL
+	if x <= 0 {
+		return types.NewNull()
+	}
+	
+	return types.NewFloat(math.Log10(x))
+}
+
+// builtinLog implements LOG(base, value) or LOG(value)
+// With 2 args: Returns log_base(value) = ln(value) / ln(base)
+// With 1 arg: Returns natural log (same as LN)
+// If any argument is NULL, or base/value <= 0, or base = 1, returns NULL.
+func builtinLog(args []types.Value) types.Value {
+	if len(args) < 1 || len(args) > 2 {
+		return types.NewNull()
+	}
+	
+	// Check for NULL arguments
+	for _, arg := range args {
+		if arg.IsNull() {
+			return types.NewNull()
+		}
+	}
+	
+	// LOG with 1 arg: natural log
+	if len(args) == 1 {
+		return builtinLn(args)
+	}
+	
+	// LOG with 2 args: LOG(base, value)
+	var base, value float64
+	
+	// Convert base to float
+	switch args[0].Type() {
+	case types.TypeInt:
+		base = float64(args[0].Int())
+	case types.TypeFloat:
+		base = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+	
+	// Convert value to float
+	switch args[1].Type() {
+	case types.TypeInt:
+		value = float64(args[1].Int())
+	case types.TypeFloat:
+		value = args[1].Float()
+	default:
+		return types.NewNull()
+	}
+	
+	// Check for invalid inputs
+	if base <= 0 || base == 1 || value <= 0 {
+		return types.NewNull()
+	}
+	
+	// log_base(value) = ln(value) / ln(base)
+	return types.NewFloat(math.Log(value) / math.Log(base))
+}
+
+// builtinCeil implements CEIL(value)
+// Returns the smallest integer value greater than or equal to value.
+// Uses math.Ceil for the calculation.
+// If argument is NULL, returns NULL.
+func builtinCeil(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+
+	// Get the value, converting to float64
+	var val float64
+	switch args[0].Type() {
+	case types.TypeInt:
+		val = float64(args[0].Int())
+	case types.TypeFloat:
+		val = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+
+	// Calculate ceiling and return as float
+	result := math.Ceil(val)
+	return types.NewFloat(result)
+}
+
+// builtinFloor implements FLOOR(value)
+// Returns the largest integer value less than or equal to value.
+// Uses math.Floor for the calculation.
+// If argument is NULL, returns NULL.
+func builtinFloor(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+
+	// Get the value, converting to float64
+	var val float64
+	switch args[0].Type() {
+	case types.TypeInt:
+		val = float64(args[0].Int())
+	case types.TypeFloat:
+		val = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+
+	// Calculate floor and return as float
+	result := math.Floor(val)
+	return types.NewFloat(result)
+}
+
+// builtinTrunc implements TRUNC(value[, decimals])
+// Truncates a number to the specified number of decimal places.
+// If decimals is not specified, truncates to 0 decimal places (integer part).
+// Negative decimals truncate to the left of the decimal point.
+// Uses math.Trunc for the basic truncation.
+// If any argument is NULL, returns NULL.
+func builtinTrunc(args []types.Value) types.Value {
+	if len(args) < 1 || len(args) > 2 {
+		return types.NewNull()
+	}
+
+	// Check for NULL arguments
+	for _, arg := range args {
+		if arg.IsNull() {
+			return types.NewNull()
+		}
+	}
+
+	// Get the value to truncate
+	var val float64
+	switch args[0].Type() {
+	case types.TypeInt:
+		val = float64(args[0].Int())
+	case types.TypeFloat:
+		val = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+
+	// Get number of decimal places (default 0)
+	decimals := int64(0)
+	if len(args) == 2 {
+		switch args[1].Type() {
+		case types.TypeInt:
+			decimals = args[1].Int()
+		case types.TypeFloat:
+			decimals = int64(args[1].Float())
+		default:
+			return types.NewNull()
+		}
+	}
+
+	// Calculate multiplier
+	multiplier := math.Pow(10, float64(decimals))
+
+	// Truncate using math.Trunc
+	truncated := math.Trunc(val*multiplier) / multiplier
+
+	return types.NewFloat(truncated)
+}
+
+// localeFormat defines the thousand separator and decimal point for a locale
+type localeFormat struct {
+	thousand string
+	decimal  string
+}
+
+// localeFormats maps locale identifiers to their formatting rules
+var localeFormats = map[string]localeFormat{
+	"":      {",", "."},     // Default (en_US)
+	"en_US": {",", "."},     // English (US)
+	"de_DE": {".", ","},     // German (Germany)
+	"fr_FR": {" ", ","},     // French (France)
+	"es_ES": {".", ","},     // Spanish (Spain)
+}
+
+// builtinFormat implements FORMAT(number, decimals[, locale])
+// Formats a number with thousand separators and specified decimal places.
+// If locale is not specified or not recognized, uses default (en_US) formatting.
+// If any required argument is NULL, returns NULL.
+func builtinFormat(args []types.Value) types.Value {
+	if len(args) < 2 || len(args) > 3 {
+		return types.NewNull()
+	}
+
+	// Check for NULL in required arguments
+	if args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+
+	// Get the number to format
+	var number float64
+	switch args[0].Type() {
+	case types.TypeInt:
+		number = float64(args[0].Int())
+	case types.TypeFloat:
+		number = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+
+	// Get number of decimal places
+	var decimals int64
+	switch args[1].Type() {
+	case types.TypeInt:
+		decimals = args[1].Int()
+	case types.TypeFloat:
+		decimals = int64(args[1].Float())
+	default:
+		return types.NewNull()
+	}
+
+	// Ensure decimals is not negative
+	if decimals < 0 {
+		decimals = 0
+	}
+
+	// Get locale format (default to en_US)
+	locale := ""
+	if len(args) == 3 && !args[2].IsNull() {
+		locale = args[2].Text()
+	}
+
+	format, ok := localeFormats[locale]
+	if !ok {
+		// Unknown locale, use default
+		format = localeFormats[""]
+	}
+
+	// Round the number to the specified decimal places
+	multiplier := math.Pow(10, float64(decimals))
+	rounded := math.Round(number * multiplier) / multiplier
+
+	// Handle sign
+	sign := ""
+	if rounded < 0 {
+		sign = "-"
+		rounded = -rounded
+	}
+
+	// Split into integer and fractional parts
+	intPart := int64(rounded)
+	fracPart := rounded - float64(intPart)
+
+	// Format integer part with thousand separators
+	intStr := fmt.Sprintf("%d", intPart)
+	var intFormatted strings.Builder
+
+	// Add thousand separators from right to left
+	for i, digit := range intStr {
+		if i > 0 && (len(intStr)-i)%3 == 0 {
+			intFormatted.WriteString(format.thousand)
+		}
+		intFormatted.WriteRune(digit)
+	}
+
+	// Format fractional part
+	var result strings.Builder
+	result.WriteString(sign)
+	result.WriteString(intFormatted.String())
+
+	if decimals > 0 {
+		result.WriteString(format.decimal)
+		// Format fractional part with specified decimal places
+		fracStr := fmt.Sprintf("%0*d", int(decimals), int64(fracPart*multiplier+0.5))
+		result.WriteString(fracStr)
+	}
+
+	return types.NewText(result.String())
+}
+
+// builtinNow implements NOW() and CURRENT_TIMESTAMP
+// Returns the current date and time as TIMESTAMPTZ (in UTC).
+func builtinNow(args []types.Value) types.Value {
+	return types.NewTimestampTZ(time.Now())
+}
+
+// builtinCurrentDate implements CURRENT_DATE
+// Returns the current date as DATE type.
+func builtinCurrentDate(args []types.Value) types.Value {
+	now := time.Now()
+	return types.NewDate(now.Year(), int(now.Month()), now.Day())
+}
+
+// builtinCurrentTime implements CURRENT_TIME
+// Returns the current time with timezone as TIMETZ type.
+func builtinCurrentTime(args []types.Value) types.Value {
+	now := time.Now()
+	_, offset := now.Zone()
+	return types.NewTimeTZ(now.Hour(), now.Minute(), now.Second(), now.Nanosecond()/1000, offset)
+}
+
+// builtinLocaltime implements LOCALTIME
+// Returns the current local date and time as TIMESTAMP (without timezone).
+// The local time components are preserved even though stored in UTC internally.
+func builtinLocaltime(args []types.Value) types.Value {
+	now := time.Now()
+	// Get the local time and store its components as-is
+	// Even though NewTimestamp stores in UTC, the time components represent local time
+	local := now.Local()
+	return types.NewTimestamp(local.Year(), int(local.Month()), local.Day(), local.Hour(), local.Minute(), local.Second(), local.Nanosecond()/1000)
+}
+
+// builtinLocaltimestamp implements LOCALTIMESTAMP
+// Returns the current local date and time as TIMESTAMP (without timezone).
+// The local time components are preserved even though stored in UTC internally.
+func builtinLocaltimestamp(args []types.Value) types.Value {
+	now := time.Now()
+	// Get the local time and store its components as-is
+	// Even though NewTimestamp stores in UTC, the time components represent local time
+	local := now.Local()
+	return types.NewTimestamp(local.Year(), int(local.Month()), local.Day(), local.Hour(), local.Minute(), local.Second(), local.Nanosecond()/1000)
 }
