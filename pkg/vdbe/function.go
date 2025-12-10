@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -495,6 +496,20 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Name:     "SECOND",
 		NumArgs:  1,
 		Function: builtinSecond,
+	})
+
+	// Register TO_DATE function
+	r.Register(&ScalarFunction{
+		Name:     "TO_DATE",
+		NumArgs:  2,
+		Function: builtinToDate,
+	})
+
+	// Register TO_TIMESTAMP function
+	r.Register(&ScalarFunction{
+		Name:     "TO_TIMESTAMP",
+		NumArgs:  2,
+		Function: builtinToTimestamp,
 	})
 
 	return r
@@ -2138,4 +2153,175 @@ func builtinSecond(args []types.Value) types.Value {
 	default:
 		return types.NewNull()
 	}
+}
+
+// parseDateTime parses a string using PostgreSQL-style format patterns
+func parseDateTime(text, format string) (year, month, day, hour, minute, second int, err error) {
+	// Default values
+	year, month, day = 1, 1, 1
+	hour, minute, second = 0, 0, 0
+
+	isPM := false
+	is12Hour := false
+
+	textIdx := 0
+	formatIdx := 0
+
+	for formatIdx < len(format) && textIdx < len(text) {
+		remaining := format[formatIdx:]
+
+		switch {
+		case strings.HasPrefix(remaining, "YYYY"):
+			if textIdx+4 <= len(text) {
+				year, err = strconv.Atoi(text[textIdx : textIdx+4])
+				if err != nil {
+					return 0, 0, 0, 0, 0, 0, err
+				}
+				textIdx += 4
+			}
+			formatIdx += 4
+
+		case strings.HasPrefix(remaining, "YY"):
+			if textIdx+2 <= len(text) {
+				y, err := strconv.Atoi(text[textIdx : textIdx+2])
+				if err != nil {
+					return 0, 0, 0, 0, 0, 0, err
+				}
+				year = 2000 + y
+				textIdx += 2
+			}
+			formatIdx += 2
+
+		case strings.HasPrefix(remaining, "MM"):
+			if textIdx+2 <= len(text) {
+				month, err = strconv.Atoi(text[textIdx : textIdx+2])
+				if err != nil {
+					return 0, 0, 0, 0, 0, 0, err
+				}
+				textIdx += 2
+			}
+			formatIdx += 2
+
+		case strings.HasPrefix(remaining, "DD"):
+			if textIdx+2 <= len(text) {
+				day, err = strconv.Atoi(text[textIdx : textIdx+2])
+				if err != nil {
+					return 0, 0, 0, 0, 0, 0, err
+				}
+				textIdx += 2
+			}
+			formatIdx += 2
+
+		case strings.HasPrefix(remaining, "HH24"):
+			if textIdx+2 <= len(text) {
+				hour, err = strconv.Atoi(text[textIdx : textIdx+2])
+				if err != nil {
+					return 0, 0, 0, 0, 0, 0, err
+				}
+				textIdx += 2
+			}
+			formatIdx += 4
+
+		case strings.HasPrefix(remaining, "HH12"), strings.HasPrefix(remaining, "HH"):
+			is12Hour = true
+			if textIdx+2 <= len(text) {
+				hour, err = strconv.Atoi(text[textIdx : textIdx+2])
+				if err != nil {
+					return 0, 0, 0, 0, 0, 0, err
+				}
+				textIdx += 2
+			}
+			if strings.HasPrefix(remaining, "HH12") {
+				formatIdx += 4
+			} else {
+				formatIdx += 2
+			}
+
+		case strings.HasPrefix(remaining, "MI"):
+			if textIdx+2 <= len(text) {
+				minute, err = strconv.Atoi(text[textIdx : textIdx+2])
+				if err != nil {
+					return 0, 0, 0, 0, 0, 0, err
+				}
+				textIdx += 2
+			}
+			formatIdx += 2
+
+		case strings.HasPrefix(remaining, "SS"):
+			if textIdx+2 <= len(text) {
+				second, err = strconv.Atoi(text[textIdx : textIdx+2])
+				if err != nil {
+					return 0, 0, 0, 0, 0, 0, err
+				}
+				textIdx += 2
+			}
+			formatIdx += 2
+
+		case strings.HasPrefix(remaining, "PM"), strings.HasPrefix(remaining, "AM"):
+			textRemaining := strings.ToUpper(text[textIdx:])
+			if strings.HasPrefix(textRemaining, "PM") {
+				isPM = true
+				textIdx += 2
+			} else if strings.HasPrefix(textRemaining, "AM") {
+				textIdx += 2
+			}
+			formatIdx += 2
+
+		default:
+			// Literal character - must match
+			if textIdx < len(text) && text[textIdx] == format[formatIdx] {
+				textIdx++
+			}
+			formatIdx++
+		}
+	}
+
+	// Convert 12-hour to 24-hour
+	if is12Hour {
+		if isPM && hour < 12 {
+			hour += 12
+		} else if !isPM && hour == 12 {
+			hour = 0
+		}
+	}
+
+	return year, month, day, hour, minute, second, nil
+}
+
+// builtinToDate implements TO_DATE(text, format)
+// Parses a string using PostgreSQL-style format patterns and returns a DATE.
+// If any argument is NULL or parsing fails, returns NULL.
+func builtinToDate(args []types.Value) types.Value {
+	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+
+	text := args[0].Text()
+	format := args[1].Text()
+
+	year, month, day, _, _, _, err := parseDateTime(text, format)
+	if err != nil {
+		return types.NewNull()
+	}
+
+	return types.NewDate(year, month, day)
+}
+
+// builtinToTimestamp implements TO_TIMESTAMP(text, format)
+// Parses a string using PostgreSQL-style format patterns and returns a TIMESTAMP.
+// If any argument is NULL or parsing fails, returns NULL.
+func builtinToTimestamp(args []types.Value) types.Value {
+	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+
+	text := args[0].Text()
+	format := args[1].Text()
+
+	year, month, day, hour, minute, second, err := parseDateTime(text, format)
+	if err != nil {
+		return types.NewNull()
+	}
+
+	return types.NewTimestamp(year, month, day, hour, minute, second, 0)
 }

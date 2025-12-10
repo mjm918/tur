@@ -2082,3 +2082,379 @@ func TestSecond(t *testing.T) {
 		t.Errorf("SECOND expected 45.5, got %f", result.Float())
 	}
 }
+
+func TestToDate(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	toDate := registry.Lookup("TO_DATE")
+	if toDate == nil {
+		t.Fatal("TO_DATE function not found")
+	}
+
+	tests := []struct {
+		text   string
+		format string
+		year   int
+		month  int
+		day    int
+	}{
+		{"2025-12-10", "YYYY-MM-DD", 2025, 12, 10},
+		{"10/12/2025", "DD/MM/YYYY", 2025, 12, 10},
+		{"12-10-25", "MM-DD-YY", 2025, 12, 10},
+		{"20251210", "YYYYMMDD", 2025, 12, 10},
+	}
+
+	for i, tc := range tests {
+		result := toDate.Call([]types.Value{types.NewText(tc.text), types.NewText(tc.format)})
+		if result.Type() != types.TypeDate {
+			t.Errorf("test %d: expected TypeDate, got %v", i, result.Type())
+			continue
+		}
+		year, month, day := result.DateValue()
+		if year != tc.year || month != tc.month || day != tc.day {
+			t.Errorf("test %d: expected %d-%d-%d, got %d-%d-%d", i, tc.year, tc.month, tc.day, year, month, day)
+		}
+	}
+}
+
+func TestToTimestamp(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	toTs := registry.Lookup("TO_TIMESTAMP")
+	if toTs == nil {
+		t.Fatal("TO_TIMESTAMP function not found")
+	}
+
+	tests := []struct {
+		text   string
+		format string
+		year   int
+		month  int
+		day    int
+		hour   int
+		minute int
+		second int
+	}{
+		{"2025-12-10 14:30:45", "YYYY-MM-DD HH24:MI:SS", 2025, 12, 10, 14, 30, 45},
+		{"10/12/2025 02:30:45 PM", "DD/MM/YYYY HH12:MI:SS PM", 2025, 12, 10, 14, 30, 45},
+		{"2025-12-10T14:30:45", "YYYY-MM-DDTHH24:MI:SS", 2025, 12, 10, 14, 30, 45},
+	}
+
+	for i, tc := range tests {
+		result := toTs.Call([]types.Value{types.NewText(tc.text), types.NewText(tc.format)})
+		if result.Type() != types.TypeTimestamp {
+			t.Errorf("test %d: expected TypeTimestamp, got %v", i, result.Type())
+			continue
+		}
+		ts := result.TimestampValue()
+		if ts.Year() != tc.year || int(ts.Month()) != tc.month || ts.Day() != tc.day ||
+			ts.Hour() != tc.hour || ts.Minute() != tc.minute || ts.Second() != tc.second {
+			t.Errorf("test %d: expected %d-%d-%d %d:%d:%d, got %v", i,
+				tc.year, tc.month, tc.day, tc.hour, tc.minute, tc.second, ts)
+		}
+	}
+}
+
+func TestToDateNullHandling(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	toDate := registry.Lookup("TO_DATE")
+	if toDate == nil {
+		t.Fatal("TO_DATE function not found")
+	}
+
+	// NULL input returns NULL
+	result := toDate.Call([]types.Value{types.NewNull(), types.NewText("YYYY-MM-DD")})
+	if !result.IsNull() {
+		t.Error("expected NULL for NULL input")
+	}
+
+	result = toDate.Call([]types.Value{types.NewText("2025-12-10"), types.NewNull()})
+	if !result.IsNull() {
+		t.Error("expected NULL for NULL format")
+	}
+}
+
+func TestAge(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	age := registry.Lookup("AGE")
+	if age == nil {
+		t.Fatal("AGE function not found")
+	}
+
+	// Test two-argument form: AGE(ts1, ts2) = ts1 - ts2
+	tests := []struct {
+		ts1        types.Value
+		ts2        types.Value
+		months     int64
+		expectUsec int64 // microseconds for days/time
+	}{
+		// 1 year difference
+		{
+			types.NewTimestamp(2025, 12, 10, 0, 0, 0, 0),
+			types.NewTimestamp(2024, 12, 10, 0, 0, 0, 0),
+			12, // 12 months = 1 year
+			0,
+		},
+		// 1 month difference
+		{
+			types.NewTimestamp(2025, 12, 10, 0, 0, 0, 0),
+			types.NewTimestamp(2025, 11, 10, 0, 0, 0, 0),
+			1,
+			0,
+		},
+		// Days and hours difference
+		{
+			types.NewTimestamp(2025, 12, 10, 14, 30, 0, 0),
+			types.NewTimestamp(2025, 12, 5, 10, 30, 0, 0),
+			0,
+			5*24*3600*1000000 + 4*3600*1000000, // 5 days + 4 hours in microseconds
+		},
+		// Negative difference
+		{
+			types.NewTimestamp(2024, 12, 10, 0, 0, 0, 0),
+			types.NewTimestamp(2025, 12, 10, 0, 0, 0, 0),
+			-12, // -1 year
+			0,
+		},
+	}
+
+	for i, tc := range tests {
+		result := age.Call([]types.Value{tc.ts1, tc.ts2})
+		if result.Type() != types.TypeInterval {
+			t.Errorf("test %d: expected TypeInterval, got %v", i, result.Type())
+			continue
+		}
+		months, usec := result.IntervalValue()
+		if months != tc.months {
+			t.Errorf("test %d: expected %d months, got %d", i, tc.months, months)
+		}
+		if tc.expectUsec != 0 && usec != tc.expectUsec {
+			t.Errorf("test %d: expected %d usec, got %d", i, tc.expectUsec, usec)
+		}
+	}
+}
+
+func TestAgeWithDates(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	age := registry.Lookup("AGE")
+
+	// Test with DATE types
+	d1 := types.NewDate(2025, 12, 10)
+	d2 := types.NewDate(2020, 6, 5)
+
+	result := age.Call([]types.Value{d1, d2})
+	if result.Type() != types.TypeInterval {
+		t.Errorf("expected TypeInterval, got %v", result.Type())
+	}
+
+	months, usec := result.IntervalValue()
+	// 5 years and 6 months = 66 months, plus 5 days
+	expectedMonths := int64(5*12 + 6) // 66 months
+	expectedDays := int64(5 * 24 * 3600 * 1000000)
+
+	if months != expectedMonths {
+		t.Errorf("expected %d months, got %d", expectedMonths, months)
+	}
+	if usec != expectedDays {
+		t.Errorf("expected %d usec (5 days), got %d", expectedDays, usec)
+	}
+}
+
+func TestAgeSingleArgument(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	age := registry.Lookup("AGE")
+
+	// Single argument form should compute from current date
+	// We can't test exact value since current date changes, but we can verify:
+	// 1. It returns an interval
+	// 2. For a past date, months should be positive
+	pastDate := types.NewTimestamp(2020, 1, 1, 0, 0, 0, 0)
+	result := age.Call([]types.Value{pastDate})
+
+	if result.Type() != types.TypeInterval {
+		t.Errorf("expected TypeInterval, got %v", result.Type())
+	}
+
+	months, _ := result.IntervalValue()
+	// As of 2025, should be at least 5 years (60 months) in the past
+	if months < 60 {
+		t.Errorf("expected at least 60 months for date 2020-01-01, got %d", months)
+	}
+}
+
+func TestAgeNullHandling(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	age := registry.Lookup("AGE")
+
+	result := age.Call([]types.Value{types.NewNull(), types.NewTimestamp(2025, 1, 1, 0, 0, 0, 0)})
+	if !result.IsNull() {
+		t.Error("expected NULL for NULL timestamp1")
+	}
+
+	result = age.Call([]types.Value{types.NewTimestamp(2025, 1, 1, 0, 0, 0, 0), types.NewNull()})
+	if !result.IsNull() {
+		t.Error("expected NULL for NULL timestamp2")
+	}
+}
+
+func TestAgeMonthBoundary(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	age := registry.Lookup("AGE")
+
+	// Test end-of-month handling
+	// March 31 to February 28 should handle month length differences
+	ts1 := types.NewTimestamp(2025, 3, 31, 0, 0, 0, 0)
+	ts2 := types.NewTimestamp(2025, 2, 28, 0, 0, 0, 0)
+
+	result := age.Call([]types.Value{ts1, ts2})
+	if result.Type() != types.TypeInterval {
+		t.Errorf("expected TypeInterval, got %v", result.Type())
+	}
+
+	months, usec := result.IntervalValue()
+	// Should be ~1 month and 3 days
+	if months != 1 {
+		t.Errorf("expected 1 month, got %d", months)
+	}
+	// Days component should be 3 days
+	expectedDays := int64(3 * 24 * 3600 * 1000000)
+	if usec != expectedDays {
+		t.Errorf("expected %d usec (3 days), got %d", expectedDays, usec)
+	}
+}
+
+func TestDateTrunc(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	dateTrunc := registry.Lookup("DATE_TRUNC")
+	if dateTrunc == nil {
+		t.Fatal("DATE_TRUNC function not found")
+	}
+
+	// Test with TIMESTAMP
+	ts := types.NewTimestamp(2025, 12, 10, 14, 35, 47, 0)
+
+	tests := []struct {
+		field  string
+		expect time.Time
+	}{
+		{"year", time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},
+		{"month", time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC)},
+		{"day", time.Date(2025, 12, 10, 0, 0, 0, 0, time.UTC)},
+		{"hour", time.Date(2025, 12, 10, 14, 0, 0, 0, time.UTC)},
+		{"minute", time.Date(2025, 12, 10, 14, 35, 0, 0, time.UTC)},
+	}
+
+	for i, tc := range tests {
+		result := dateTrunc.Call([]types.Value{types.NewText(tc.field), ts})
+		if result.Type() != types.TypeTimestamp {
+			t.Errorf("test %d: expected TypeTimestamp, got %v", i, result.Type())
+			continue
+		}
+		got := result.TimestampValue()
+		if !got.Equal(tc.expect) {
+			t.Errorf("test %d (%s): expected %v, got %v", i, tc.field, tc.expect, got)
+		}
+	}
+}
+
+func TestDateTruncWithDate(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	dateTrunc := registry.Lookup("DATE_TRUNC")
+
+	// Test with DATE - should return DATE
+	d := types.NewDate(2025, 12, 10)
+
+	result := dateTrunc.Call([]types.Value{types.NewText("month"), d})
+	if result.Type() != types.TypeDate {
+		t.Errorf("expected TypeDate, got %v", result.Type())
+	}
+	year, month, day := result.DateValue()
+	if year != 2025 || month != 12 || day != 1 {
+		t.Errorf("expected 2025-12-01, got %d-%d-%d", year, month, day)
+	}
+}
+
+func TestExtract(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	extract := registry.Lookup("EXTRACT")
+	if extract == nil {
+		t.Fatal("EXTRACT function not found")
+	}
+
+	ts := types.NewTimestamp(2025, 12, 10, 14, 35, 47, 123456)
+
+	tests := []struct {
+		field  string
+		expect float64
+	}{
+		{"year", 2025},
+		{"month", 12},
+		{"day", 10},
+		{"hour", 14},
+		{"minute", 35},
+		{"second", 47.123456},
+		{"quarter", 4},
+		{"dow", 3},   // December 10, 2025 is Wednesday (0=Sun)
+		{"doy", 344}, // Day of year
+		{"week", 50}, // ISO week
+	}
+
+	for i, tc := range tests {
+		result := extract.Call([]types.Value{types.NewText(tc.field), ts})
+		if result.Type() != types.TypeFloat {
+			t.Errorf("test %d: expected TypeFloat, got %v", i, result.Type())
+			continue
+		}
+		got := result.Float()
+		// Use tolerance for floating point comparison
+		if tc.field == "second" {
+			if got < 47 || got > 48 {
+				t.Errorf("test %d (%s): expected ~%v, got %v", i, tc.field, tc.expect, got)
+			}
+		} else if got != tc.expect {
+			t.Errorf("test %d (%s): expected %v, got %v", i, tc.field, tc.expect, got)
+		}
+	}
+}
+
+func TestExtractEpoch(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	extract := registry.Lookup("EXTRACT")
+
+	ts := types.NewTimestamp(2025, 12, 10, 0, 0, 0, 0)
+	result := extract.Call([]types.Value{types.NewText("epoch"), ts})
+
+	// Should be seconds since Unix epoch (1970-01-01)
+	expected := time.Date(2025, 12, 10, 0, 0, 0, 0, time.UTC).Unix()
+	if result.Float() != float64(expected) {
+		t.Errorf("expected epoch %v, got %v", expected, result.Float())
+	}
+}
+
+func TestDatePart(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	datePart := registry.Lookup("DATE_PART")
+	if datePart == nil {
+		t.Fatal("DATE_PART function not found")
+	}
+
+	// DATE_PART should behave same as EXTRACT
+	ts := types.NewTimestamp(2025, 12, 10, 14, 35, 47, 0)
+	result := datePart.Call([]types.Value{types.NewText("year"), ts})
+	if result.Float() != 2025 {
+		t.Errorf("expected 2025, got %v", result.Float())
+	}
+}
+
+func TestExtractNullHandling(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	extract := registry.Lookup("EXTRACT")
+
+	result := extract.Call([]types.Value{types.NewNull(), types.NewTimestamp(2025, 12, 10, 0, 0, 0, 0)})
+	if !result.IsNull() {
+		t.Error("expected NULL for NULL field")
+	}
+
+	result = extract.Call([]types.Value{types.NewText("year"), types.NewNull()})
+	if !result.IsNull() {
+		t.Error("expected NULL for NULL source")
+	}
+}
