@@ -389,3 +389,98 @@ func TestProfilerPhaseString(t *testing.T) {
 		}
 	}
 }
+
+// Tests for memory allocation statistics
+
+func TestProfilerMemoryStats(t *testing.T) {
+	profiler := NewProfiler()
+
+	// Simulate memory tracking during query execution
+	profiler.RecordAllocation(1024)      // 1KB allocation
+	profiler.RecordAllocation(2048)      // 2KB allocation
+	profiler.RecordDeallocation(1024)    // Free 1KB
+
+	stats := profiler.MemoryStats()
+
+	// Total allocated should be 3KB
+	if stats.TotalAllocated != 3072 {
+		t.Errorf("Expected TotalAllocated 3072, got %d", stats.TotalAllocated)
+	}
+
+	// Total freed should be 1KB
+	if stats.TotalFreed != 1024 {
+		t.Errorf("Expected TotalFreed 1024, got %d", stats.TotalFreed)
+	}
+
+	// Current usage should be 2KB
+	if stats.CurrentUsage != 2048 {
+		t.Errorf("Expected CurrentUsage 2048, got %d", stats.CurrentUsage)
+	}
+
+	// Allocation count should be 2
+	if stats.AllocationCount != 2 {
+		t.Errorf("Expected AllocationCount 2, got %d", stats.AllocationCount)
+	}
+}
+
+func TestProfilerPeakMemory(t *testing.T) {
+	profiler := NewProfiler()
+
+	// Allocate 4KB
+	profiler.RecordAllocation(4096)
+
+	// Allocate another 2KB (peak should be 6KB)
+	profiler.RecordAllocation(2048)
+
+	// Free 4KB (current is 2KB, but peak remains 6KB)
+	profiler.RecordDeallocation(4096)
+
+	stats := profiler.MemoryStats()
+
+	// Peak should be 6KB
+	if stats.PeakUsage != 6144 {
+		t.Errorf("Expected PeakUsage 6144, got %d", stats.PeakUsage)
+	}
+
+	// Current should be 2KB
+	if stats.CurrentUsage != 2048 {
+		t.Errorf("Expected CurrentUsage 2048, got %d", stats.CurrentUsage)
+	}
+}
+
+func TestProfilerMemoryReset(t *testing.T) {
+	profiler := NewProfiler()
+
+	profiler.RecordAllocation(1024)
+	profiler.RecordAllocation(2048)
+
+	stats := profiler.MemoryStats()
+	if stats.TotalAllocated == 0 {
+		t.Error("Expected non-zero allocations before reset")
+	}
+
+	profiler.Reset()
+
+	stats = profiler.MemoryStats()
+	if stats.TotalAllocated != 0 {
+		t.Errorf("Expected 0 allocations after reset, got %d", stats.TotalAllocated)
+	}
+	if stats.CurrentUsage != 0 {
+		t.Errorf("Expected 0 current usage after reset, got %d", stats.CurrentUsage)
+	}
+	if stats.PeakUsage != 0 {
+		t.Errorf("Expected 0 peak usage after reset, got %d", stats.PeakUsage)
+	}
+}
+
+func TestProfilerMemoryDisabled(t *testing.T) {
+	profiler := NewProfiler()
+	profiler.SetEnabled(false)
+
+	profiler.RecordAllocation(1024)
+
+	stats := profiler.MemoryStats()
+	if stats.TotalAllocated != 0 {
+		t.Errorf("Expected 0 allocations when disabled, got %d", stats.TotalAllocated)
+	}
+}

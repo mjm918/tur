@@ -43,6 +43,15 @@ type PhaseStats struct {
 	Duration time.Duration // Time spent in this phase
 }
 
+// MemoryStatsData holds memory allocation statistics.
+type MemoryStatsData struct {
+	TotalAllocated  int64 // Total bytes allocated
+	TotalFreed      int64 // Total bytes freed
+	CurrentUsage    int64 // Current memory usage (allocated - freed)
+	PeakUsage       int64 // Peak memory usage
+	AllocationCount int64 // Number of allocations
+}
+
 // OpcodeStats holds timing statistics for a single opcode type.
 type OpcodeStats struct {
 	Opcode    Opcode        // The opcode being tracked
@@ -59,6 +68,7 @@ type Profiler struct {
 	opcodeStats     map[Opcode]*opcodeStatsAccumulator
 	phaseStats      map[QueryPhase]*phaseStatsAccumulator
 	phaseStartTimes map[QueryPhase]time.Time
+	memoryStats     memoryStatsAccumulator
 	totalTime       time.Duration
 	executionStart  time.Time
 	enabled         bool
@@ -75,6 +85,15 @@ type opcodeStatsAccumulator struct {
 // phaseStatsAccumulator accumulates stats for query phases
 type phaseStatsAccumulator struct {
 	duration time.Duration
+}
+
+// memoryStatsAccumulator accumulates memory allocation statistics
+type memoryStatsAccumulator struct {
+	totalAllocated  int64
+	totalFreed      int64
+	currentUsage    int64
+	peakUsage       int64
+	allocationCount int64
 }
 
 // NewProfiler creates a new Profiler instance.
@@ -168,6 +187,7 @@ func (p *Profiler) Reset() {
 	p.opcodeStats = make(map[Opcode]*opcodeStatsAccumulator)
 	p.phaseStats = make(map[QueryPhase]*phaseStatsAccumulator)
 	p.phaseStartTimes = make(map[QueryPhase]time.Time)
+	p.memoryStats = memoryStatsAccumulator{}
 	p.totalTime = 0
 }
 
@@ -218,6 +238,49 @@ func (p *Profiler) PhaseStats() map[QueryPhase]PhaseStats {
 		}
 	}
 	return result
+}
+
+// RecordAllocation records a memory allocation of the given size in bytes.
+func (p *Profiler) RecordAllocation(bytes int64) {
+	if !p.enabled {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.memoryStats.totalAllocated += bytes
+	p.memoryStats.currentUsage += bytes
+	p.memoryStats.allocationCount++
+
+	if p.memoryStats.currentUsage > p.memoryStats.peakUsage {
+		p.memoryStats.peakUsage = p.memoryStats.currentUsage
+	}
+}
+
+// RecordDeallocation records a memory deallocation of the given size in bytes.
+func (p *Profiler) RecordDeallocation(bytes int64) {
+	if !p.enabled {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.memoryStats.totalFreed += bytes
+	p.memoryStats.currentUsage -= bytes
+}
+
+// MemoryStats returns a snapshot of the current memory statistics.
+func (p *Profiler) MemoryStats() MemoryStatsData {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return MemoryStatsData{
+		TotalAllocated:  p.memoryStats.totalAllocated,
+		TotalFreed:      p.memoryStats.totalFreed,
+		CurrentUsage:    p.memoryStats.currentUsage,
+		PeakUsage:       p.memoryStats.peakUsage,
+		AllocationCount: p.memoryStats.allocationCount,
+	}
 }
 
 // SetEnabled enables or disables profiling.

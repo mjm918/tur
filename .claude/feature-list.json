@@ -2540,7 +2540,7 @@
         },
         {
           "task": "Collect memory allocation statistics",
-          "done": false
+          "done": true
         },
         {
           "task": "Output profiling report after query execution",
