@@ -68,8 +68,12 @@ type DB struct {
 	closed bool
 }
 
+// MemoryPath is the special path that indicates an in-memory database
+const MemoryPath = ":memory:"
+
 // Open opens a database file and returns a new DB handle.
 // If the file does not exist, it will be created.
+// Use ":memory:" as the path to create an in-memory database.
 // The caller is responsible for calling Close when done.
 func Open(path string) (*DB, error) {
 	return OpenWithOptions(path, Options{})
@@ -88,7 +92,14 @@ type Options struct {
 }
 
 // OpenWithOptions opens a database file with the specified options.
+// Use ":memory:" as the path to create an in-memory database that
+// doesn't persist to disk and is lost when closed.
 func OpenWithOptions(path string, opts Options) (*DB, error) {
+	// Check for in-memory database
+	if path == MemoryPath {
+		return openInMemory(opts)
+	}
+
 	// Acquire exclusive lock on lock file to prevent concurrent access
 	lockPath := path + ".lock"
 	lf, err := os.OpenFile(lockPath, os.O_RDWR|os.O_CREATE, 0644)
@@ -121,6 +132,58 @@ func OpenWithOptions(path string, opts Options) (*DB, error) {
 	db := &DB{
 		path:        path,
 		lockFile:    lf,
+		pager:       p,
+		catalog:     schema.NewCatalog(),
+		trees:       make(map[string]*btree.BTree),
+		rowid:       make(map[string]uint64),
+		maxRowid:    make(map[string]int64),
+		txManager:   mvcc.NewTransactionManager(),
+		hnswIndexes: make(map[string]*hnsw.Index),
+		executor:    executor.New(p),
+		stmtCache:   make(map[string]*Stmt),
+		closed:      false,
+	}
+
+	return db, nil
+}
+
+// openInMemory creates a new in-memory database.
+// The database uses memory storage and no files are created on disk.
+// Data is lost when the database is closed.
+func openInMemory(opts Options) (*DB, error) {
+	pageSize := opts.PageSize
+	if pageSize == 0 {
+		pageSize = 4096 // Default page size
+	}
+
+	cacheSize := opts.CacheSize
+	if cacheSize == 0 {
+		cacheSize = 1000 // Default cache size
+	}
+
+	// Create in-memory storage
+	storage, err := pager.NewMemoryStorage(int64(pageSize))
+	if err != nil {
+		return nil, err
+	}
+
+	// Configure pager options
+	pagerOpts := pager.Options{
+		PageSize:  pageSize,
+		CacheSize: cacheSize,
+		ReadOnly:  opts.ReadOnly,
+	}
+
+	// Open pager with in-memory storage
+	p, err := pager.OpenWithStorage(storage, pagerOpts)
+	if err != nil {
+		storage.Close()
+		return nil, err
+	}
+
+	db := &DB{
+		path:        MemoryPath,
+		lockFile:    nil, // No lock file for in-memory
 		pager:       p,
 		catalog:     schema.NewCatalog(),
 		trees:       make(map[string]*btree.BTree),
@@ -183,6 +246,13 @@ func (db *DB) IsClosed() bool {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 	return db.closed
+}
+
+// IsInMemory returns true if this is an in-memory database.
+func (db *DB) IsInMemory() bool {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	return db.path == MemoryPath
 }
 
 // Pager returns the underlying pager for advanced operations.
