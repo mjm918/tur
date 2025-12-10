@@ -358,6 +358,14 @@ type RaiseExpr struct {
 
 func (r *RaiseExpr) expressionNode() {}
 
+// ValuesFunc represents the VALUES(column) function used in ON DUPLICATE KEY UPDATE
+// It references the value that would have been inserted for the specified column
+type ValuesFunc struct {
+	ColumnName string
+}
+
+func (v *ValuesFunc) expressionNode() {}
+
 // PragmaStmt represents a PRAGMA statement
 type PragmaStmt struct {
 	Name  string     // PRAGMA name (e.g., cache_size, journal_mode)
