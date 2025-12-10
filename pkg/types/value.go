@@ -1,6 +1,8 @@
 // pkg/types/value.go
 package types
 
+import "time"
+
 // ValueType represents the type of a database value
 type ValueType int
 
@@ -11,16 +13,33 @@ const (
 	TypeText
 	TypeBlob
 	TypeVector
+	TypeDate        // Calendar date without time
+	TypeTime        // Time of day without timezone
+	TypeTimeTZ      // Time with timezone offset
+	TypeTimestamp   // Date and time without timezone
+	TypeTimestampTZ // Date and time in UTC
+	TypeInterval    // Duration for date arithmetic
 )
+
+// IntervalValue represents a duration for date arithmetic
+type IntervalValue struct {
+	Months       int64 // Months component
+	Microseconds int64 // Microseconds component (days, hours, minutes, seconds, microseconds)
+}
 
 // Value represents a database value (like SQLite's Mem structure)
 type Value struct {
-	typ       ValueType
-	intVal    int64
-	floatVal  float64
-	textVal   string
-	blobVal   []byte
-	vectorVal *Vector
+	typ          ValueType
+	intVal       int64
+	floatVal     float64
+	textVal      string
+	blobVal      []byte
+	vectorVal    *Vector
+	dateVal      int32         // Days since 2000-01-01 for DATE
+	timeVal      int64         // Microseconds since midnight for TIME
+	tzOffsetVal  int32         // Timezone offset in seconds for TIMETZ
+	timestampVal time.Time     // For TIMESTAMP and TIMESTAMPTZ
+	intervalVal  IntervalValue // For INTERVAL
 }
 
 func NewNull() Value {
@@ -68,4 +87,95 @@ func (v Value) Blob() []byte {
 
 func (v Value) Vector() *Vector {
 	return v.vectorVal
+}
+
+// NewDate creates a new DATE value (days since PostgreSQL epoch 2000-01-01)
+func NewDate(year, month, day int) Value {
+	// PostgreSQL epoch: 2000-01-01
+	epoch := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	date := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	days := int32(date.Sub(epoch).Hours() / 24)
+	return Value{typ: TypeDate, dateVal: days}
+}
+
+// DateValue returns the date components (year, month, day)
+func (v Value) DateValue() (year, month, day int) {
+	epoch := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	date := epoch.AddDate(0, 0, int(v.dateVal))
+	return date.Year(), int(date.Month()), date.Day()
+}
+
+// NewTime creates a new TIME value (microseconds since midnight)
+func NewTime(hour, minute, second, microsecond int) Value {
+	usec := int64(hour)*3600*1000000 + int64(minute)*60*1000000 + int64(second)*1000000 + int64(microsecond)
+	return Value{typ: TypeTime, timeVal: usec}
+}
+
+// TimeValue returns the time components (hour, minute, second, microsecond)
+func (v Value) TimeValue() (hour, minute, second, microsecond int) {
+	usec := v.timeVal
+	hour = int(usec / (3600 * 1000000))
+	usec -= int64(hour) * 3600 * 1000000
+	minute = int(usec / (60 * 1000000))
+	usec -= int64(minute) * 60 * 1000000
+	second = int(usec / 1000000)
+	usec -= int64(second) * 1000000
+	microsecond = int(usec)
+	return
+}
+
+// NewTimeTZ creates a new TIMETZ value (time with timezone offset in seconds)
+func NewTimeTZ(hour, minute, second, microsecond, offsetSeconds int) Value {
+	usec := int64(hour)*3600*1000000 + int64(minute)*60*1000000 + int64(second)*1000000 + int64(microsecond)
+	return Value{typ: TypeTimeTZ, timeVal: usec, tzOffsetVal: int32(offsetSeconds)}
+}
+
+// TimeTZValue returns the time components with timezone offset (hour, minute, second, microsecond, offsetSeconds)
+func (v Value) TimeTZValue() (hour, minute, second, microsecond, offsetSeconds int) {
+	usec := v.timeVal
+	hour = int(usec / (3600 * 1000000))
+	usec -= int64(hour) * 3600 * 1000000
+	minute = int(usec / (60 * 1000000))
+	usec -= int64(minute) * 60 * 1000000
+	second = int(usec / 1000000)
+	usec -= int64(second) * 1000000
+	microsecond = int(usec)
+	offsetSeconds = int(v.tzOffsetVal)
+	return
+}
+
+// NewTimestamp creates a new TIMESTAMP value (datetime without timezone)
+func NewTimestamp(year, month, day, hour, minute, second, microsecond int) Value {
+	t := time.Date(year, time.Month(month), day, hour, minute, second, microsecond*1000, time.UTC)
+	return Value{typ: TypeTimestamp, timestampVal: t}
+}
+
+// TimestampValue returns the timestamp as a Go time.Time
+func (v Value) TimestampValue() time.Time {
+	return v.timestampVal
+}
+
+// NewTimestampTZ creates a new TIMESTAMPTZ value (datetime in UTC)
+func NewTimestampTZ(t time.Time) Value {
+	// Convert to UTC for storage
+	utc := t.UTC()
+	return Value{typ: TypeTimestampTZ, timestampVal: utc}
+}
+
+// TimestampTZValue returns the timestamptz as a Go time.Time in UTC
+func (v Value) TimestampTZValue() time.Time {
+	return v.timestampVal
+}
+
+// NewInterval creates a new INTERVAL value (months + microseconds)
+func NewInterval(months, microseconds int64) Value {
+	return Value{
+		typ:         TypeInterval,
+		intervalVal: IntervalValue{Months: months, Microseconds: microseconds},
+	}
+}
+
+// IntervalValue returns the interval components (months, microseconds)
+func (v Value) IntervalValue() (months, microseconds int64) {
+	return v.intervalVal.Months, v.intervalVal.Microseconds
 }
