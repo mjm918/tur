@@ -42,15 +42,16 @@ type cacheEntry struct {
 // Pager manages database pages and caching
 type Pager struct {
 	mu        sync.RWMutex
-	mmap      *MmapFile
-	path      string // Database file path
+	storage   Storage   // Storage backend (file or memory)
+	mmap      *MmapFile // For backward compatibility (nil for in-memory)
+	path      string    // Database file path (empty for in-memory)
 	pageSize  int
 	pageCount uint32
 	cache     map[uint32]*cacheEntry
 	lru       *list.List // LRU list (front = most recent)
 	cacheSize int
 
-	// WAL support
+	// WAL support (nil for in-memory databases)
 	wal           *wal.WAL
 	inTransaction bool
 	dirtyPages    map[uint32][]byte // Page number -> original data (for rollback)
@@ -60,6 +61,9 @@ type Pager struct {
 
 	// Memory budget tracking
 	memoryBudget *cache.MemoryBudget
+
+	// inMemory indicates this is an in-memory database (no WAL, no persistence)
+	inMemory bool
 }
 
 // Transaction represents an active write transaction
@@ -91,7 +95,8 @@ func OpenWithBudget(path string, opts Options, budget *cache.MemoryBudget) (*Pag
 	}
 
 	p := &Pager{
-		mmap:         mf,
+		storage:      mf, // MmapFile implements Storage interface
+		mmap:         mf, // Keep for backward compatibility
 		path:         path,
 		pageSize:     pageSize,
 		cache:        make(map[uint32]*cacheEntry),
@@ -100,6 +105,7 @@ func OpenWithBudget(path string, opts Options, budget *cache.MemoryBudget) (*Pag
 		dirtyPages:   make(map[uint32][]byte),
 		freelist:     NewFreelist(pageSize),
 		memoryBudget: budget,
+		inMemory:     false,
 	}
 
 	// Register with memory budget if provided
@@ -147,9 +153,149 @@ func OpenWithBudget(path string, opts Options, budget *cache.MemoryBudget) (*Pag
 	return p, nil
 }
 
+// OpenWithStorage creates a pager using a custom storage backend.
+// This is used for in-memory databases where no disk I/O is needed.
+// For in-memory storage, no WAL is created since persistence is not required.
+func OpenWithStorage(storage Storage, opts Options) (*Pager, error) {
+	return OpenWithStorageAndBudget(storage, opts, nil)
+}
+
+// OpenWithStorageAndBudget creates a pager using a custom storage backend with memory budget tracking.
+func OpenWithStorageAndBudget(storage Storage, opts Options, budget *cache.MemoryBudget) (*Pager, error) {
+	pageSize := opts.PageSize
+	if pageSize == 0 {
+		pageSize = defaultPageSize
+	}
+
+	cacheSize := opts.CacheSize
+	if cacheSize == 0 {
+		cacheSize = 1000
+	}
+
+	// Ensure storage is large enough for at least one page
+	if storage.Size() < int64(pageSize) {
+		if err := storage.Grow(int64(pageSize)); err != nil {
+			return nil, err
+		}
+	}
+
+	// Check if this is a MemoryStorage (in-memory database)
+	_, isMemory := storage.(*MemoryStorage)
+
+	p := &Pager{
+		storage:      storage,
+		path:         "", // No path for in-memory
+		pageSize:     pageSize,
+		cache:        make(map[uint32]*cacheEntry),
+		lru:          list.New(),
+		cacheSize:    cacheSize,
+		dirtyPages:   make(map[uint32][]byte),
+		freelist:     NewFreelist(pageSize),
+		memoryBudget: budget,
+		inMemory:     isMemory,
+	}
+
+	// Register with memory budget if provided
+	if budget != nil {
+		budget.RegisterComponent("page_cache")
+	}
+
+	// Check if this is a new storage or existing database
+	header := storage.Slice(0, headerSize)
+	if header != nil && string(header[0:len(magicString)]) == magicString {
+		// Existing database - read header
+		p.pageSize = int(binary.LittleEndian.Uint32(header[16:20]))
+		p.pageCount = binary.LittleEndian.Uint32(header[20:24])
+
+		// Load freelist from header
+		freelistHead := GetFreelistHead(header)
+		freePageCount := GetFreePageCount(header)
+		p.loadFreelistFromStorage(freelistHead, freePageCount)
+	} else {
+		// New database - initialize header
+		p.pageCount = 1 // Header page is page 0
+		p.writeHeaderToStorage()
+	}
+
+	// No WAL for in-memory databases - transactions use dirtyPages for rollback
+
+	return p, nil
+}
+
+// HasWAL returns true if the pager has an active WAL.
+// In-memory databases do not use WAL.
+func (p *Pager) HasWAL() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.wal != nil
+}
+
+// IsInMemory returns true if this is an in-memory database.
+func (p *Pager) IsInMemory() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.inMemory
+}
+
+// writeHeaderToStorage writes the database header to the storage backend
+func (p *Pager) writeHeaderToStorage() {
+	header := p.storage.Slice(0, headerSize)
+	if header == nil {
+		return
+	}
+	copy(header[0:16], magicString)
+	binary.LittleEndian.PutUint32(header[16:20], uint32(p.pageSize))
+	binary.LittleEndian.PutUint32(header[20:24], p.pageCount)
+
+	// Write freelist info to header
+	if p.freelist != nil {
+		PutFreelistHead(header, p.freelist.HeadPage())
+		PutFreePageCount(header, p.freelist.FreeCount())
+	}
+}
+
+// loadFreelistFromStorage loads the freelist from storage on database open
+func (p *Pager) loadFreelistFromStorage(headPage uint32, freeCount uint32) {
+	if headPage == 0 || freeCount == 0 {
+		return
+	}
+
+	p.freelist.trunks = nil
+	p.freelist.headPage = headPage
+	p.freelist.freeCount = freeCount
+
+	currentTrunkPage := headPage
+	for currentTrunkPage != 0 {
+		offset := int(currentTrunkPage) * p.pageSize
+		data := p.storage.Slice(offset, p.pageSize)
+		if data == nil {
+			break
+		}
+
+		trunk := DecodeFreelistTrunkPage(data)
+		p.freelist.trunks = append(p.freelist.trunks, trunk)
+		currentTrunkPage = trunk.NextTrunk
+	}
+}
+
+// getStorage returns the storage backend (storage interface takes precedence over mmap)
+func (p *Pager) getStorage() Storage {
+	if p.storage != nil {
+		return p.storage
+	}
+	return p.mmap
+}
+
 // writeHeader writes the database header to page 0
 func (p *Pager) writeHeader() {
-	header := p.mmap.Slice(0, headerSize)
+	storage := p.getStorage()
+	if storage == nil {
+		return
+	}
+	header := storage.Slice(0, headerSize)
+	if header == nil {
+		return
+	}
 	copy(header[0:16], magicString)
 	binary.LittleEndian.PutUint32(header[16:20], uint32(p.pageSize))
 	binary.LittleEndian.PutUint32(header[20:24], p.pageCount)
@@ -189,32 +335,39 @@ func (p *Pager) Allocate() (*Page, error) {
 		}
 	}
 
-	// Freelist empty - grow the file
+	// Freelist empty - grow the storage
 	pageNo = p.pageCount
 	p.pageCount++
 
-	// Ensure file is large enough
+	storage := p.getStorage()
+	if storage == nil {
+		return nil, errors.New("no storage backend available")
+	}
+
+	// Ensure storage is large enough
 	requiredSize := int64(p.pageCount) * int64(p.pageSize)
-	if requiredSize > p.mmap.Size() {
+	if requiredSize > storage.Size() {
 		// Grow by at least 10% or to required size
-		newSize := p.mmap.Size() + p.mmap.Size()/10
+		newSize := storage.Size() + storage.Size()/10
 		if newSize < requiredSize {
 			newSize = requiredSize
 		}
-		if err := p.mmap.Grow(newSize); err != nil {
+		if err := storage.Grow(newSize); err != nil {
 			return nil, err
 		}
-		// After remap, all cached page data slices are invalid
-		// Clear the cache to force re-fetching from new mmap
-		p.invalidateCache()
+		// After grow, cached page data slices may be invalid (for mmap)
+		// Clear the cache to force re-fetching
+		if !p.inMemory {
+			p.invalidateCache()
+		}
 	}
 
 	// Update header with new page count
 	p.writeHeader()
 
-	// Create page backed by mmap
+	// Create page backed by storage
 	offset := int(pageNo) * p.pageSize
-	data := p.mmap.Slice(offset, p.pageSize)
+	data := storage.Slice(offset, p.pageSize)
 	page := NewPageWithData(pageNo, data)
 	page.Pin()
 
@@ -236,10 +389,15 @@ func (p *Pager) Allocate() (*Page, error) {
 	return page, nil
 }
 
-// allocateFromFreelistPersistent allocates a page from the freelist and updates disk.
+// allocateFromFreelistPersistent allocates a page from the freelist and updates storage.
 // Returns leaf pages first (LIFO), then trunk pages when empty.
 func (p *Pager) allocateFromFreelistPersistent() (uint32, bool) {
 	if len(p.freelist.trunks) == 0 {
+		return 0, false
+	}
+
+	storage := p.getStorage()
+	if storage == nil {
 		return 0, false
 	}
 
@@ -250,9 +408,9 @@ func (p *Pager) allocateFromFreelistPersistent() (uint32, bool) {
 	if leafPage, ok := trunk.PopLeaf(); ok {
 		p.freelist.freeCount--
 
-		// Update trunk on disk
+		// Update trunk on storage
 		offset := int(currentHead) * p.pageSize
-		data := p.mmap.Slice(offset, p.pageSize)
+		data := storage.Slice(offset, p.pageSize)
 		trunk.Encode(data)
 
 		// Update header
@@ -271,9 +429,9 @@ func (p *Pager) allocateFromFreelistPersistent() (uint32, bool) {
 		p.freelist.trunks = p.freelist.trunks[1:]
 		p.freelist.headPage = nextTrunk
 	} else if nextTrunk != 0 {
-		// Load next trunk from disk
+		// Load next trunk from storage
 		offset := int(nextTrunk) * p.pageSize
-		data := p.mmap.Slice(offset, p.pageSize)
+		data := storage.Slice(offset, p.pageSize)
 		loadedTrunk := DecodeFreelistTrunkPage(data)
 		p.freelist.trunks = []*FreelistTrunkPage{loadedTrunk}
 		p.freelist.headPage = nextTrunk
@@ -309,9 +467,14 @@ func (p *Pager) Get(pageNo uint32) (*Page, error) {
 		return nil, ErrPageNotFound
 	}
 
-	// Load from mmap
+	storage := p.getStorage()
+	if storage == nil {
+		return nil, ErrPageNotFound
+	}
+
+	// Load from storage
 	offset := int(pageNo) * p.pageSize
-	data := p.mmap.Slice(offset, p.pageSize)
+	data := storage.Slice(offset, p.pageSize)
 	if data == nil {
 		return nil, ErrPageNotFound
 	}
@@ -394,13 +557,17 @@ func (p *Pager) Release(page *Page) {
 	page.Unpin()
 }
 
-// Sync flushes all changes to disk
+// Sync flushes all changes to storage
 func (p *Pager) Sync() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	p.writeHeader()
-	return p.mmap.Sync()
+	storage := p.getStorage()
+	if storage == nil {
+		return nil
+	}
+	return storage.Sync()
 }
 
 // Close closes the pager
@@ -416,13 +583,18 @@ func (p *Pager) Close() error {
 	// Write header before closing
 	p.writeHeader()
 
-	// Sync and close mmap
-	if err := p.mmap.Sync(); err != nil {
-		p.mmap.Close()
+	storage := p.getStorage()
+	if storage == nil {
+		return nil
+	}
+
+	// Sync and close storage
+	if err := storage.Sync(); err != nil {
+		storage.Close()
 		return err
 	}
 
-	return p.mmap.Close()
+	return storage.Close()
 }
 
 // BeginWrite starts a write transaction
@@ -447,7 +619,7 @@ func (p *Pager) InTransaction() bool {
 	return p.inTransaction
 }
 
-// Commit commits the transaction, writing dirty pages to WAL
+// Commit commits the transaction, writing dirty pages to WAL (or just clearing dirty flags for in-memory)
 func (tx *Transaction) Commit() error {
 	p := tx.pager
 	p.mu.Lock()
@@ -455,6 +627,20 @@ func (tx *Transaction) Commit() error {
 
 	if !p.inTransaction {
 		return ErrNoTransaction
+	}
+
+	// For in-memory databases, we skip WAL - data is already in memory
+	// Just clear dirty flags
+	if p.inMemory || p.wal == nil {
+		for pageNo := range p.dirtyPages {
+			entry, ok := p.cache[pageNo]
+			if ok && entry.page.IsDirty() {
+				entry.page.SetDirty(false)
+			}
+		}
+		p.inTransaction = false
+		p.dirtyPages = make(map[uint32][]byte)
+		return nil
 	}
 
 	// Write all dirty pages to WAL
@@ -473,11 +659,6 @@ func (tx *Transaction) Commit() error {
 			}
 			entry.page.SetDirty(false)
 		}
-	}
-
-	// If no dirty pages but transaction was started, write a sync point
-	if dirtyCount == 0 {
-		// Nothing to do
 	}
 
 	// Clear transaction state
@@ -562,11 +743,16 @@ func (p *Pager) Free(pageNo uint32) error {
 	return nil
 }
 
-// addToFreelistPersistent adds a page to the freelist and persists to disk.
+// addToFreelistPersistent adds a page to the freelist and persists to storage.
 // We use a simpler approach: the first freed page becomes a trunk, and
 // subsequent freed pages are added as leaf entries in that trunk.
 // When the trunk is full, we allocate a new trunk from the freelist itself.
 func (p *Pager) addToFreelistPersistent(pageNo uint32) {
+	storage := p.getStorage()
+	if storage == nil {
+		return
+	}
+
 	// Get current head trunk
 	currentHead := p.freelist.HeadPage()
 
@@ -579,7 +765,7 @@ func (p *Pager) addToFreelistPersistent(pageNo uint32) {
 		}
 		// Write trunk to the freed page
 		offset := int(pageNo) * p.pageSize
-		data := p.mmap.Slice(offset, p.pageSize)
+		data := storage.Slice(offset, p.pageSize)
 		trunk.Encode(data)
 
 		// Update in-memory freelist - the trunk page itself is a free page
@@ -597,9 +783,9 @@ func (p *Pager) addToFreelistPersistent(pageNo uint32) {
 			trunk.AddLeaf(pageNo)
 			p.freelist.freeCount++
 
-			// Write updated trunk to disk
+			// Write updated trunk to storage
 			offset := int(currentHead) * p.pageSize
-			data := p.mmap.Slice(offset, p.pageSize)
+			data := storage.Slice(offset, p.pageSize)
 			trunk.Encode(data)
 			return
 		}
@@ -614,7 +800,7 @@ func (p *Pager) addToFreelistPersistent(pageNo uint32) {
 
 		// Write new trunk to the freed page
 		offset := int(pageNo) * p.pageSize
-		data := p.mmap.Slice(offset, p.pageSize)
+		data := storage.Slice(offset, p.pageSize)
 		newTrunk.Encode(data)
 
 		// Update in-memory freelist
@@ -651,9 +837,14 @@ func (p *Pager) getPageLocked(pageNo uint32) (*Page, error) {
 		return nil, ErrPageNotFound
 	}
 
-	// Load from mmap
+	storage := p.getStorage()
+	if storage == nil {
+		return nil, ErrPageNotFound
+	}
+
+	// Load from storage
 	offset := int(pageNo) * p.pageSize
-	data := p.mmap.Slice(offset, p.pageSize)
+	data := storage.Slice(offset, p.pageSize)
 	if data == nil {
 		return nil, ErrPageNotFound
 	}
@@ -676,7 +867,8 @@ func (p *Pager) getPageLocked(pageNo uint32) (*Page, error) {
 	return page, nil
 }
 
-// loadFreelist loads the freelist from disk on database open
+// loadFreelist loads the freelist from storage on database open
+// This is used by file-based databases (uses mmap directly for backward compat)
 func (p *Pager) loadFreelist(headPage uint32, freeCount uint32) {
 	if headPage == 0 || freeCount == 0 {
 		// No freelist to load
@@ -691,10 +883,15 @@ func (p *Pager) loadFreelist(headPage uint32, freeCount uint32) {
 	// Walk the trunk page chain and load all trunks
 	currentTrunkPage := headPage
 
+	storage := p.getStorage()
+	if storage == nil {
+		return
+	}
+
 	for currentTrunkPage != 0 {
-		// Read trunk page data from mmap
+		// Read trunk page data from storage
 		offset := int(currentTrunkPage) * p.pageSize
-		data := p.mmap.Slice(offset, p.pageSize)
+		data := storage.Slice(offset, p.pageSize)
 		if data == nil {
 			break
 		}
