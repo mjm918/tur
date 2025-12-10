@@ -1464,46 +1464,46 @@
     {
       "title": "Vector Extensions - Cosine Similarity",
       "description": "Default distance metric using normalized vectors",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Implement dot product for normalized vectors",
-          "done": false
+          "done": true
         },
         {
           "task": "Convert similarity to distance (1 - similarity)",
-          "done": false
+          "done": true
         },
         {
           "task": "Use cosine distance in HNSW search by default",
-          "done": false
+          "done": true
         }
       ]
     },
     {
       "title": "Vector Extensions - Multiple Distance Metrics",
       "description": "Support for Euclidean, Manhattan, and other distance metrics",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Add distance metric enum (Cosine, Euclidean, Manhattan)",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement Euclidean distance (L2) function",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement Manhattan distance (L1) function",
-          "done": false
+          "done": true
         },
         {
           "task": "Allow metric selection in vector_quantize parameters",
-          "done": false
+          "done": true
         },
         {
           "task": "Store distance metric in HNSW index metadata",
-          "done": false
+          "done": true
         }
       ]
     },
