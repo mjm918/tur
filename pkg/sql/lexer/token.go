@@ -172,6 +172,12 @@ const (
 
 	// Upsert keywords
 	DUPLICATE
+
+	// CASE expression keywords
+	CASE
+	WHEN
+	THEN
+	ELSE_KW
 )
 
 // Token represents a lexical token
@@ -422,6 +428,14 @@ func (t TokenType) String() string {
 		return "NONORMALIZE"
 	case DUPLICATE:
 		return "DUPLICATE"
+	case CASE:
+		return "CASE"
+	case WHEN:
+		return "WHEN"
+	case THEN:
+		return "THEN"
+	case ELSE_KW:
+		return "ELSE"
 	default:
 		return "UNKNOWN"
 	}
@@ -526,6 +540,10 @@ var keywords = map[string]TokenType{
 	"IGNORE":      IGNORE,
 	"NONORMALIZE": NONORMALIZE,
 	"DUPLICATE":   DUPLICATE,
+	"CASE":        CASE,
+	"WHEN":        WHEN,
+	"THEN":        THEN,
+	"ELSE":        ELSE_KW,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT

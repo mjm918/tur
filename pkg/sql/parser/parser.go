@@ -1537,6 +1537,8 @@ func (p *Parser) parseExpression(precedence int) (Expression, error) {
 		!p.peekIs(lexer.COMMA) && !p.peekIs(lexer.ASC) && !p.peekIs(lexer.DESC) &&
 		!p.peekIs(lexer.ORDER) && !p.peekIs(lexer.LIMIT) && !p.peekIs(lexer.OFFSET) &&
 		!p.peekIs(lexer.GROUP) && !p.peekIs(lexer.HAVING) &&
+		// Stop on CASE expression keywords
+		!p.peekIs(lexer.WHEN) && !p.peekIs(lexer.THEN) && !p.peekIs(lexer.ELSE_KW) && !p.peekIs(lexer.END) &&
 		precedence < p.peekPrecedence() {
 		p.nextToken()
 		left, err = p.parseInfixExpression(left)
@@ -1570,6 +1572,8 @@ func (p *Parser) parsePrefixExpression() (Expression, error) {
 	case lexer.EXISTS:
 		// EXISTS (SELECT ...)
 		return p.parseExistsExpression(false)
+	case lexer.CASE:
+		return p.parseCaseExpression()
 	case lexer.NOT:
 		// Could be NOT EXISTS or NOT followed by expression
 		if p.peekIs(lexer.EXISTS) {
@@ -2077,6 +2081,79 @@ func (p *Parser) parseExistsExpression(notExists bool) (Expression, error) {
 		Not:      notExists,
 		Subquery: selectStmt,
 	}, nil
+}
+
+// parseCaseExpression parses CASE expressions:
+// Searched form: CASE WHEN condition THEN result [WHEN ...] [ELSE result] END
+// Simple form: CASE operand WHEN value THEN result [WHEN ...] [ELSE result] END
+func (p *Parser) parseCaseExpression() (Expression, error) {
+	caseExpr := &CaseExpr{}
+
+	// Check if this is a simple CASE (with operand) or searched CASE
+	// If next token is WHEN, it's a searched CASE
+	// Otherwise, parse the operand for a simple CASE
+	if !p.peekIs(lexer.WHEN) {
+		p.nextToken() // move to operand
+		operand, err := p.parseExpression(LOWEST)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing CASE operand: %w", err)
+		}
+		caseExpr.Operand = operand
+	}
+
+	// Parse WHEN clauses
+	for p.peekIs(lexer.WHEN) {
+		p.nextToken() // consume WHEN
+		p.nextToken() // move to condition/value
+
+		whenClause := &WhenClause{}
+
+		// Parse condition/value
+		condition, err := p.parseExpression(LOWEST)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing WHEN condition: %w", err)
+		}
+		whenClause.Condition = condition
+
+		// Expect THEN
+		if !p.expectPeek(lexer.THEN) {
+			return nil, fmt.Errorf("expected THEN after WHEN condition, got %s", p.peek.Literal)
+		}
+		p.nextToken() // move to THEN result
+
+		// Parse THEN result
+		thenResult, err := p.parseExpression(LOWEST)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing THEN result: %w", err)
+		}
+		whenClause.Then = thenResult
+
+		caseExpr.Whens = append(caseExpr.Whens, whenClause)
+	}
+
+	// Must have at least one WHEN clause
+	if len(caseExpr.Whens) == 0 {
+		return nil, fmt.Errorf("CASE expression must have at least one WHEN clause")
+	}
+
+	// Parse optional ELSE clause
+	if p.peekIs(lexer.ELSE_KW) {
+		p.nextToken() // consume ELSE
+		p.nextToken() // move to ELSE result
+
+		elseResult, err := p.parseExpression(LOWEST)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing ELSE result: %w", err)
+		}
+		caseExpr.Else = elseResult
+	}
+
+	// Expect END
+	if !p.expectPeek(lexer.END) {
+		return nil, fmt.Errorf("expected END to close CASE expression, got %s", p.peek.Literal)
+	}
+
+	return caseExpr, nil
 }
 
 // parseInExpression parses: expr IN (...) or expr NOT IN (...)

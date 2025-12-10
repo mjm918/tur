@@ -450,6 +450,23 @@ type ExistsExpr struct {
 
 func (e *ExistsExpr) expressionNode() {}
 
+// WhenClause represents a WHEN clause in a CASE expression
+type WhenClause struct {
+	Condition Expression // WHEN condition (searched CASE) or value (simple CASE)
+	Then      Expression // THEN result
+}
+
+// CaseExpr represents a CASE expression
+// Searched form: CASE WHEN condition THEN result [WHEN ...] [ELSE result] END
+// Simple form: CASE operand WHEN value THEN result [WHEN ...] [ELSE result] END
+type CaseExpr struct {
+	Operand Expression    // nil for searched CASE, expression for simple CASE
+	Whens   []*WhenClause // List of WHEN clauses
+	Else    Expression    // ELSE result (nil if no ELSE)
+}
+
+func (c *CaseExpr) expressionNode() {}
+
 // DerivedTable represents a subquery used as a table reference in FROM clause
 type DerivedTable struct {
 	Subquery *SelectStmt // The SELECT statement

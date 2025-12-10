@@ -2504,6 +2504,8 @@ func (e *Executor) evaluateExpr(expr parser.Expression, rowValues []types.Value,
 			}
 		}
 		return types.NewNull(), nil
+	case *parser.CaseExpr:
+		return e.evaluateCaseExpr(ex, rowValues, colMap)
 	default:
 		return types.NewNull(), fmt.Errorf("unsupported expression type: %T", expr)
 	}
@@ -2670,6 +2672,63 @@ func (e *Executor) evaluateExistsExpr(expr *parser.ExistsExpr, rowValues []types
 		return !exists, nil
 	}
 	return exists, nil
+}
+
+// evaluateCaseExpr evaluates a CASE expression
+// Searched form: CASE WHEN condition THEN result [WHEN ...] [ELSE result] END
+// Simple form: CASE operand WHEN value THEN result [WHEN ...] [ELSE result] END
+func (e *Executor) evaluateCaseExpr(expr *parser.CaseExpr, rowValues []types.Value, colMap map[string]int) (types.Value, error) {
+	// Evaluate operand if this is a simple CASE
+	var operand types.Value
+	if expr.Operand != nil {
+		var err error
+		operand, err = e.evaluateExpr(expr.Operand, rowValues, colMap)
+		if err != nil {
+			return types.NewNull(), fmt.Errorf("error evaluating CASE operand: %w", err)
+		}
+	}
+
+	// Evaluate each WHEN clause
+	for _, when := range expr.Whens {
+		var matched bool
+
+		if expr.Operand != nil {
+			// Simple CASE: compare operand to each WHEN value
+			whenVal, err := e.evaluateExpr(when.Condition, rowValues, colMap)
+			if err != nil {
+				return types.NewNull(), fmt.Errorf("error evaluating WHEN value: %w", err)
+			}
+			matched = valuesEqual(operand, whenVal)
+		} else {
+			// Searched CASE: evaluate WHEN condition as boolean
+			condResult, err := e.evaluateCondition(when.Condition, rowValues, colMap)
+			if err != nil {
+				return types.NewNull(), fmt.Errorf("error evaluating WHEN condition: %w", err)
+			}
+			matched = condResult
+		}
+
+		if matched {
+			// Evaluate and return the THEN result
+			result, err := e.evaluateExpr(when.Then, rowValues, colMap)
+			if err != nil {
+				return types.NewNull(), fmt.Errorf("error evaluating THEN result: %w", err)
+			}
+			return result, nil
+		}
+	}
+
+	// No WHEN matched - return ELSE result or NULL
+	if expr.Else != nil {
+		result, err := e.evaluateExpr(expr.Else, rowValues, colMap)
+		if err != nil {
+			return types.NewNull(), fmt.Errorf("error evaluating ELSE result: %w", err)
+		}
+		return result, nil
+	}
+
+	// No ELSE clause - return NULL
+	return types.NewNull(), nil
 }
 
 // executeSelectWithContext executes a SELECT statement with outer row context for correlated subqueries
