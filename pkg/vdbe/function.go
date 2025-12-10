@@ -222,6 +222,41 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Function: builtinRPad,
 	})
 
+	// Register POSITION function
+	r.Register(&ScalarFunction{
+		Name:     "POSITION",
+		NumArgs:  2,
+		Function: builtinPosition,
+	})
+
+	// Register INSTR function (alias for POSITION)
+	r.Register(&ScalarFunction{
+		Name:     "INSTR",
+		NumArgs:  2,
+		Function: builtinPosition,
+	})
+
+	// Register ASCII function
+	r.Register(&ScalarFunction{
+		Name:     "ASCII",
+		NumArgs:  1,
+		Function: builtinASCII,
+	})
+
+	// Register CHR function
+	r.Register(&ScalarFunction{
+		Name:     "CHR",
+		NumArgs:  1,
+		Function: builtinCHR,
+	})
+
+	// Register CHAR function (alias for CHR)
+	r.Register(&ScalarFunction{
+		Name:     "CHAR",
+		NumArgs:  1,
+		Function: builtinCHR,
+	})
+
 	return r
 }
 
@@ -807,4 +842,56 @@ func builtinRPad(args []types.Value) types.Value {
 		result = append(result, padRunes[i%len(padRunes)])
 	}
 	return types.NewText(string(result))
+}
+
+// builtinPosition implements POSITION(substr, str)
+// Returns the 1-based position of the first occurrence of substr in str.
+// Returns 0 if substr is not found.
+// Returns 1 if substr is empty (SQLite behavior).
+// If any argument is NULL, returns NULL.
+func builtinPosition(args []types.Value) types.Value {
+	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+	substr := args[0].Text()
+	str := args[1].Text()
+	
+	// Empty substring returns 1 (SQLite behavior)
+	if substr == "" {
+		return types.NewInt(1)
+	}
+	
+	idx := strings.Index(str, substr)
+	if idx < 0 {
+		return types.NewInt(0)
+	}
+	// Convert byte index to rune index (1-based)
+	runeIdx := len([]rune(str[:idx])) + 1
+	return types.NewInt(int64(runeIdx))
+}
+
+// builtinASCII implements ASCII(str)
+// Returns the ASCII code of the first character in str.
+// Returns 0 if str is empty.
+// If argument is NULL, returns NULL.
+func builtinASCII(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	str := args[0].Text()
+	if len(str) == 0 {
+		return types.NewInt(0)
+	}
+	return types.NewInt(int64(str[0]))
+}
+
+// builtinCHR implements CHR(code)
+// Returns the character with the given ASCII/Unicode code.
+// If argument is NULL, returns NULL.
+func builtinCHR(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	code := args[0].Int()
+	return types.NewText(string(rune(code)))
 }
