@@ -122,6 +122,8 @@ func (e *Executor) Execute(sql string) (*Result, error) {
 		return e.executeUpdate(s)
 	case *parser.DeleteStmt:
 		return e.executeDelete(s)
+	case *parser.TruncateStmt:
+		return e.executeTruncate(s)
 	case *parser.AnalyzeStmt:
 		return e.executeAnalyze(s)
 	case *parser.AlterTableStmt:
@@ -1435,6 +1437,151 @@ func (e *Executor) executeDelete(stmt *parser.DeleteStmt) (*Result, error) {
 	}
 
 	return &Result{RowsAffected: rowsAffected}, nil
+}
+
+// executeTruncate handles TRUNCATE TABLE statement
+// Removes all rows from the table efficiently without firing triggers
+func (e *Executor) executeTruncate(stmt *parser.TruncateStmt) (*Result, error) {
+	// Get table
+	table := e.catalog.GetTable(stmt.TableName)
+	if table == nil {
+		return nil, fmt.Errorf("table %s not found", stmt.TableName)
+	}
+
+	// Check for foreign key references from other tables (RESTRICT behavior)
+	// We need to check if any other tables have rows that reference this table
+	if err := e.checkForeignKeyReferencesForTruncate(table); err != nil {
+		return nil, err
+	}
+
+	// Get or create B-tree for the table
+	tree := e.trees[stmt.TableName]
+	if tree == nil {
+		if table.RootPage == 0 {
+			// Table is already empty
+			return &Result{RowsAffected: 0}, nil
+		}
+		tree = btree.Open(e.pager, table.RootPage)
+		e.trees[stmt.TableName] = tree
+	}
+
+	// Count rows to delete and collect keys
+	var keysToDelete [][]byte
+	cursor := tree.Cursor()
+	defer cursor.Close()
+
+	for cursor.First(); cursor.Valid(); cursor.Next() {
+		// Copy key for deletion (cursor key may be reused)
+		key := cursor.Key()
+		keyCopy := make([]byte, len(key))
+		copy(keyCopy, key)
+		keysToDelete = append(keysToDelete, keyCopy)
+	}
+
+	// Delete all entries from the table
+	for _, key := range keysToDelete {
+		if err := tree.Delete(key); err != nil {
+			return nil, fmt.Errorf("failed to delete row during truncate: %w", err)
+		}
+	}
+
+	// Clear all indexes for this table
+	indexes := e.catalog.GetIndexesForTable(stmt.TableName)
+	for _, idx := range indexes {
+		idxTreeName := "index:" + idx.Name
+		idxTree := e.trees[idxTreeName]
+		if idxTree == nil {
+			if idx.RootPage == 0 {
+				continue
+			}
+			idxTree = btree.Open(e.pager, idx.RootPage)
+			e.trees[idxTreeName] = idxTree
+		}
+
+		// Collect and delete all index entries
+		var idxKeysToDelete [][]byte
+		idxCursor := idxTree.Cursor()
+		for idxCursor.First(); idxCursor.Valid(); idxCursor.Next() {
+			key := idxCursor.Key()
+			keyCopy := make([]byte, len(key))
+			copy(keyCopy, key)
+			idxKeysToDelete = append(idxKeysToDelete, keyCopy)
+		}
+		idxCursor.Close()
+
+		for _, key := range idxKeysToDelete {
+			if err := idxTree.Delete(key); err != nil {
+				return nil, fmt.Errorf("failed to delete index entry during truncate: %w", err)
+			}
+		}
+	}
+
+	// Reset auto-increment sequence to 1
+	e.rowid[stmt.TableName] = 1
+	e.maxRowid[stmt.TableName] = 0
+
+	// Update statistics to 0
+	e.setTableRowCount(stmt.TableName, 0)
+
+	// Invalidate query cache for this table
+	e.InvalidateQueryCache(stmt.TableName)
+
+	return &Result{RowsAffected: int64(len(keysToDelete))}, nil
+}
+
+// checkForeignKeyReferencesForTruncate checks if any other tables have rows that reference
+// this table. If so, truncation is prevented (RESTRICT behavior).
+func (e *Executor) checkForeignKeyReferencesForTruncate(table *schema.TableDef) error {
+	// For each column, check if any other tables have FK references to it
+	for _, col := range table.Columns {
+		refs := e.catalog.GetForeignKeyReferences(table.Name, col.Name)
+		if len(refs) == 0 {
+			continue
+		}
+
+		// Check each referencing table for any rows
+		for _, ref := range refs {
+			refTable := e.catalog.GetTable(ref.ReferencingTable)
+			if refTable == nil {
+				continue
+			}
+
+			// Skip if it's a self-reference
+			if ref.ReferencingTable == table.Name {
+				continue
+			}
+
+			// Check if referencing table has any rows
+			refTree := e.trees[ref.ReferencingTable]
+			if refTree == nil {
+				if refTable.RootPage == 0 {
+					continue
+				}
+				refTree = btree.Open(e.pager, refTable.RootPage)
+				e.trees[ref.ReferencingTable] = refTree
+			}
+
+			cursor := refTree.Cursor()
+			cursor.First()
+			hasRows := cursor.Valid()
+			cursor.Close()
+
+			if hasRows {
+				return fmt.Errorf("cannot truncate table %s: table %s has foreign key references to it",
+					table.Name, ref.ReferencingTable)
+			}
+		}
+	}
+
+	return nil
+}
+
+// setTableRowCount sets the row count for a table's statistics
+func (e *Executor) setTableRowCount(tableName string, count int64) {
+	stats := e.catalog.GetTableStatistics(tableName)
+	if stats != nil {
+		stats.RowCount = count
+	}
 }
 
 // checkForeignKeyOnDelete checks if deleting a row would violate foreign key constraints

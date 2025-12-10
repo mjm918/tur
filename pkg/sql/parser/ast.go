@@ -398,6 +398,13 @@ type DeleteStmt struct {
 
 func (s *DeleteStmt) statementNode() {}
 
+// TruncateStmt represents a TRUNCATE TABLE statement
+type TruncateStmt struct {
+	TableName string // Table to truncate
+}
+
+func (s *TruncateStmt) statementNode() {}
+
 // AnalyzeStmt represents an ANALYZE statement for collecting table statistics
 type AnalyzeStmt struct {
 	TableName string // Optional: table or index name to analyze (empty = all tables)

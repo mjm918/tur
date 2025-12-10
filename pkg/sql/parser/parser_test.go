@@ -3257,3 +3257,50 @@ func TestParseInsertWithoutOnDuplicateKey(t *testing.T) {
 		t.Errorf("expected OnDuplicateKey to be nil for regular INSERT")
 	}
 }
+
+// ========== TRUNCATE TABLE tests ==========
+
+func TestParser_TruncateTable(t *testing.T) {
+	input := "TRUNCATE TABLE users"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	truncate, ok := stmt.(*TruncateStmt)
+	if !ok {
+		t.Fatalf("Expected *TruncateStmt, got %T", stmt)
+	}
+
+	if truncate.TableName != "users" {
+		t.Errorf("TableName = %q, want 'users'", truncate.TableName)
+	}
+}
+
+func TestParser_TruncateTable_CaseInsensitive(t *testing.T) {
+	input := "truncate table Users"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	truncate, ok := stmt.(*TruncateStmt)
+	if !ok {
+		t.Fatalf("Expected *TruncateStmt, got %T", stmt)
+	}
+
+	if truncate.TableName != "Users" {
+		t.Errorf("TableName = %q, want 'Users'", truncate.TableName)
+	}
+}
+
+func TestParser_TruncateTable_MissingTableKeyword(t *testing.T) {
+	input := "TRUNCATE users"
+	p := New(input)
+	_, err := p.Parse()
+	if err == nil {
+		t.Fatal("Expected error for TRUNCATE without TABLE keyword")
+	}
+}

@@ -178,6 +178,9 @@ const (
 	WHEN
 	THEN
 	ELSE_KW
+
+	// Truncate keywords
+	TRUNCATE
 )
 
 // Token represents a lexical token
@@ -436,6 +439,8 @@ func (t TokenType) String() string {
 		return "THEN"
 	case ELSE_KW:
 		return "ELSE"
+	case TRUNCATE:
+		return "TRUNCATE"
 	default:
 		return "UNKNOWN"
 	}
@@ -544,6 +549,7 @@ var keywords = map[string]TokenType{
 	"WHEN":        WHEN,
 	"THEN":        THEN,
 	"ELSE":        ELSE_KW,
+	"TRUNCATE":    TRUNCATE,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT
