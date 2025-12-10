@@ -172,6 +172,9 @@ const (
 
 	// Upsert keywords
 	DUPLICATE
+
+	// Truncate keywords
+	TRUNCATE
 )
 
 // Token represents a lexical token
@@ -422,6 +425,8 @@ func (t TokenType) String() string {
 		return "NONORMALIZE"
 	case DUPLICATE:
 		return "DUPLICATE"
+	case TRUNCATE:
+		return "TRUNCATE"
 	default:
 		return "UNKNOWN"
 	}
@@ -526,6 +531,7 @@ var keywords = map[string]TokenType{
 	"IGNORE":      IGNORE,
 	"NONORMALIZE": NONORMALIZE,
 	"DUPLICATE":   DUPLICATE,
+	"TRUNCATE":    TRUNCATE,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT

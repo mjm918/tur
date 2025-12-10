@@ -594,3 +594,27 @@ func TestLexerDuplicateKeyword(t *testing.T) {
 		}
 	}
 }
+
+func TestLexer_TruncateKeyword(t *testing.T) {
+	input := "TRUNCATE TABLE users"
+	expected := []struct {
+		typ     TokenType
+		literal string
+	}{
+		{TRUNCATE, "TRUNCATE"},
+		{TABLE, "TABLE"},
+		{IDENT, "users"},
+		{EOF, ""},
+	}
+
+	l := New(input)
+	for i, exp := range expected {
+		tok := l.NextToken()
+		if tok.Type != exp.typ {
+			t.Errorf("token[%d]: type = %v, want %v", i, tok.Type, exp.typ)
+		}
+		if tok.Literal != exp.literal {
+			t.Errorf("token[%d]: literal = %q, want %q", i, tok.Literal, exp.literal)
+		}
+	}
+}

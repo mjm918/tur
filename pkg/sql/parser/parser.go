@@ -49,6 +49,8 @@ func (p *Parser) Parse() (Statement, error) {
 		return p.parseUpdate()
 	case lexer.DELETE:
 		return p.parseDelete()
+	case lexer.TRUNCATE:
+		return p.parseTruncate()
 	case lexer.ANALYZE:
 		return p.parseAnalyze()
 	case lexer.ALTER:
@@ -780,6 +782,24 @@ func (p *Parser) parseDelete() (*DeleteStmt, error) {
 		}
 		stmt.Where = where
 	}
+
+	return stmt, nil
+}
+
+// parseTruncate parses: TRUNCATE TABLE table_name
+func (p *Parser) parseTruncate() (*TruncateStmt, error) {
+	stmt := &TruncateStmt{}
+
+	// TRUNCATE - consume and expect TABLE
+	if !p.expectPeek(lexer.TABLE) {
+		return nil, fmt.Errorf("expected TABLE after TRUNCATE, got %s", p.peek.Literal)
+	}
+
+	// Table name
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected table name after TABLE, got %s", p.peek.Literal)
+	}
+	stmt.TableName = p.cur.Literal
 
 	return stmt, nil
 }
