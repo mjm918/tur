@@ -114,3 +114,48 @@ func TestCreateTable_PersistsSchema(t *testing.T) {
 		t.Errorf("First column should be 'id', got %s", table.Columns[0].Name)
 	}
 }
+
+func TestCreateIndex_PersistsSchema(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test_create_index_persist.db")
+
+	// Create table and index
+	p, err := pager.Open(path, pager.Options{})
+	if err != nil {
+		t.Fatalf("Failed to open pager: %v", err)
+	}
+
+	exec := New(p)
+	_, err = exec.Execute("CREATE TABLE users (id INT PRIMARY KEY, email TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE failed: %v", err)
+	}
+
+	_, err = exec.Execute("CREATE INDEX idx_email ON users(email)")
+	if err != nil {
+		t.Fatalf("CREATE INDEX failed: %v", err)
+	}
+
+	p.Close()
+
+	// Reopen and verify
+	p2, err := pager.Open(path, pager.Options{})
+	if err != nil {
+		t.Fatalf("Failed to reopen: %v", err)
+	}
+	defer p2.Close()
+
+	exec2 := New(p2)
+	idx := exec2.catalog.GetIndex("idx_email")
+	if idx == nil {
+		t.Fatal("Index not found after reopen")
+	}
+
+	if idx.TableName != "users" {
+		t.Errorf("Wrong table name: %s", idx.TableName)
+	}
+
+	if len(idx.Columns) != 1 || idx.Columns[0] != "email" {
+		t.Errorf("Wrong columns: %v", idx.Columns)
+	}
+}
