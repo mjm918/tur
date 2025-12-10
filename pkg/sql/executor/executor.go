@@ -45,8 +45,9 @@ type Executor struct {
 	// sessionVars holds session-level variables (@var)
 	sessionVars map[string]types.Value
 	// VDBE configuration
-	vdbeMaxRegisters int // default register count for VDBE VMs
-	vdbeMaxCursors   int // default cursor count for VDBE VMs
+	vdbeMaxRegisters int  // default register count for VDBE VMs
+	vdbeMaxCursors   int  // default cursor count for VDBE VMs
+	resultStreaming  bool // enable streaming result mode
 }
 
 // New creates a new Executor
@@ -4980,6 +4981,47 @@ func (e *Executor) executePragma(stmt *parser.PragmaStmt) (*Result, error) {
 			Columns: []string{"memory_budget"},
 			Rows: [][]types.Value{
 				{types.NewInt(limitMB)},
+			},
+		}, nil
+
+	case "result_streaming":
+		if stmt.Value != nil {
+			// SET result_streaming = ON/OFF
+			val, err := e.evaluateExpr(stmt.Value, nil, nil)
+			if err != nil {
+				return nil, fmt.Errorf("invalid result_streaming value: %w", err)
+			}
+
+			// Handle both string and integer values
+			var enabled bool
+			switch val.Type() {
+			case types.TypeText:
+				valStr := strings.ToUpper(val.Text())
+				if valStr == "ON" || valStr == "TRUE" || valStr == "1" {
+					enabled = true
+				} else if valStr == "OFF" || valStr == "FALSE" || valStr == "0" {
+					enabled = false
+				} else {
+					return nil, fmt.Errorf("result_streaming must be ON/OFF, TRUE/FALSE, or 1/0, got %s", val.Text())
+				}
+			case types.TypeInt:
+				enabled = val.Int() != 0
+			default:
+				return nil, fmt.Errorf("result_streaming must be ON/OFF, TRUE/FALSE, or 1/0, got %v", val)
+			}
+
+			e.resultStreaming = enabled
+			return &Result{RowsAffected: 0}, nil
+		}
+		// GET result_streaming
+		status := "OFF"
+		if e.resultStreaming {
+			status = "ON"
+		}
+		return &Result{
+			Columns: []string{"result_streaming"},
+			Rows: [][]types.Value{
+				{types.NewText(status)},
 			},
 		}, nil
 

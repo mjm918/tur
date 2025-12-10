@@ -3424,3 +3424,92 @@ func TestPragmaMemoryBudget(t *testing.T) {
 		t.Error("Expected error for memory_budget = -5, got nil")
 	}
 }
+
+// TestPragmaResultStreaming tests PRAGMA result_streaming setting and querying
+func TestPragmaResultStreaming(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create test table
+	_, err := exec.Execute("CREATE TABLE test_stream (id INTEGER, name TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Insert test data
+	for i := 0; i < 10; i++ {
+		_, err = exec.Execute("INSERT INTO test_stream VALUES (" +
+			string(rune('0'+i)) + ", 'name')")
+		if err != nil {
+			t.Fatalf("INSERT: %v", err)
+		}
+	}
+
+	// Enable streaming mode (use string literal)
+	_, err = exec.Execute("PRAGMA result_streaming = 'ON'")
+	if err != nil {
+		t.Fatalf("PRAGMA result_streaming = 'ON': %v", err)
+	}
+
+	// Verify setting
+	result, err := exec.Execute("PRAGMA result_streaming")
+	if err != nil {
+		t.Fatalf("PRAGMA result_streaming query: %v", err)
+	}
+
+	if len(result.Rows) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result.Rows))
+	}
+
+	streaming := result.Rows[0][0].Text()
+	if streaming != "ON" {
+		t.Errorf("Expected result_streaming = ON, got %s", streaming)
+	}
+
+	// Test that query still works
+	result, err = exec.Execute("SELECT * FROM test_stream")
+	if err != nil {
+		t.Fatalf("SELECT: %v", err)
+	}
+
+	if len(result.Rows) != 10 {
+		t.Errorf("Expected 10 rows, got %d", len(result.Rows))
+	}
+
+	// Disable streaming
+	_, err = exec.Execute("PRAGMA result_streaming = 'OFF'")
+	if err != nil {
+		t.Fatalf("PRAGMA result_streaming = 'OFF': %v", err)
+	}
+
+	result, err = exec.Execute("PRAGMA result_streaming")
+	if err != nil {
+		t.Fatalf("PRAGMA result_streaming query: %v", err)
+	}
+
+	streaming = result.Rows[0][0].Text()
+	if streaming != "OFF" {
+		t.Errorf("Expected result_streaming = OFF, got %s", streaming)
+	}
+
+	// Test other valid values
+	_, err = exec.Execute("PRAGMA result_streaming = 'TRUE'")
+	if err != nil {
+		t.Fatalf("PRAGMA result_streaming = 'TRUE': %v", err)
+	}
+
+	_, err = exec.Execute("PRAGMA result_streaming = 'FALSE'")
+	if err != nil {
+		t.Fatalf("PRAGMA result_streaming = 'FALSE': %v", err)
+	}
+
+	_, err = exec.Execute("PRAGMA result_streaming = 1")
+	if err != nil {
+		t.Fatalf("PRAGMA result_streaming = 1: %v", err)
+	}
+
+	_, err = exec.Execute("PRAGMA result_streaming = 0")
+	if err != nil {
+		t.Fatalf("PRAGMA result_streaming = 0: %v", err)
+	}
+}
