@@ -1867,19 +1867,19 @@
       "tasks": [
         {
           "task": "Design DB struct with pager and schema fields",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement Open(path string) function",
-          "done": false
+          "done": true
         },
         {
           "task": "Initialize pager and load schema on open",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement Close() method",
-          "done": false
+          "done": true
         },
         {
           "task": "Handle concurrent connections to same file",
