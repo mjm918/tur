@@ -2007,7 +2007,7 @@
       "tasks": [
         {
           "task": "Add context.Context parameter to API methods",
-          "done": false
+          "done": true
         },
         {
           "task": "Check context cancellation in VDBE execution loop",

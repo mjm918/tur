@@ -2,6 +2,7 @@
 package turdb
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -147,8 +148,25 @@ func (s *Stmt) Reset() error {
 // This method is used for INSERT, UPDATE, DELETE, and other statements
 // that do not return rows.
 func (s *Stmt) Exec() (ExecResult, error) {
+	return s.ExecContext(context.Background())
+}
+
+// ExecContext executes the prepared statement with context support.
+// The context can be used for cancellation and timeout control.
+// If the context is canceled or times out, the operation returns the context's error.
+func (s *Stmt) ExecContext(ctx context.Context) (ExecResult, error) {
+	// Check context before acquiring lock
+	if err := ctx.Err(); err != nil {
+		return ExecResult{}, err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Check context again after acquiring lock
+	if err := ctx.Err(); err != nil {
+		return ExecResult{}, err
+	}
 
 	if s.closed {
 		return ExecResult{}, ErrStmtClosed
@@ -160,6 +178,11 @@ func (s *Stmt) Exec() (ExecResult, error) {
 	// Lock the database and execute
 	s.db.mu.Lock()
 	defer s.db.mu.Unlock()
+
+	// Check context after acquiring database lock
+	if err := ctx.Err(); err != nil {
+		return ExecResult{}, err
+	}
 
 	if s.db.closed {
 		return ExecResult{}, ErrDatabaseClosed
@@ -227,8 +250,26 @@ func (s *Stmt) substituteParams() string {
 // and returns a Rows iterator for the result set.
 // This method is used for SELECT statements and other statements that return rows.
 func (s *Stmt) Query() (*Rows, error) {
+	return s.QueryContext(context.Background())
+}
+
+// QueryContext executes the prepared statement with context support
+// and returns a Rows iterator for the result set.
+// The context can be used for cancellation and timeout control.
+// If the context is canceled or times out, the operation returns the context's error.
+func (s *Stmt) QueryContext(ctx context.Context) (*Rows, error) {
+	// Check context before acquiring lock
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Check context again after acquiring lock
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	if s.closed {
 		return nil, ErrStmtClosed
@@ -240,6 +281,11 @@ func (s *Stmt) Query() (*Rows, error) {
 	// Lock the database and execute
 	s.db.mu.Lock()
 	defer s.db.mu.Unlock()
+
+	// Check context after acquiring database lock
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	if s.db.closed {
 		return nil, ErrDatabaseClosed
