@@ -30,6 +30,8 @@ const (
 	SchemaEntryView SchemaEntryType = 3
 	// SchemaEntryTrigger represents a trigger definition.
 	SchemaEntryTrigger SchemaEntryType = 4
+	// SchemaEntryProcedure represents a stored procedure definition.
+	SchemaEntryProcedure SchemaEntryType = 5
 )
 
 // Errors for schema entry operations.

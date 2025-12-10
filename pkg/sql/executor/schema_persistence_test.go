@@ -540,3 +540,167 @@ func TestDropTable_FreesPages(t *testing.T) {
 
 	p.Close()
 }
+
+func TestCreateProcedure_PersistsSchema(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test_create_procedure_persist.db")
+
+	// Phase 1: Create table and procedure, then close
+	p, err := pager.Open(path, pager.Options{})
+	if err != nil {
+		t.Fatalf("Failed to open pager: %v", err)
+	}
+
+	exec := New(p)
+
+	// Create a table that the procedure will use
+	_, err = exec.Execute("CREATE TABLE users (id INT PRIMARY KEY, name TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE failed: %v", err)
+	}
+
+	// Create a simple stored procedure
+	_, err = exec.Execute(`CREATE PROCEDURE add_user(IN user_id INT, IN user_name TEXT)
+BEGIN
+	INSERT INTO users (id, name) VALUES (user_id, user_name);
+END`)
+	if err != nil {
+		t.Fatalf("CREATE PROCEDURE failed: %v", err)
+	}
+
+	// Verify procedure exists before close
+	proc := exec.catalog.GetProcedure("add_user")
+	if proc == nil {
+		t.Fatal("Procedure 'add_user' not found immediately after creation")
+	}
+
+	p.Close()
+
+	// Phase 2: Reopen and verify procedure persisted
+	p2, err := pager.Open(path, pager.Options{})
+	if err != nil {
+		t.Fatalf("Failed to reopen pager: %v", err)
+	}
+	defer p2.Close()
+
+	exec2 := New(p2)
+	proc2 := exec2.catalog.GetProcedure("add_user")
+	if proc2 == nil {
+		t.Fatal("Procedure 'add_user' not found after reopen - schema not persisted")
+	}
+
+	if proc2.Name != "add_user" {
+		t.Errorf("Expected procedure name 'add_user', got %s", proc2.Name)
+	}
+
+	// Verify parameters were restored
+	if len(proc2.Parameters) != 2 {
+		t.Fatalf("Expected 2 parameters, got %d", len(proc2.Parameters))
+	}
+
+	if proc2.Parameters[0].Name != "user_id" {
+		t.Errorf("Expected first param name 'user_id', got %s", proc2.Parameters[0].Name)
+	}
+
+	if proc2.Parameters[1].Name != "user_name" {
+		t.Errorf("Expected second param name 'user_name', got %s", proc2.Parameters[1].Name)
+	}
+}
+
+func TestDropProcedure_RemovesSchema(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test_drop_procedure.db")
+
+	p, err := pager.Open(path, pager.Options{})
+	if err != nil {
+		t.Fatalf("Failed to open pager: %v", err)
+	}
+
+	exec := New(p)
+
+	// Create procedure
+	_, err = exec.Execute(`CREATE PROCEDURE greet()
+BEGIN
+	SELECT 'Hello';
+END`)
+	if err != nil {
+		t.Fatalf("CREATE PROCEDURE failed: %v", err)
+	}
+
+	// Drop procedure
+	_, err = exec.Execute("DROP PROCEDURE greet")
+	if err != nil {
+		t.Fatalf("DROP PROCEDURE failed: %v", err)
+	}
+
+	p.Close()
+
+	// Reopen and verify procedure is gone
+	p2, err := pager.Open(path, pager.Options{})
+	if err != nil {
+		t.Fatalf("Failed to reopen: %v", err)
+	}
+	defer p2.Close()
+
+	exec2 := New(p2)
+	if exec2.catalog.GetProcedure("greet") != nil {
+		t.Error("Dropped procedure still exists after reopen")
+	}
+}
+
+func TestProcedure_WithParams_PersistsSchema(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test_procedure_params_persist.db")
+
+	// Phase 1: Create procedure with all param types
+	p, err := pager.Open(path, pager.Options{})
+	if err != nil {
+		t.Fatalf("Failed to open pager: %v", err)
+	}
+
+	exec := New(p)
+
+	// Create procedure with IN, OUT, and INOUT parameters
+	_, err = exec.Execute(`CREATE PROCEDURE calculate(IN x INT, OUT result INT, INOUT counter INT)
+BEGIN
+	SET result = x * 2;
+	SET counter = counter + 1;
+END`)
+	if err != nil {
+		t.Fatalf("CREATE PROCEDURE failed: %v", err)
+	}
+
+	p.Close()
+
+	// Phase 2: Reopen and verify all param modes persisted
+	p2, err := pager.Open(path, pager.Options{})
+	if err != nil {
+		t.Fatalf("Failed to reopen pager: %v", err)
+	}
+	defer p2.Close()
+
+	exec2 := New(p2)
+	proc := exec2.catalog.GetProcedure("calculate")
+	if proc == nil {
+		t.Fatal("Procedure 'calculate' not found after reopen")
+	}
+
+	if len(proc.Parameters) != 3 {
+		t.Fatalf("Expected 3 parameters, got %d", len(proc.Parameters))
+	}
+
+	// Check IN param
+	if proc.Parameters[0].Name != "x" || proc.Parameters[0].Mode != 0 { // 0 = ParamModeIn
+		t.Errorf("First param should be IN x, got %s mode %d", proc.Parameters[0].Name, proc.Parameters[0].Mode)
+	}
+
+	// Check OUT param
+	if proc.Parameters[1].Name != "result" || proc.Parameters[1].Mode != 1 { // 1 = ParamModeOut
+		t.Errorf("Second param should be OUT result, got %s mode %d", proc.Parameters[1].Name, proc.Parameters[1].Mode)
+	}
+
+	// Check INOUT param
+	if proc.Parameters[2].Name != "counter" || proc.Parameters[2].Mode != 2 { // 2 = ParamModeInOut
+		t.Errorf("Third param should be INOUT counter, got %s mode %d", proc.Parameters[2].Name, proc.Parameters[2].Mode)
+	}
+}
