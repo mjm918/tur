@@ -109,3 +109,67 @@ type poolConn struct {
 	db   *DB
 	pool *Pool
 }
+
+// Get retrieves a connection from the pool.
+// If an idle connection is available, it is returned immediately.
+// Otherwise, a new connection is created if under the maxConns limit.
+// The returned connection must be returned to the pool using Put when done.
+func (p *Pool) Get() (*DB, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.closed {
+		return nil, ErrPoolClosed
+	}
+
+	// Try to get an idle connection
+	if p.idle.Len() > 0 {
+		elem := p.idle.Front()
+		p.idle.Remove(elem)
+		pc := elem.Value.(*poolConn)
+		return pc.db, nil
+	}
+
+	// No idle connection, create a new one if under limit
+	if p.numOpen < p.maxConns {
+		db, err := OpenWithOptions(p.path, p.opts)
+		if err != nil {
+			return nil, err
+		}
+		p.numOpen++
+		return db, nil
+	}
+
+	// At max connections - for now, return an error
+	// (blocking wait could be added later)
+	return nil, errors.New("connection pool exhausted")
+}
+
+// Put returns a connection to the pool.
+// If the pool is closed, the connection is closed instead.
+// The connection should not be used after calling Put.
+func (p *Pool) Put(conn *DB) {
+	if conn == nil {
+		return
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// If pool is closed, close the connection
+	if p.closed {
+		conn.Close()
+		return
+	}
+
+	// Return connection to idle list
+	pc := &poolConn{db: conn, pool: p}
+	p.idle.PushBack(pc)
+}
+
+// NumOpen returns the number of open connections (idle + in-use).
+func (p *Pool) NumOpen() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.numOpen
+}
