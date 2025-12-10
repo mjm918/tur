@@ -3182,3 +3182,78 @@ func TestParseValuesFunction(t *testing.T) {
 		t.Errorf("expected column 'name', got %q", valuesFunc.ColumnName)
 	}
 }
+
+func TestParseInsertOnDuplicateKeyUpdate(t *testing.T) {
+	tests := []struct {
+		input           string
+		expectedTable   string
+		expectedCols    []string
+		expectedUpdates int
+	}{
+		{
+			input:           "INSERT INTO users (id, name) VALUES (1, 'Alice') ON DUPLICATE KEY UPDATE name = VALUES(name)",
+			expectedTable:   "users",
+			expectedCols:    []string{"id", "name"},
+			expectedUpdates: 1,
+		},
+		{
+			input:           "INSERT INTO counter (id, count) VALUES (1, 1) ON DUPLICATE KEY UPDATE count = count + 1",
+			expectedTable:   "counter",
+			expectedCols:    []string{"id", "count"},
+			expectedUpdates: 1,
+		},
+		{
+			input:           "INSERT INTO t (a, b, c) VALUES (1, 2, 3) ON DUPLICATE KEY UPDATE b = VALUES(b), c = c + VALUES(c)",
+			expectedTable:   "t",
+			expectedCols:    []string{"a", "b", "c"},
+			expectedUpdates: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		p := New(tt.input)
+		stmt, err := p.Parse()
+		if err != nil {
+			t.Fatalf("parse error for %q: %v", tt.input, err)
+		}
+
+		insertStmt, ok := stmt.(*InsertStmt)
+		if !ok {
+			t.Fatalf("expected InsertStmt, got %T", stmt)
+		}
+
+		if insertStmt.TableName != tt.expectedTable {
+			t.Errorf("expected table %q, got %q", tt.expectedTable, insertStmt.TableName)
+		}
+
+		if len(insertStmt.Columns) != len(tt.expectedCols) {
+			t.Errorf("expected %d columns, got %d", len(tt.expectedCols), len(insertStmt.Columns))
+		}
+
+		if insertStmt.OnDuplicateKey == nil {
+			t.Fatalf("expected OnDuplicateKey to be set")
+		}
+
+		if len(insertStmt.OnDuplicateKey) != tt.expectedUpdates {
+			t.Errorf("expected %d updates, got %d", tt.expectedUpdates, len(insertStmt.OnDuplicateKey))
+		}
+	}
+}
+
+func TestParseInsertWithoutOnDuplicateKey(t *testing.T) {
+	input := "INSERT INTO users (id, name) VALUES (1, 'Alice')"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	insertStmt, ok := stmt.(*InsertStmt)
+	if !ok {
+		t.Fatalf("expected InsertStmt, got %T", stmt)
+	}
+
+	if insertStmt.OnDuplicateKey != nil {
+		t.Errorf("expected OnDuplicateKey to be nil for regular INSERT")
+	}
+}

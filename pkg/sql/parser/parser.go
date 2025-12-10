@@ -636,6 +636,61 @@ func (p *Parser) parseInsert() (*InsertStmt, error) {
 		return nil, fmt.Errorf("expected VALUES or SELECT, got %s", p.cur.Literal)
 	}
 
+	// Check for ON DUPLICATE KEY UPDATE clause
+	if p.peekIs(lexer.ON) {
+		p.nextToken() // consume ON
+
+		// Expect DUPLICATE
+		if !p.expectPeek(lexer.DUPLICATE) {
+			return nil, fmt.Errorf("expected DUPLICATE after ON, got %s", p.peek.Literal)
+		}
+
+		// Expect KEY
+		if !p.expectPeek(lexer.KEY) {
+			return nil, fmt.Errorf("expected KEY after DUPLICATE, got %s", p.peek.Literal)
+		}
+
+		// Expect UPDATE
+		if !p.expectPeek(lexer.UPDATE) {
+			return nil, fmt.Errorf("expected UPDATE after KEY, got %s", p.peek.Literal)
+		}
+
+		// Parse assignments: col1 = val1, col2 = val2, ...
+		var assignments []Assignment
+		for {
+			// Column name
+			if !p.expectPeek(lexer.IDENT) {
+				return nil, fmt.Errorf("expected column name in ON DUPLICATE KEY UPDATE, got %s", p.peek.Literal)
+			}
+			colName := p.cur.Literal
+
+			// =
+			if !p.expectPeek(lexer.EQ) {
+				return nil, fmt.Errorf("expected '=' after column name, got %s", p.peek.Literal)
+			}
+
+			// Expression
+			p.nextToken()
+			expr, err := p.parseExpression(LOWEST)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse expression in ON DUPLICATE KEY UPDATE: %w", err)
+			}
+
+			assignments = append(assignments, Assignment{
+				Column: colName,
+				Value:  expr,
+			})
+
+			// Check for more assignments
+			if !p.peekIs(lexer.COMMA) {
+				break
+			}
+			p.nextToken() // consume comma
+		}
+
+		stmt.OnDuplicateKey = assignments
+	}
+
 	return stmt, nil
 }
 
