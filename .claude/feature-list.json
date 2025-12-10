@@ -2015,7 +2015,7 @@
         },
         {
           "task": "Implement query timeout using context deadline",
-          "done": false
+          "done": true
         },
         {
           "task": "Clean up resources on context cancellation",
