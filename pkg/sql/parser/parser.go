@@ -1608,6 +1608,14 @@ func (p *Parser) parsePrefixExpression() (Expression, error) {
 		return p.parseExistsExpression(false)
 	case lexer.CASE:
 		return p.parseCaseExpression()
+	case lexer.IF:
+		// IF can be either an IF statement (in stored procedures) or IF() function
+		// If followed by '(', it's the IF() function
+		if p.peekIs(lexer.LPAREN) {
+			return p.parseFunctionCall()
+		}
+		// Otherwise, it's an error in expression context (IF statement is handled elsewhere)
+		return nil, fmt.Errorf("unexpected IF in expression context (use IF() function with parentheses)")
 	case lexer.NOT:
 		// Could be NOT EXISTS or NOT followed by expression
 		if p.peekIs(lexer.EXISTS) {

@@ -540,6 +540,27 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Function: builtinDatePart,
 	})
 
+	// Register IF function (conditional)
+	r.Register(&ScalarFunction{
+		Name:     "IF",
+		NumArgs:  3,
+		Function: builtinIf,
+	})
+
+	// Register IFNULL function
+	r.Register(&ScalarFunction{
+		Name:     "IFNULL",
+		NumArgs:  2,
+		Function: builtinIfNull,
+	})
+
+	// Register NULLIF function
+	r.Register(&ScalarFunction{
+		Name:     "NULLIF",
+		NumArgs:  2,
+		Function: builtinNullIf,
+	})
+
 	// Register JSON functions
 	RegisterJSONFunctions(r)
 
@@ -2600,4 +2621,83 @@ func builtinAge(args []types.Value) types.Value {
 	}
 
 	return types.NewInterval(totalMonths, totalMicroseconds)
+}
+
+// builtinIf implements IF(condition, true_value, false_value)
+// Returns true_value if condition is truthy, else returns false_value.
+// Truthy values: non-zero numbers, non-empty strings
+// Falsy values: 0, 0.0, empty string, NULL
+func builtinIf(args []types.Value) types.Value {
+	if len(args) != 3 {
+		return types.NewNull()
+	}
+
+	condition := args[0]
+	trueVal := args[1]
+	falseVal := args[2]
+
+	// Evaluate the condition
+	if isTruthy(condition) {
+		return trueVal
+	}
+	return falseVal
+}
+
+// isTruthy determines if a value is truthy (non-zero, non-empty, non-null)
+func isTruthy(v types.Value) bool {
+	if v.IsNull() {
+		return false
+	}
+
+	switch v.Type() {
+	case types.TypeInt:
+		return v.Int() != 0
+	case types.TypeFloat:
+		return v.Float() != 0.0
+	case types.TypeText:
+		return v.Text() != ""
+	default:
+		// Other types (blob, vector, etc.) are considered truthy if not null
+		return true
+	}
+}
+
+// builtinIfNull implements IFNULL(expr, alt_value)
+// Returns expr if it is not NULL, otherwise returns alt_value.
+// This is equivalent to COALESCE with exactly 2 arguments.
+func builtinIfNull(args []types.Value) types.Value {
+	if len(args) != 2 {
+		return types.NewNull()
+	}
+
+	if args[0].IsNull() {
+		return args[1]
+	}
+	return args[0]
+}
+
+// builtinNullIf implements NULLIF(expr1, expr2)
+// Returns NULL if expr1 equals expr2, otherwise returns expr1.
+// Uses types.Compare for comparison.
+func builtinNullIf(args []types.Value) types.Value {
+	if len(args) != 2 {
+		return types.NewNull()
+	}
+
+	// If first arg is NULL, return NULL
+	if args[0].IsNull() {
+		return types.NewNull()
+	}
+
+	// If second arg is NULL, return first arg (NULL != anything non-NULL)
+	if args[1].IsNull() {
+		return args[0]
+	}
+
+	// Compare the values - if equal, return NULL
+	if types.Compare(args[0], args[1]) == 0 {
+		return types.NewNull()
+	}
+
+	return args[0]
 }
