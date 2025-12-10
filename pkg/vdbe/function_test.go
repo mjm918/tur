@@ -4,6 +4,7 @@ package vdbe
 import (
 	"math"
 	"testing"
+	"time"
 
 	"tur/pkg/types"
 )
@@ -1325,6 +1326,40 @@ func TestInstr(t *testing.T) {
 	}
 }
 
+func TestFormat(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	format := registry.Lookup("FORMAT")
+	if format == nil {
+		t.Fatal("FORMAT function not found")
+	}
+
+	tests := []struct {
+		number   float64
+		decimals int64
+		locale   string
+		expect   string
+	}{
+		{1234567.89, 2, "", "1,234,567.89"},
+		{1234567.89, 0, "", "1,234,568"},
+		{1234567.89, 2, "de_DE", "1.234.567,89"},
+		{1234567.89, 2, "fr_FR", "1 234 567,89"},
+		{1234.5, 2, "", "1,234.50"},
+		{0.5, 2, "", "0.50"},
+	}
+
+	for i, tc := range tests {
+		var args []types.Value
+		args = []types.Value{types.NewFloat(tc.number), types.NewInt(tc.decimals)}
+		if tc.locale != "" {
+			args = append(args, types.NewText(tc.locale))
+		}
+		result := format.Call(args)
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: FORMAT(%f, %d, %q) expected %q, got %q", i, tc.number, tc.decimals, tc.locale, tc.expect, result.Text())
+		}
+	}
+}
+
 func TestASCII(t *testing.T) {
 	registry := DefaultFunctionRegistry()
 	ascii := registry.Lookup("ASCII")
@@ -1651,5 +1686,113 @@ func TestTrunc(t *testing.T) {
 		if result.Float() != tc.expect {
 			t.Errorf("test %d: TRUNC(%f, %d) expected %f, got %f", i, tc.input, tc.decimals, tc.expect, result.Float())
 		}
+	}
+}
+
+func TestNow(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	now := registry.Lookup("NOW")
+	if now == nil {
+		t.Fatal("NOW function not found")
+	}
+
+	before := time.Now()
+	result := now.Call([]types.Value{})
+	after := time.Now()
+
+	if result.Type() != types.TypeTimestampTZ {
+		t.Fatalf("expected TIMESTAMPTZ, got %v", result.Type())
+	}
+
+	ts := result.TimestampTZValue()
+	if ts.Before(before) || ts.After(after) {
+		t.Errorf("NOW() returned %v, expected between %v and %v", ts, before, after)
+	}
+}
+
+func TestCurrentDate(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	currentDate := registry.Lookup("CURRENT_DATE")
+	if currentDate == nil {
+		t.Fatal("CURRENT_DATE function not found")
+	}
+
+	result := currentDate.Call([]types.Value{})
+	if result.Type() != types.TypeDate {
+		t.Fatalf("expected DATE, got %v", result.Type())
+	}
+
+	year, month, day := result.DateValue()
+	now := time.Now()
+	if year != now.Year() || month != int(now.Month()) || day != now.Day() {
+		t.Errorf("CURRENT_DATE returned %d-%d-%d, expected today", year, month, day)
+	}
+}
+
+func TestCurrentTime(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	currentTime := registry.Lookup("CURRENT_TIME")
+	if currentTime == nil {
+		t.Fatal("CURRENT_TIME function not found")
+	}
+
+	result := currentTime.Call([]types.Value{})
+	if result.Type() != types.TypeTimeTZ {
+		t.Fatalf("expected TIMETZ, got %v", result.Type())
+	}
+}
+
+func TestCurrentTimestamp(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	currentTimestamp := registry.Lookup("CURRENT_TIMESTAMP")
+	if currentTimestamp == nil {
+		t.Fatal("CURRENT_TIMESTAMP function not found")
+	}
+
+	before := time.Now()
+	result := currentTimestamp.Call([]types.Value{})
+	after := time.Now()
+
+	if result.Type() != types.TypeTimestampTZ {
+		t.Fatalf("expected TIMESTAMPTZ, got %v", result.Type())
+	}
+
+	ts := result.TimestampTZValue()
+	if ts.Before(before) || ts.After(after) {
+		t.Errorf("CURRENT_TIMESTAMP() returned %v, expected between %v and %v", ts, before, after)
+	}
+}
+
+func TestLocaltime(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	localtime := registry.Lookup("LOCALTIME")
+	if localtime == nil {
+		t.Fatal("LOCALTIME function not found")
+	}
+
+	result := localtime.Call([]types.Value{})
+	if result.Type() != types.TypeTimestamp {
+		t.Fatalf("expected TIMESTAMP, got %v", result.Type())
+	}
+}
+
+func TestLocaltimestamp(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	localtimestamp := registry.Lookup("LOCALTIMESTAMP")
+	if localtimestamp == nil {
+		t.Fatal("LOCALTIMESTAMP function not found")
+	}
+
+	before := time.Now()
+	result := localtimestamp.Call([]types.Value{})
+	after := time.Now()
+
+	if result.Type() != types.TypeTimestamp {
+		t.Fatalf("expected TIMESTAMP, got %v", result.Type())
+	}
+
+	ts := result.TimestampValue()
+	if ts.Before(before) || ts.After(after) {
+		t.Errorf("LOCALTIMESTAMP() returned %v, expected between %v and %v", ts, before, after)
 	}
 }

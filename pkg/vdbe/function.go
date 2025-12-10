@@ -348,6 +348,13 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Function: builtinTrunc,
 	})
 
+	// Register FORMAT function
+	r.Register(&ScalarFunction{
+		Name:     "FORMAT",
+		NumArgs:  -1, // 2 or 3 arguments
+		Function: builtinFormat,
+	})
+
 	return r
 }
 
@@ -1320,4 +1327,114 @@ func builtinTrunc(args []types.Value) types.Value {
 	truncated := math.Trunc(val*multiplier) / multiplier
 
 	return types.NewFloat(truncated)
+}
+
+// localeFormat defines the thousand separator and decimal point for a locale
+type localeFormat struct {
+	thousand string
+	decimal  string
+}
+
+// localeFormats maps locale identifiers to their formatting rules
+var localeFormats = map[string]localeFormat{
+	"":      {",", "."},     // Default (en_US)
+	"en_US": {",", "."},     // English (US)
+	"de_DE": {".", ","},     // German (Germany)
+	"fr_FR": {" ", ","},     // French (France)
+	"es_ES": {".", ","},     // Spanish (Spain)
+}
+
+// builtinFormat implements FORMAT(number, decimals[, locale])
+// Formats a number with thousand separators and specified decimal places.
+// If locale is not specified or not recognized, uses default (en_US) formatting.
+// If any required argument is NULL, returns NULL.
+func builtinFormat(args []types.Value) types.Value {
+	if len(args) < 2 || len(args) > 3 {
+		return types.NewNull()
+	}
+
+	// Check for NULL in required arguments
+	if args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+
+	// Get the number to format
+	var number float64
+	switch args[0].Type() {
+	case types.TypeInt:
+		number = float64(args[0].Int())
+	case types.TypeFloat:
+		number = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+
+	// Get number of decimal places
+	var decimals int64
+	switch args[1].Type() {
+	case types.TypeInt:
+		decimals = args[1].Int()
+	case types.TypeFloat:
+		decimals = int64(args[1].Float())
+	default:
+		return types.NewNull()
+	}
+
+	// Ensure decimals is not negative
+	if decimals < 0 {
+		decimals = 0
+	}
+
+	// Get locale format (default to en_US)
+	locale := ""
+	if len(args) == 3 && !args[2].IsNull() {
+		locale = args[2].Text()
+	}
+
+	format, ok := localeFormats[locale]
+	if !ok {
+		// Unknown locale, use default
+		format = localeFormats[""]
+	}
+
+	// Round the number to the specified decimal places
+	multiplier := math.Pow(10, float64(decimals))
+	rounded := math.Round(number * multiplier) / multiplier
+
+	// Handle sign
+	sign := ""
+	if rounded < 0 {
+		sign = "-"
+		rounded = -rounded
+	}
+
+	// Split into integer and fractional parts
+	intPart := int64(rounded)
+	fracPart := rounded - float64(intPart)
+
+	// Format integer part with thousand separators
+	intStr := fmt.Sprintf("%d", intPart)
+	var intFormatted strings.Builder
+
+	// Add thousand separators from right to left
+	for i, digit := range intStr {
+		if i > 0 && (len(intStr)-i)%3 == 0 {
+			intFormatted.WriteString(format.thousand)
+		}
+		intFormatted.WriteRune(digit)
+	}
+
+	// Format fractional part
+	var result strings.Builder
+	result.WriteString(sign)
+	result.WriteString(intFormatted.String())
+
+	if decimals > 0 {
+		result.WriteString(format.decimal)
+		// Format fractional part with specified decimal places
+		fracStr := fmt.Sprintf("%0*d", int(decimals), int64(fracPart*multiplier+0.5))
+		result.WriteString(fracStr)
+	}
+
+	return types.NewText(result.String())
 }
