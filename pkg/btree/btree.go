@@ -49,6 +49,41 @@ func Open(p *pager.Pager, rootPage uint32) *BTree {
 	}
 }
 
+// CreateAtPage creates a new B-tree at the specified page number.
+// If pages need to be allocated to reach pageNo, they will be allocated.
+// The page will be initialized as an empty leaf node.
+func CreateAtPage(p *pager.Pager, pageNo uint32) (*BTree, error) {
+	var page *pager.Page
+	var err error
+
+	// Allocate pages until we reach the desired page number
+	for p.PageCount() <= pageNo {
+		page, err = p.Allocate()
+		if err != nil {
+			return nil, err
+		}
+		if page.PageNo() != pageNo {
+			p.Release(page)
+		}
+	}
+
+	// Get the specific page
+	page, err = p.Get(pageNo)
+	if err != nil {
+		return nil, err
+	}
+	defer p.Release(page)
+
+	// Initialize as empty leaf node
+	NewNode(page.Data(), true)
+	page.SetDirty(true)
+
+	return &BTree{
+		pager:    p,
+		rootPage: pageNo,
+	}, nil
+}
+
 // RootPage returns the root page number
 func (bt *BTree) RootPage() uint32 {
 	return bt.rootPage
@@ -465,6 +500,45 @@ func (bt *BTree) depthRecursive(pageNo uint32) int {
 // The tree remains valid and searchable, though it may become less balanced.
 func (bt *BTree) Delete(key []byte) error {
 	return bt.deleteSimple(bt.rootPage, key)
+}
+
+// CollectPages returns all page numbers used by this B-tree.
+// This is used for freeing pages when dropping a table or index.
+func (bt *BTree) CollectPages() []uint32 {
+	var pages []uint32
+	bt.collectPagesRecursive(bt.rootPage, &pages)
+	return pages
+}
+
+// collectPagesRecursive recursively collects all page numbers in the B-tree
+func (bt *BTree) collectPagesRecursive(pageNo uint32, pages *[]uint32) {
+	page, err := bt.pager.Get(pageNo)
+	if err != nil {
+		return
+	}
+	defer bt.pager.Release(page)
+
+	*pages = append(*pages, pageNo)
+
+	node := LoadNode(page.Data())
+	if !node.IsLeaf() {
+		// Interior nodes store child pointers:
+		// - Each cell's value contains a child page pointer (left child of that key)
+		// - RightChild contains the rightmost child page
+		count := node.CellCount()
+		for i := 0; i < count; i++ {
+			_, cellValue := node.GetCell(i)
+			childPage := decodePageNo(cellValue)
+			if childPage != 0 {
+				bt.collectPagesRecursive(childPage, pages)
+			}
+		}
+		// Don't forget the right child
+		rightChild := node.RightChild()
+		if rightChild != 0 {
+			bt.collectPagesRecursive(rightChild, pages)
+		}
+	}
 }
 
 // deleteSimple performs a straightforward delete without complex rebalancing.

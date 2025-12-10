@@ -9,6 +9,7 @@ import (
 
 	"tur/pkg/btree"
 	"tur/pkg/cache"
+	"tur/pkg/dbfile"
 	"tur/pkg/hnsw"
 	"tur/pkg/mvcc"
 	"tur/pkg/pager"
@@ -39,6 +40,7 @@ type Executor struct {
 	currentTx   *mvcc.Transaction      // current active transaction (nil if none)
 	hnswIndexes map[string]*hnsw.Index // HNSW index name -> index
 	queryCache  *cache.QueryCache      // optional query result cache
+	schemaBTree *btree.BTree           // schema metadata B-tree (page 1)
 	// valuesContext holds the would-be-inserted values for VALUES() function
 	// during ON DUPLICATE KEY UPDATE evaluation
 	valuesContext map[string]types.Value
@@ -48,7 +50,7 @@ type Executor struct {
 
 // New creates a new Executor
 func New(p *pager.Pager) *Executor {
-	return &Executor{
+	e := &Executor{
 		pager:       p,
 		catalog:     schema.NewCatalog(),
 		trees:       make(map[string]*btree.BTree),
@@ -57,6 +59,14 @@ func New(p *pager.Pager) *Executor {
 		txManager:   mvcc.NewTransactionManager(),
 		sessionVars: make(map[string]types.Value),
 	}
+
+	// Initialize schema B-tree on page 1
+	if err := e.initSchemaBTree(); err != nil {
+		// Critical error - cannot operate without schema
+		panic("Failed to initialize schema B-tree: " + err.Error())
+	}
+
+	return e
 }
 
 // Close closes the executor and syncs data
@@ -313,6 +323,24 @@ func (e *Executor) executeCreateTable(stmt *parser.CreateTableStmt) (*Result, er
 	e.trees[stmt.TableName] = tree
 	e.rowid[stmt.TableName] = 1
 
+	// Persist schema to disk
+	sql := reconstructCreateTableSQL(stmt)
+	schemaEntry := &dbfile.SchemaEntry{
+		Type:      dbfile.SchemaEntryTable,
+		Name:      stmt.TableName,
+		TableName: stmt.TableName,
+		RootPage:  tree.RootPage(),
+		SQL:       sql,
+	}
+
+	if err := e.persistSchemaEntry(schemaEntry); err != nil {
+		// Rollback catalog change on persistence failure
+		e.catalog.DropTable(stmt.TableName)
+		delete(e.trees, stmt.TableName)
+		delete(e.rowid, stmt.TableName)
+		return nil, fmt.Errorf("failed to persist schema: %w", err)
+	}
+
 	// Auto-create unique index for PRIMARY KEY columns
 	if err := e.createPrimaryKeyIndex(table); err != nil {
 		return nil, fmt.Errorf("failed to create primary key index: %w", err)
@@ -350,6 +378,19 @@ func (e *Executor) executeCreateView(stmt *parser.CreateViewStmt) (*Result, erro
 		return nil, err
 	}
 
+	// Persist view schema to B-tree
+	fullSQL := reconstructCreateViewSQL(stmt, sql)
+	entry := &dbfile.SchemaEntry{
+		Type:      dbfile.SchemaEntryView,
+		Name:      stmt.ViewName,
+		TableName: "", // Views don't have a table name
+		RootPage:  0,  // Views don't have a root page
+		SQL:       fullSQL,
+	}
+	if err := e.persistSchemaEntry(entry); err != nil {
+		return nil, fmt.Errorf("failed to persist view schema: %w", err)
+	}
+
 	return &Result{}, nil
 }
 
@@ -365,6 +406,11 @@ func (e *Executor) executeDropView(stmt *parser.DropViewStmt) (*Result, error) {
 
 	if err := e.catalog.DropView(stmt.ViewName); err != nil {
 		return nil, err
+	}
+
+	// Delete schema entry from B-tree
+	if err := e.deleteSchemaEntry(stmt.ViewName); err != nil {
+		// Log but don't fail - catalog already updated
 	}
 
 	return &Result{}, nil
@@ -407,17 +453,32 @@ func (e *Executor) executeCreateTrigger(stmt *parser.CreateTriggerStmt) (*Result
 		actions[i] = action
 	}
 
+	// Reconstruct SQL for persistence
+	sql := reconstructCreateTriggerSQL(stmt)
+
 	trigger := &schema.TriggerDef{
 		Name:      stmt.TriggerName,
 		TableName: stmt.TableName,
 		Timing:    timing,
 		Event:     event,
-		SQL:       "", // TODO: Store original SQL for persistence
+		SQL:       sql,
 		Actions:   actions,
 	}
 
 	if err := e.catalog.CreateTrigger(trigger); err != nil {
 		return nil, err
+	}
+
+	// Persist trigger schema to B-tree
+	entry := &dbfile.SchemaEntry{
+		Type:      dbfile.SchemaEntryTrigger,
+		Name:      stmt.TriggerName,
+		TableName: stmt.TableName,
+		RootPage:  0, // Triggers don't have a root page
+		SQL:       sql,
+	}
+	if err := e.persistSchemaEntry(entry); err != nil {
+		return nil, fmt.Errorf("failed to persist trigger schema: %w", err)
 	}
 
 	return &Result{}, nil
@@ -435,6 +496,11 @@ func (e *Executor) executeDropTrigger(stmt *parser.DropTriggerStmt) (*Result, er
 
 	if err := e.catalog.DropTrigger(stmt.TriggerName); err != nil {
 		return nil, err
+	}
+
+	// Delete schema entry from B-tree
+	if err := e.deleteSchemaEntry(stmt.TriggerName); err != nil {
+		// Log but don't fail - catalog already updated
 	}
 
 	return &Result{}, nil
@@ -786,9 +852,73 @@ func (e *Executor) executeDropTable(stmt *parser.DropTableStmt) (*Result, error)
 		return nil, fmt.Errorf("table not found")
 	}
 
-	// TODO: Check for dependent views and triggers (if CASCADE is not specified)
+	// Get dependent objects
+	dependentViews := e.catalog.GetViewsDependingOn(stmt.TableName)
+	dependentTriggers := e.catalog.GetTriggersOnTable(stmt.TableName)
+	dependentIndexes := e.catalog.GetIndexesForTable(stmt.TableName)
 
-	// TODO: If CASCADE is specified, drop associated indexes and handle foreign keys
+	// Check for dependent views (if CASCADE is not specified)
+	if !stmt.Cascade {
+		if len(dependentViews) > 0 {
+			viewNames := make([]string, len(dependentViews))
+			for i, v := range dependentViews {
+				viewNames[i] = v.Name
+			}
+			return nil, fmt.Errorf("cannot drop table %s: view(s) %s depend on it",
+				stmt.TableName, strings.Join(viewNames, ", "))
+		}
+
+		// Check for dependent triggers
+		if len(dependentTriggers) > 0 {
+			triggerNames := make([]string, len(dependentTriggers))
+			for i, t := range dependentTriggers {
+				triggerNames[i] = t.Name
+			}
+			return nil, fmt.Errorf("cannot drop table %s: trigger(s) %s depend on it",
+				stmt.TableName, strings.Join(triggerNames, ", "))
+		}
+	}
+
+	// If CASCADE is specified, drop associated indexes, views, and triggers
+	if stmt.Cascade {
+		// Drop dependent views
+		for _, view := range dependentViews {
+			if err := e.catalog.DropView(view.Name); err != nil {
+				return nil, fmt.Errorf("failed to cascade drop view %s: %w", view.Name, err)
+			}
+			if err := e.deleteSchemaEntry(view.Name); err != nil {
+				// Best effort - continue
+			}
+		}
+
+		// Drop dependent triggers
+		for _, trigger := range dependentTriggers {
+			if err := e.catalog.DropTrigger(trigger.Name); err != nil {
+				return nil, fmt.Errorf("failed to cascade drop trigger %s: %w", trigger.Name, err)
+			}
+			if err := e.deleteSchemaEntry(trigger.Name); err != nil {
+				// Best effort - continue
+			}
+		}
+
+		// Drop dependent indexes
+		for _, idx := range dependentIndexes {
+			if err := e.catalog.DropIndex(idx.Name); err != nil {
+				return nil, fmt.Errorf("failed to cascade drop index %s: %w", idx.Name, err)
+			}
+			// Clean up in-memory index tree
+			delete(e.trees, "index:"+idx.Name)
+			if err := e.deleteSchemaEntry(idx.Name); err != nil {
+				// Best effort - continue
+			}
+		}
+	}
+
+	// Collect pages to free BEFORE removing from maps
+	var pagesToFree []uint32
+	if tree, ok := e.trees[stmt.TableName]; ok {
+		pagesToFree = tree.CollectPages()
+	}
 
 	// Drop the table from catalog
 	if err := e.catalog.DropTable(stmt.TableName); err != nil {
@@ -799,7 +929,18 @@ func (e *Executor) executeDropTable(stmt *parser.DropTableStmt) (*Result, error)
 	delete(e.trees, stmt.TableName)
 	delete(e.rowid, stmt.TableName)
 
-	// TODO: Add table's B-tree pages to free list
+	// Remove from schema B-tree
+	if err := e.deleteSchemaEntry(stmt.TableName); err != nil {
+		// Log but don't fail - table is already dropped from catalog
+		// This is a best-effort cleanup
+	}
+
+	// Add table's B-tree pages to free list
+	for _, pageNo := range pagesToFree {
+		if err := e.pager.Free(pageNo); err != nil {
+			// Best effort - continue freeing other pages
+		}
+	}
 
 	return &Result{}, nil
 }
@@ -951,6 +1092,23 @@ func (e *Executor) executeCreateIndex(stmt *parser.CreateIndexStmt) (*Result, er
 		return nil, err
 	}
 
+	// Persist index schema to disk
+	sql := reconstructCreateIndexSQL(stmt)
+	schemaEntry := &dbfile.SchemaEntry{
+		Type:      dbfile.SchemaEntryIndex,
+		Name:      stmt.IndexName,
+		TableName: stmt.TableName,
+		RootPage:  indexTree.RootPage(),
+		SQL:       sql,
+	}
+
+	if err := e.persistSchemaEntry(schemaEntry); err != nil {
+		// Rollback catalog change on persistence failure
+		e.catalog.DropIndex(stmt.IndexName)
+		delete(e.trees, idxTreeName)
+		return nil, fmt.Errorf("failed to persist index schema: %w", err)
+	}
+
 	return &Result{}, nil
 }
 
@@ -974,6 +1132,12 @@ func (e *Executor) executeDropIndex(stmt *parser.DropIndexStmt) (*Result, error)
 	// Clean up in-memory B-tree structure
 	idxTreeName := "index:" + stmt.IndexName
 	delete(e.trees, idxTreeName)
+
+	// Remove from schema B-tree
+	if err := e.deleteSchemaEntry(stmt.IndexName); err != nil {
+		// Log but don't fail - index is already dropped from catalog
+		// This is a best-effort cleanup
+	}
 
 	return &Result{}, nil
 }
@@ -4472,16 +4636,32 @@ func (e *Executor) executeCreateProcedure(stmt *parser.CreateProcedureStmt) (*Re
 		body[i] = s
 	}
 
+	// Reconstruct SQL for persistence
+	sql := reconstructCreateProcedureSQL(stmt)
+
 	// Create procedure definition
 	proc := &schema.ProcedureDef{
 		Name:       stmt.Name,
 		Parameters: params,
+		SQL:        sql,
 		Body:       body,
 	}
 
 	// Add to catalog
 	if err := e.catalog.CreateProcedure(proc); err != nil {
 		return nil, err
+	}
+
+	// Persist schema entry (procedures don't have a root page - stored in schema B-tree only)
+	entry := &dbfile.SchemaEntry{
+		Type:      dbfile.SchemaEntryProcedure,
+		Name:      stmt.Name,
+		TableName: "", // Procedures are not associated with a table
+		RootPage:  0,  // Procedures don't have a B-tree
+		SQL:       sql,
+	}
+	if err := e.persistSchemaEntry(entry); err != nil {
+		return nil, fmt.Errorf("failed to persist procedure schema: %w", err)
 	}
 
 	return &Result{}, nil
@@ -4500,6 +4680,12 @@ func (e *Executor) executeDropProcedure(stmt *parser.DropProcedureStmt) (*Result
 	// Remove from catalog
 	if err := e.catalog.DropProcedure(stmt.Name); err != nil {
 		return nil, err
+	}
+
+	// Delete schema entry from B-tree
+	if err := e.deleteSchemaEntry(stmt.Name); err != nil {
+		// Log but don't fail - catalog is already updated
+		// This can happen if the entry doesn't exist in schema B-tree
 	}
 
 	return &Result{}, nil

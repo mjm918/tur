@@ -323,6 +323,46 @@ func TestBTreeDelete_AllKeys(t *testing.T) {
 	}
 }
 
+func TestCreateAtPage(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test_create_at_page.db")
+
+	p, err := pager.Open(path, pager.Options{PageSize: 4096})
+	if err != nil {
+		t.Fatalf("Failed to open pager: %v", err)
+	}
+	defer p.Close()
+
+	// Create B-tree at page 1 specifically
+	tree, err := CreateAtPage(p, 1)
+	if err != nil {
+		t.Fatalf("CreateAtPage failed: %v", err)
+	}
+
+	if tree == nil {
+		t.Fatal("Expected non-nil tree")
+	}
+
+	if tree.RootPage() != 1 {
+		t.Errorf("Expected root page 1, got %d", tree.RootPage())
+	}
+
+	// Verify we can insert into it
+	err = tree.Insert([]byte("test"), []byte("data"))
+	if err != nil {
+		t.Errorf("Insert failed: %v", err)
+	}
+
+	// Verify we can retrieve from it
+	value, err := tree.Get([]byte("test"))
+	if err != nil {
+		t.Errorf("Get failed: %v", err)
+	}
+	if string(value) != "data" {
+		t.Errorf("Expected 'data', got '%s'", string(value))
+	}
+}
+
 func TestBTreeDelete_DeleteFromInteriorNode(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.db")
