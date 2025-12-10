@@ -3423,3 +3423,53 @@ func TestParser_IfStmt_Simple(t *testing.T) {
 		t.Errorf("ElsIfClauses count = %d, want 0", len(ifStmt.ElsIfClauses))
 	}
 }
+
+func TestParser_IfStmt_WithElse(t *testing.T) {
+	// IF with ELSE clause
+	input := "IF x > 0 THEN SELECT 1 ELSE SELECT 2 END IF"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	ifStmt, ok := stmt.(*IfStmt)
+	if !ok {
+		t.Fatalf("Expected *IfStmt, got %T", stmt)
+	}
+
+	// Check condition
+	binExpr, ok := ifStmt.Condition.(*BinaryExpr)
+	if !ok {
+		t.Fatalf("Expected *BinaryExpr for condition, got %T", ifStmt.Condition)
+	}
+	if binExpr.Op != lexer.GT {
+		t.Errorf("Condition operator = %v, want GT", binExpr.Op)
+	}
+
+	// Check THEN branch
+	if len(ifStmt.ThenBranch) != 1 {
+		t.Fatalf("ThenBranch count = %d, want 1", len(ifStmt.ThenBranch))
+	}
+	_, ok = ifStmt.ThenBranch[0].(*SelectStmt)
+	if !ok {
+		t.Errorf("ThenBranch[0] = %T, want *SelectStmt", ifStmt.ThenBranch[0])
+	}
+
+	// Check ELSE branch exists
+	if ifStmt.ElseBranch == nil {
+		t.Fatal("ElseBranch should not be nil")
+	}
+	if len(ifStmt.ElseBranch) != 1 {
+		t.Fatalf("ElseBranch count = %d, want 1", len(ifStmt.ElseBranch))
+	}
+	_, ok = ifStmt.ElseBranch[0].(*SelectStmt)
+	if !ok {
+		t.Errorf("ElseBranch[0] = %T, want *SelectStmt", ifStmt.ElseBranch[0])
+	}
+
+	// No ELSIF clauses
+	if len(ifStmt.ElsIfClauses) != 0 {
+		t.Errorf("ElsIfClauses count = %d, want 0", len(ifStmt.ElsIfClauses))
+	}
+}

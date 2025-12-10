@@ -2793,6 +2793,7 @@ func (p *Parser) parseIfStmt() (*IfStmt, error) {
 	if !p.expectPeek(lexer.THEN) {
 		return nil, fmt.Errorf("expected THEN after IF condition, got %s", p.peek.Literal)
 	}
+	p.nextToken() // move past THEN to first statement
 
 	// Parse THEN branch statements
 	thenStmts, err := p.parseIfBodyStatements()
@@ -2854,6 +2855,7 @@ func (p *Parser) parseElsIfClause() (*ElsIfClause, error) {
 	if !p.expectPeek(lexer.THEN) {
 		return nil, fmt.Errorf("expected THEN after ELSIF condition, got %s", p.peek.Literal)
 	}
+	p.nextToken() // move past THEN to first statement
 
 	// Parse body statements
 	stmts, err := p.parseIfBodyStatements()
@@ -2866,13 +2868,17 @@ func (p *Parser) parseElsIfClause() (*ElsIfClause, error) {
 }
 
 // parseIfBodyStatements parses statements inside an IF/ELSIF/ELSE block
-// Stops when it sees ELSIF, ELSE, or END
+// Expects to be called with cur positioned on the first statement (or a terminator)
+// Stops when it sees ELSIF, ELSE, or END (leaves cur on the terminator)
 func (p *Parser) parseIfBodyStatements() ([]Statement, error) {
 	var stmts []Statement
 
-	p.nextToken() // move to first statement
+	for {
+		// Check if current token is a terminator (ELSIF, ELSE, END)
+		if p.curIs(lexer.ELSIF) || p.curIs(lexer.ELSEIF) || p.curIs(lexer.ELSE_KW) || p.curIs(lexer.END) || p.curIs(lexer.EOF) {
+			break
+		}
 
-	for !p.curIs(lexer.EOF) && !p.curIs(lexer.ELSIF) && !p.curIs(lexer.ELSE_KW) && !p.curIs(lexer.END) {
 		// Check for ELSEIF as identifier (in case it's not a keyword)
 		if p.curIs(lexer.IDENT) && (p.cur.Literal == "ELSIF" || p.cur.Literal == "ELSEIF") {
 			break
@@ -2885,13 +2891,12 @@ func (p *Parser) parseIfBodyStatements() ([]Statement, error) {
 		}
 		stmts = append(stmts, stmt)
 
+		// After statement parsing, move to next token
 		// Skip optional semicolon
 		if p.peekIs(lexer.SEMICOLON) {
-			p.nextToken()
-			p.nextToken() // move past semicolon to next statement
-		} else {
-			p.nextToken() // move to next token
+			p.nextToken() // move to semicolon
 		}
+		p.nextToken() // move to next statement or terminator
 	}
 
 	return stmts, nil
