@@ -37,7 +37,11 @@
       "Skill(superpowers:using-git-worktrees)",
       "Bash(git -C /Users/julfikar/Documents/PassionFruit.nosync/tur/tur-feature-expression-indexes log --oneline -5)",
       "Bash(git -C /Users/julfikar/Documents/PassionFruit.nosync/tur/tur-feature-primary-key diff pkg/sql/executor/executor.go)",
-      "Skill(superpowers:finishing-a-development-branch)"
+      "Skill(superpowers:finishing-a-development-branch)",
+      "Bash(go clean:*)",
+      "Bash(for i in 1 2 3 4 5)",
+      "Bash(do echo \"=== Run $i ===\")",
+      "Bash(done)"
     ],
     "deny": [],
     "ask": []
