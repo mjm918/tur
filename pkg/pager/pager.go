@@ -5,8 +5,10 @@ import (
 	"container/list"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"sync"
 
+	"tur/pkg/cache"
 	"tur/pkg/wal"
 )
 
@@ -55,6 +57,9 @@ type Pager struct {
 
 	// Freelist support
 	freelist *Freelist
+
+	// Memory budget tracking
+	memoryBudget *cache.MemoryBudget
 }
 
 // Transaction represents an active write transaction
@@ -64,6 +69,11 @@ type Transaction struct {
 
 // Open opens or creates a database file
 func Open(path string, opts Options) (*Pager, error) {
+	return OpenWithBudget(path, opts, nil)
+}
+
+// OpenWithBudget opens or creates a database file with memory budget tracking
+func OpenWithBudget(path string, opts Options, budget *cache.MemoryBudget) (*Pager, error) {
 	pageSize := opts.PageSize
 	if pageSize == 0 {
 		pageSize = defaultPageSize
@@ -81,14 +91,20 @@ func Open(path string, opts Options) (*Pager, error) {
 	}
 
 	p := &Pager{
-		mmap:       mf,
-		path:       path,
-		pageSize:   pageSize,
-		cache:      make(map[uint32]*cacheEntry),
-		lru:        list.New(),
-		cacheSize:  cacheSize,
-		dirtyPages: make(map[uint32][]byte),
-		freelist:   NewFreelist(pageSize),
+		mmap:         mf,
+		path:         path,
+		pageSize:     pageSize,
+		cache:        make(map[uint32]*cacheEntry),
+		lru:          list.New(),
+		cacheSize:    cacheSize,
+		dirtyPages:   make(map[uint32][]byte),
+		freelist:     NewFreelist(pageSize),
+		memoryBudget: budget,
+	}
+
+	// Register with memory budget if provided
+	if budget != nil {
+		budget.RegisterComponent("page_cache")
 	}
 
 	// Check if this is a new file or existing database
@@ -211,6 +227,9 @@ func (p *Pager) Allocate() (*Page, error) {
 	elem := p.lru.PushFront(pageNo)
 	p.cache[pageNo] = &cacheEntry{page: page, element: elem}
 
+	// Track memory usage
+	p.trackCacheMemory(pageNo, int64(p.pageSize))
+
 	// Evict if needed
 	p.evictIfNeeded()
 
@@ -280,6 +299,8 @@ func (p *Pager) Get(pageNo uint32) (*Page, error) {
 		entry.page.Pin()
 		// Move to front of LRU
 		p.lru.MoveToFront(entry.element)
+		// Record access for priority tracking
+		p.recordCacheAccess(pageNo)
 		return entry.page, nil
 	}
 
@@ -302,6 +323,9 @@ func (p *Pager) Get(pageNo uint32) (*Page, error) {
 	elem := p.lru.PushFront(pageNo)
 	p.cache[pageNo] = &cacheEntry{page: page, element: elem}
 
+	// Track memory usage
+	p.trackCacheMemory(pageNo, int64(p.pageSize))
+
 	// Evict if needed
 	p.evictIfNeeded()
 
@@ -311,6 +335,13 @@ func (p *Pager) Get(pageNo uint32) (*Page, error) {
 // invalidateCache clears all cached pages after mmap regrowth
 // This is necessary because the underlying memory region changes after remap
 func (p *Pager) invalidateCache() {
+	// Release memory for all cached pages
+	if p.memoryBudget != nil {
+		for pageNo := range p.cache {
+			p.releaseCacheMemory(pageNo)
+		}
+	}
+
 	// Clear LRU list
 	p.lru = list.New()
 	// Clear cache map
@@ -319,7 +350,8 @@ func (p *Pager) invalidateCache() {
 
 // evictIfNeeded removes unpinned pages from cache if over capacity
 func (p *Pager) evictIfNeeded() {
-	for p.lru.Len() > p.cacheSize {
+	// Check both LRU cache size and memory budget pressure
+	for p.lru.Len() > p.cacheSize || p.shouldEvictForMemory() {
 		// Get least recently used (back of list)
 		elem := p.lru.Back()
 		if elem == nil {
@@ -340,10 +372,21 @@ func (p *Pager) evictIfNeeded() {
 			break // All remaining pages are likely pinned
 		}
 
+		// Release memory tracking
+		p.releaseCacheMemory(pageNo)
+
 		// Remove from cache and LRU
 		p.lru.Remove(elem)
 		delete(p.cache, pageNo)
 	}
+}
+
+// shouldEvictForMemory returns true if memory budget is exceeded
+func (p *Pager) shouldEvictForMemory() bool {
+	if p.memoryBudget == nil {
+		return false
+	}
+	return p.memoryBudget.IsExceeded()
 }
 
 // Release unpins a page
@@ -663,4 +706,41 @@ func (p *Pager) loadFreelist(headPage uint32, freeCount uint32) {
 		// Move to next trunk
 		currentTrunkPage = trunk.NextTrunk
 	}
+}
+
+// MemoryBudget returns the memory budget associated with this pager, if any
+func (p *Pager) MemoryBudget() *cache.MemoryBudget {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.memoryBudget
+}
+
+// trackCacheMemory tracks memory usage for a cached page
+func (p *Pager) trackCacheMemory(pageNo uint32, bytes int64) {
+	if p.memoryBudget == nil {
+		return
+	}
+
+	key := fmt.Sprintf("page_%d", pageNo)
+	p.memoryBudget.TrackWithPriority("page_cache", key, bytes, cache.PriorityWarm)
+}
+
+// releaseCacheMemory releases memory tracking for a cached page
+func (p *Pager) releaseCacheMemory(pageNo uint32) {
+	if p.memoryBudget == nil {
+		return
+	}
+
+	key := fmt.Sprintf("page_%d", pageNo)
+	p.memoryBudget.ReleaseItem("page_cache", key)
+}
+
+// recordCacheAccess records access to a cached page for priority tracking
+func (p *Pager) recordCacheAccess(pageNo uint32) {
+	if p.memoryBudget == nil {
+		return
+	}
+
+	key := fmt.Sprintf("page_%d", pageNo)
+	p.memoryBudget.RecordAccess("page_cache", key)
 }
