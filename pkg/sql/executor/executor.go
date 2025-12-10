@@ -841,9 +841,13 @@ func (e *Executor) executeDropTable(stmt *parser.DropTableStmt) (*Result, error)
 		return nil, fmt.Errorf("table not found")
 	}
 
+	// Get dependent objects
+	dependentViews := e.catalog.GetViewsDependingOn(stmt.TableName)
+	dependentTriggers := e.catalog.GetTriggersOnTable(stmt.TableName)
+	dependentIndexes := e.catalog.GetIndexesForTable(stmt.TableName)
+
 	// Check for dependent views (if CASCADE is not specified)
 	if !stmt.Cascade {
-		dependentViews := e.catalog.GetViewsDependingOn(stmt.TableName)
 		if len(dependentViews) > 0 {
 			viewNames := make([]string, len(dependentViews))
 			for i, v := range dependentViews {
@@ -854,7 +858,6 @@ func (e *Executor) executeDropTable(stmt *parser.DropTableStmt) (*Result, error)
 		}
 
 		// Check for dependent triggers
-		dependentTriggers := e.catalog.GetTriggersOnTable(stmt.TableName)
 		if len(dependentTriggers) > 0 {
 			triggerNames := make([]string, len(dependentTriggers))
 			for i, t := range dependentTriggers {
@@ -865,7 +868,40 @@ func (e *Executor) executeDropTable(stmt *parser.DropTableStmt) (*Result, error)
 		}
 	}
 
-	// TODO: If CASCADE is specified, drop associated indexes and handle foreign keys
+	// If CASCADE is specified, drop associated indexes, views, and triggers
+	if stmt.Cascade {
+		// Drop dependent views
+		for _, view := range dependentViews {
+			if err := e.catalog.DropView(view.Name); err != nil {
+				return nil, fmt.Errorf("failed to cascade drop view %s: %w", view.Name, err)
+			}
+			if err := e.deleteSchemaEntry(view.Name); err != nil {
+				// Best effort - continue
+			}
+		}
+
+		// Drop dependent triggers
+		for _, trigger := range dependentTriggers {
+			if err := e.catalog.DropTrigger(trigger.Name); err != nil {
+				return nil, fmt.Errorf("failed to cascade drop trigger %s: %w", trigger.Name, err)
+			}
+			if err := e.deleteSchemaEntry(trigger.Name); err != nil {
+				// Best effort - continue
+			}
+		}
+
+		// Drop dependent indexes
+		for _, idx := range dependentIndexes {
+			if err := e.catalog.DropIndex(idx.Name); err != nil {
+				return nil, fmt.Errorf("failed to cascade drop index %s: %w", idx.Name, err)
+			}
+			// Clean up in-memory index tree
+			delete(e.trees, "index:"+idx.Name)
+			if err := e.deleteSchemaEntry(idx.Name); err != nil {
+				// Best effort - continue
+			}
+		}
+	}
 
 	// Drop the table from catalog
 	if err := e.catalog.DropTable(stmt.TableName); err != nil {
