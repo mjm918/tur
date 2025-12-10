@@ -502,6 +502,45 @@ func (bt *BTree) Delete(key []byte) error {
 	return bt.deleteSimple(bt.rootPage, key)
 }
 
+// CollectPages returns all page numbers used by this B-tree.
+// This is used for freeing pages when dropping a table or index.
+func (bt *BTree) CollectPages() []uint32 {
+	var pages []uint32
+	bt.collectPagesRecursive(bt.rootPage, &pages)
+	return pages
+}
+
+// collectPagesRecursive recursively collects all page numbers in the B-tree
+func (bt *BTree) collectPagesRecursive(pageNo uint32, pages *[]uint32) {
+	page, err := bt.pager.Get(pageNo)
+	if err != nil {
+		return
+	}
+	defer bt.pager.Release(page)
+
+	*pages = append(*pages, pageNo)
+
+	node := LoadNode(page.Data())
+	if !node.IsLeaf() {
+		// Interior nodes store child pointers:
+		// - Each cell's value contains a child page pointer (left child of that key)
+		// - RightChild contains the rightmost child page
+		count := node.CellCount()
+		for i := 0; i < count; i++ {
+			_, cellValue := node.GetCell(i)
+			childPage := decodePageNo(cellValue)
+			if childPage != 0 {
+				bt.collectPagesRecursive(childPage, pages)
+			}
+		}
+		// Don't forget the right child
+		rightChild := node.RightChild()
+		if rightChild != 0 {
+			bt.collectPagesRecursive(rightChild, pages)
+		}
+	}
+}
+
 // deleteSimple performs a straightforward delete without complex rebalancing.
 // This approach is used by many production B-tree implementations including SQLite.
 func (bt *BTree) deleteSimple(pageNo uint32, key []byte) error {

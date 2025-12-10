@@ -903,6 +903,12 @@ func (e *Executor) executeDropTable(stmt *parser.DropTableStmt) (*Result, error)
 		}
 	}
 
+	// Collect pages to free BEFORE removing from maps
+	var pagesToFree []uint32
+	if tree, ok := e.trees[stmt.TableName]; ok {
+		pagesToFree = tree.CollectPages()
+	}
+
 	// Drop the table from catalog
 	if err := e.catalog.DropTable(stmt.TableName); err != nil {
 		return nil, err
@@ -918,7 +924,12 @@ func (e *Executor) executeDropTable(stmt *parser.DropTableStmt) (*Result, error)
 		// This is a best-effort cleanup
 	}
 
-	// TODO: Add table's B-tree pages to free list
+	// Add table's B-tree pages to free list
+	for _, pageNo := range pagesToFree {
+		if err := e.pager.Free(pageNo); err != nil {
+			// Best effort - continue freeing other pages
+		}
+	}
 
 	return &Result{}, nil
 }
