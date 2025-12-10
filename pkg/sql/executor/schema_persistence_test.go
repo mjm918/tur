@@ -496,3 +496,47 @@ END`)
 		t.Error("Table 'audit_log' should still exist")
 	}
 }
+
+func TestDropTable_FreesPages(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test_drop_frees_pages.db")
+
+	p, err := pager.Open(path, pager.Options{})
+	if err != nil {
+		t.Fatalf("Failed to open pager: %v", err)
+	}
+
+	exec := New(p)
+
+	// Record initial page count (should be 2 - page 0 for header, page 1 for schema tree)
+	initialPageCount := p.PageCount()
+
+	// Create a table (allocates at least 1 page)
+	_, err = exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE failed: %v", err)
+	}
+
+	// Page count should have increased
+	afterCreatePageCount := p.PageCount()
+	if afterCreatePageCount <= initialPageCount {
+		t.Fatalf("Expected page count to increase after CREATE TABLE")
+	}
+
+	// Record free pages before drop
+	freePagesBefore := p.FreePageCount()
+
+	// Drop the table
+	_, err = exec.Execute("DROP TABLE users")
+	if err != nil {
+		t.Fatalf("DROP TABLE failed: %v", err)
+	}
+
+	// Free pages should have increased
+	freePagesAfter := p.FreePageCount()
+	if freePagesAfter <= freePagesBefore {
+		t.Errorf("Expected free pages to increase after DROP TABLE: before=%d, after=%d", freePagesBefore, freePagesAfter)
+	}
+
+	p.Close()
+}
