@@ -3568,3 +3568,78 @@ func TestParser_IfStmt_ElseIfVariant(t *testing.T) {
 		t.Error("ElseBranch should be nil")
 	}
 }
+
+func TestParser_IfStmt_Nested(t *testing.T) {
+	// Nested IF statements
+	input := `IF x > 0 THEN
+		IF y > 0 THEN
+			SELECT 1
+		ELSE
+			SELECT 2
+		END IF
+	END IF`
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	ifStmt, ok := stmt.(*IfStmt)
+	if !ok {
+		t.Fatalf("Expected *IfStmt, got %T", stmt)
+	}
+
+	// Outer IF should have one statement in THEN branch
+	if len(ifStmt.ThenBranch) != 1 {
+		t.Fatalf("Outer ThenBranch count = %d, want 1", len(ifStmt.ThenBranch))
+	}
+
+	// That statement should be another IF
+	nestedIf, ok := ifStmt.ThenBranch[0].(*IfStmt)
+	if !ok {
+		t.Fatalf("ThenBranch[0] = %T, want *IfStmt", ifStmt.ThenBranch[0])
+	}
+
+	// Check nested IF has THEN and ELSE
+	if len(nestedIf.ThenBranch) != 1 {
+		t.Errorf("Nested ThenBranch count = %d, want 1", len(nestedIf.ThenBranch))
+	}
+	if nestedIf.ElseBranch == nil {
+		t.Error("Nested ElseBranch should not be nil")
+	}
+	if len(nestedIf.ElseBranch) != 1 {
+		t.Errorf("Nested ElseBranch count = %d, want 1", len(nestedIf.ElseBranch))
+	}
+
+	// Outer IF should have no ELSE
+	if ifStmt.ElseBranch != nil {
+		t.Error("Outer ElseBranch should be nil")
+	}
+}
+
+func TestParser_IfStmt_MultipleStatements(t *testing.T) {
+	// Multiple statements in THEN branch
+	input := "IF x > 0 THEN SELECT 1; SELECT 2; SELECT 3 END IF"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	ifStmt, ok := stmt.(*IfStmt)
+	if !ok {
+		t.Fatalf("Expected *IfStmt, got %T", stmt)
+	}
+
+	// Should have 3 statements in THEN branch
+	if len(ifStmt.ThenBranch) != 3 {
+		t.Fatalf("ThenBranch count = %d, want 3", len(ifStmt.ThenBranch))
+	}
+
+	// All should be SELECT statements
+	for i, s := range ifStmt.ThenBranch {
+		if _, ok := s.(*SelectStmt); !ok {
+			t.Errorf("ThenBranch[%d] = %T, want *SelectStmt", i, s)
+		}
+	}
+}
