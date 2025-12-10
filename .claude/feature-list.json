@@ -2414,27 +2414,32 @@
     {
       "title": "Recovery - Crash Recovery",
       "description": "Automatic recovery from crashes using WAL replay",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Detect incomplete checkpoint on database open",
-          "done": false
+          "done": true,
+          "note": "Implemented in pager.go:120-127 - checks w.FrameCount() > 0"
         },
         {
           "task": "Replay WAL entries since last checkpoint",
-          "done": false
+          "done": true,
+          "note": "Implemented in wal.go:621-691 Recover() method"
         },
         {
           "task": "Apply committed transactions to database file",
-          "done": false
+          "done": true,
+          "note": "Recover() finds lastCommitFrame and applies frames up to it"
         },
         {
           "task": "Discard uncommitted transactions",
-          "done": false
+          "done": true,
+          "note": "Only frames up to lastCommitFrame are applied; rest ignored"
         },
         {
           "task": "Checkpoint and truncate WAL after recovery",
-          "done": false
+          "done": true,
+          "note": "w.reset() called at end of Recover() to truncate WAL"
         }
       ]
     },
