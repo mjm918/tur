@@ -49,6 +49,41 @@ func Open(p *pager.Pager, rootPage uint32) *BTree {
 	}
 }
 
+// CreateAtPage creates a new B-tree at the specified page number.
+// If pages need to be allocated to reach pageNo, they will be allocated.
+// The page will be initialized as an empty leaf node.
+func CreateAtPage(p *pager.Pager, pageNo uint32) (*BTree, error) {
+	var page *pager.Page
+	var err error
+
+	// Allocate pages until we reach the desired page number
+	for p.PageCount() <= pageNo {
+		page, err = p.Allocate()
+		if err != nil {
+			return nil, err
+		}
+		if page.PageNo() != pageNo {
+			p.Release(page)
+		}
+	}
+
+	// Get the specific page
+	page, err = p.Get(pageNo)
+	if err != nil {
+		return nil, err
+	}
+	defer p.Release(page)
+
+	// Initialize as empty leaf node
+	NewNode(page.Data(), true)
+	page.SetDirty(true)
+
+	return &BTree{
+		pager:    p,
+		rootPage: pageNo,
+	}, nil
+}
+
 // RootPage returns the root page number
 func (bt *BTree) RootPage() uint32 {
 	return bt.rootPage
