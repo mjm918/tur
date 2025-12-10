@@ -82,10 +82,11 @@ type ColumnDef struct {
 
 // InsertStmt represents an INSERT statement
 type InsertStmt struct {
-	TableName  string
-	Columns    []string       // optional column list (nil means all columns)
-	Values     [][]Expression // rows of values (nil if using SelectStmt)
-	SelectStmt *SelectStmt    // SELECT subquery (nil if using Values)
+	TableName      string
+	Columns        []string       // optional column list (nil means all columns)
+	Values         [][]Expression // rows of values (nil if using SelectStmt)
+	SelectStmt     *SelectStmt    // SELECT subquery (nil if using Values)
+	OnDuplicateKey []Assignment   // ON DUPLICATE KEY UPDATE assignments (nil if none)
 }
 
 func (s *InsertStmt) statementNode() {}
