@@ -257,6 +257,69 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Function: builtinCHR,
 	})
 
+	// Register MOD function
+	r.Register(&ScalarFunction{
+		Name:     "MOD",
+		NumArgs:  2,
+		Function: builtinMod,
+	})
+
+	// Register POWER function
+	r.Register(&ScalarFunction{
+		Name:     "POWER",
+		NumArgs:  2,
+		Function: builtinPower,
+	})
+
+	// Register POW function (alias for POWER)
+	r.Register(&ScalarFunction{
+		Name:     "POW",
+		NumArgs:  2,
+		Function: builtinPower,
+	})
+
+	// Register SQRT function
+	r.Register(&ScalarFunction{
+		Name:     "SQRT",
+		NumArgs:  1,
+		Function: builtinSqrt,
+	})
+
+	// Register CEIL function
+	r.Register(&ScalarFunction{
+		Name:     "CEIL",
+		NumArgs:  1,
+		Function: builtinCeil,
+	})
+
+	// Register CEILING function (alias for CEIL)
+	r.Register(&ScalarFunction{
+		Name:     "CEILING",
+		NumArgs:  1,
+		Function: builtinCeil,
+	})
+
+	// Register FLOOR function
+	r.Register(&ScalarFunction{
+		Name:     "FLOOR",
+		NumArgs:  1,
+		Function: builtinFloor,
+	})
+
+	// Register TRUNC function
+	r.Register(&ScalarFunction{
+		Name:     "TRUNC",
+		NumArgs:  -1, // 1 or 2 arguments
+		Function: builtinTrunc,
+	})
+
+	// Register TRUNCATE function (alias for TRUNC)
+	r.Register(&ScalarFunction{
+		Name:     "TRUNCATE",
+		NumArgs:  -1, // 1 or 2 arguments
+		Function: builtinTrunc,
+	})
+
 	return r
 }
 
@@ -894,4 +957,339 @@ func builtinCHR(args []types.Value) types.Value {
 	}
 	code := args[0].Int()
 	return types.NewText(string(rune(code)))
+}
+
+// builtinMod implements MOD(x, y)
+// Returns the remainder of x divided by y.
+// If any argument is NULL, returns NULL.
+func builtinMod(args []types.Value) types.Value {
+	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+
+	var x, y float64
+
+	// Convert first argument to float
+	switch args[0].Type() {
+	case types.TypeInt:
+		x = float64(args[0].Int())
+	case types.TypeFloat:
+		x = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+
+	// Convert second argument to float
+	switch args[1].Type() {
+	case types.TypeInt:
+		y = float64(args[1].Int())
+	case types.TypeFloat:
+		y = args[1].Float()
+	default:
+		return types.NewNull()
+	}
+
+	// Check for division by zero
+	if y == 0 {
+		return types.NewNull()
+	}
+
+	// For integers, return integer result
+	if args[0].Type() == types.TypeInt && args[1].Type() == types.TypeInt {
+		result := int64(x) % int64(y)
+		return types.NewInt(result)
+	}
+
+	// For floats, use math.Mod
+	return types.NewFloat(math.Mod(x, y))
+}
+
+// builtinPower implements POWER(x, y)
+// Returns x raised to the power of y.
+// If any argument is NULL, returns NULL.
+func builtinPower(args []types.Value) types.Value {
+	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+
+	var x, y float64
+
+	// Convert first argument to float
+	switch args[0].Type() {
+	case types.TypeInt:
+		x = float64(args[0].Int())
+	case types.TypeFloat:
+		x = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+
+	// Convert second argument to float
+	switch args[1].Type() {
+	case types.TypeInt:
+		y = float64(args[1].Int())
+	case types.TypeFloat:
+		y = args[1].Float()
+	default:
+		return types.NewNull()
+	}
+
+	return types.NewFloat(math.Pow(x, y))
+}
+
+// builtinSqrt implements SQRT(x)
+// Returns the square root of x.
+// If argument is NULL or negative, returns NULL.
+func builtinSqrt(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+
+	var x float64
+
+	switch args[0].Type() {
+	case types.TypeInt:
+		x = float64(args[0].Int())
+	case types.TypeFloat:
+		x = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+
+	// SQRT of negative number is NULL
+	if x < 0 {
+		return types.NewNull()
+	}
+
+	return types.NewFloat(math.Sqrt(x))
+}
+
+// builtinExp implements EXP(x)
+// Returns e raised to the power of x (e^x).
+// If argument is NULL, returns NULL.
+func builtinExp(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	
+	var x float64
+	
+	switch args[0].Type() {
+	case types.TypeInt:
+		x = float64(args[0].Int())
+	case types.TypeFloat:
+		x = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+	
+	return types.NewFloat(math.Exp(x))
+}
+
+// builtinLn implements LN(x)
+// Returns the natural logarithm (base e) of x.
+// If argument is NULL or x <= 0, returns NULL.
+func builtinLn(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	
+	var x float64
+	
+	switch args[0].Type() {
+	case types.TypeInt:
+		x = float64(args[0].Int())
+	case types.TypeFloat:
+		x = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+	
+	// LN of non-positive number is NULL
+	if x <= 0 {
+		return types.NewNull()
+	}
+	
+	return types.NewFloat(math.Log(x))
+}
+
+// builtinLog10 implements LOG10(x)
+// Returns the base-10 logarithm of x.
+// If argument is NULL or x <= 0, returns NULL.
+func builtinLog10(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	
+	var x float64
+	
+	switch args[0].Type() {
+	case types.TypeInt:
+		x = float64(args[0].Int())
+	case types.TypeFloat:
+		x = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+	
+	// LOG10 of non-positive number is NULL
+	if x <= 0 {
+		return types.NewNull()
+	}
+	
+	return types.NewFloat(math.Log10(x))
+}
+
+// builtinLog implements LOG(base, value) or LOG(value)
+// With 2 args: Returns log_base(value) = ln(value) / ln(base)
+// With 1 arg: Returns natural log (same as LN)
+// If any argument is NULL, or base/value <= 0, or base = 1, returns NULL.
+func builtinLog(args []types.Value) types.Value {
+	if len(args) < 1 || len(args) > 2 {
+		return types.NewNull()
+	}
+	
+	// Check for NULL arguments
+	for _, arg := range args {
+		if arg.IsNull() {
+			return types.NewNull()
+		}
+	}
+	
+	// LOG with 1 arg: natural log
+	if len(args) == 1 {
+		return builtinLn(args)
+	}
+	
+	// LOG with 2 args: LOG(base, value)
+	var base, value float64
+	
+	// Convert base to float
+	switch args[0].Type() {
+	case types.TypeInt:
+		base = float64(args[0].Int())
+	case types.TypeFloat:
+		base = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+	
+	// Convert value to float
+	switch args[1].Type() {
+	case types.TypeInt:
+		value = float64(args[1].Int())
+	case types.TypeFloat:
+		value = args[1].Float()
+	default:
+		return types.NewNull()
+	}
+	
+	// Check for invalid inputs
+	if base <= 0 || base == 1 || value <= 0 {
+		return types.NewNull()
+	}
+	
+	// log_base(value) = ln(value) / ln(base)
+	return types.NewFloat(math.Log(value) / math.Log(base))
+}
+
+// builtinCeil implements CEIL(value)
+// Returns the smallest integer value greater than or equal to value.
+// Uses math.Ceil for the calculation.
+// If argument is NULL, returns NULL.
+func builtinCeil(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+
+	// Get the value, converting to float64
+	var val float64
+	switch args[0].Type() {
+	case types.TypeInt:
+		val = float64(args[0].Int())
+	case types.TypeFloat:
+		val = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+
+	// Calculate ceiling and return as float
+	result := math.Ceil(val)
+	return types.NewFloat(result)
+}
+
+// builtinFloor implements FLOOR(value)
+// Returns the largest integer value less than or equal to value.
+// Uses math.Floor for the calculation.
+// If argument is NULL, returns NULL.
+func builtinFloor(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+
+	// Get the value, converting to float64
+	var val float64
+	switch args[0].Type() {
+	case types.TypeInt:
+		val = float64(args[0].Int())
+	case types.TypeFloat:
+		val = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+
+	// Calculate floor and return as float
+	result := math.Floor(val)
+	return types.NewFloat(result)
+}
+
+// builtinTrunc implements TRUNC(value[, decimals])
+// Truncates a number to the specified number of decimal places.
+// If decimals is not specified, truncates to 0 decimal places (integer part).
+// Negative decimals truncate to the left of the decimal point.
+// Uses math.Trunc for the basic truncation.
+// If any argument is NULL, returns NULL.
+func builtinTrunc(args []types.Value) types.Value {
+	if len(args) < 1 || len(args) > 2 {
+		return types.NewNull()
+	}
+
+	// Check for NULL arguments
+	for _, arg := range args {
+		if arg.IsNull() {
+			return types.NewNull()
+		}
+	}
+
+	// Get the value to truncate
+	var val float64
+	switch args[0].Type() {
+	case types.TypeInt:
+		val = float64(args[0].Int())
+	case types.TypeFloat:
+		val = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+
+	// Get number of decimal places (default 0)
+	decimals := int64(0)
+	if len(args) == 2 {
+		switch args[1].Type() {
+		case types.TypeInt:
+			decimals = args[1].Int()
+		case types.TypeFloat:
+			decimals = int64(args[1].Float())
+		default:
+			return types.NewNull()
+		}
+	}
+
+	// Calculate multiplier
+	multiplier := math.Pow(10, float64(decimals))
+
+	// Truncate using math.Trunc
+	truncated := math.Trunc(val*multiplier) / multiplier
+
+	return types.NewFloat(truncated)
 }

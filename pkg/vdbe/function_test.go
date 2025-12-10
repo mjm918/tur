@@ -2,6 +2,7 @@
 package vdbe
 
 import (
+	"math"
 	"testing"
 
 	"tur/pkg/types"
@@ -1393,6 +1394,262 @@ func TestCHAR(t *testing.T) {
 		result := char.Call([]types.Value{types.NewInt(tc.input)})
 		if result.Text() != tc.expect {
 			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestMod(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	mod := registry.Lookup("MOD")
+	if mod == nil {
+		t.Fatal("MOD function not found")
+	}
+
+	tests := []struct {
+		a, b   int64
+		expect int64
+	}{
+		{10, 3, 1},
+		{10, 5, 0},
+		{-10, 3, -1},
+		{10, -3, 1},
+	}
+
+	for i, tc := range tests {
+		result := mod.Call([]types.Value{types.NewInt(tc.a), types.NewInt(tc.b)})
+		if result.Int() != tc.expect {
+			t.Errorf("test %d: MOD(%d, %d) expected %d, got %d", i, tc.a, tc.b, tc.expect, result.Int())
+		}
+	}
+}
+
+func TestPower(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	power := registry.Lookup("POWER")
+	if power == nil {
+		t.Fatal("POWER function not found")
+	}
+
+	tests := []struct {
+		base, exp float64
+		expect    float64
+	}{
+		{2, 3, 8},
+		{10, 2, 100},
+		{2, -1, 0.5},
+		{4, 0.5, 2},
+	}
+
+	for i, tc := range tests {
+		result := power.Call([]types.Value{types.NewFloat(tc.base), types.NewFloat(tc.exp)})
+		if math.Abs(result.Float()-tc.expect) > 0.0001 {
+			t.Errorf("test %d: POWER(%f, %f) expected %f, got %f", i, tc.base, tc.exp, tc.expect, result.Float())
+		}
+	}
+}
+
+func TestSqrt(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	sqrt := registry.Lookup("SQRT")
+	if sqrt == nil {
+		t.Fatal("SQRT function not found")
+	}
+
+	tests := []struct {
+		input  float64
+		expect float64
+	}{
+		{4, 2},
+		{9, 3},
+		{0, 0},
+		{2, 1.41421356},
+	}
+
+	for i, tc := range tests {
+		result := sqrt.Call([]types.Value{types.NewFloat(tc.input)})
+		if math.Abs(result.Float()-tc.expect) > 0.0001 {
+			t.Errorf("test %d: SQRT(%f) expected %f, got %f", i, tc.input, tc.expect, result.Float())
+		}
+	}
+}
+
+func TestExp(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	exp := registry.Lookup("EXP")
+	if exp == nil {
+		t.Fatal("EXP function not found")
+	}
+
+	tests := []struct {
+		input  float64
+		expect float64
+	}{
+		{0, 1},
+		{1, math.E},
+		{2, math.E * math.E},
+	}
+
+	for i, tc := range tests {
+		result := exp.Call([]types.Value{types.NewFloat(tc.input)})
+		if math.Abs(result.Float()-tc.expect) > 0.0001 {
+			t.Errorf("test %d: EXP(%f) expected %f, got %f", i, tc.input, tc.expect, result.Float())
+		}
+	}
+}
+
+func TestLn(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	ln := registry.Lookup("LN")
+	if ln == nil {
+		t.Fatal("LN function not found")
+	}
+
+	tests := []struct {
+		input  float64
+		expect float64
+	}{
+		{1, 0},
+		{math.E, 1},
+		{math.E * math.E, 2},
+	}
+
+	for i, tc := range tests {
+		result := ln.Call([]types.Value{types.NewFloat(tc.input)})
+		if math.Abs(result.Float()-tc.expect) > 0.0001 {
+			t.Errorf("test %d: LN(%f) expected %f, got %f", i, tc.input, tc.expect, result.Float())
+		}
+	}
+}
+
+func TestLog10(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	log10 := registry.Lookup("LOG10")
+	if log10 == nil {
+		t.Fatal("LOG10 function not found")
+	}
+
+	tests := []struct {
+		input  float64
+		expect float64
+	}{
+		{1, 0},
+		{10, 1},
+		{100, 2},
+	}
+
+	for i, tc := range tests {
+		result := log10.Call([]types.Value{types.NewFloat(tc.input)})
+		if math.Abs(result.Float()-tc.expect) > 0.0001 {
+			t.Errorf("test %d: LOG10(%f) expected %f, got %f", i, tc.input, tc.expect, result.Float())
+		}
+	}
+}
+
+func TestLogBase(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	logFn := registry.Lookup("LOG")
+	if logFn == nil {
+		t.Fatal("LOG function not found")
+	}
+
+	// LOG with 2 args: LOG(base, value)
+	tests := []struct {
+		base, value float64
+		expect      float64
+	}{
+		{2, 8, 3},
+		{10, 100, 2},
+	}
+
+	for i, tc := range tests {
+		result := logFn.Call([]types.Value{types.NewFloat(tc.base), types.NewFloat(tc.value)})
+		if math.Abs(result.Float()-tc.expect) > 0.0001 {
+			t.Errorf("test %d: LOG(%f, %f) expected %f, got %f", i, tc.base, tc.value, tc.expect, result.Float())
+		}
+	}
+}
+
+func TestCeil(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	ceil := registry.Lookup("CEIL")
+	if ceil == nil {
+		t.Fatal("CEIL function not found")
+	}
+
+	tests := []struct {
+		input  float64
+		expect float64
+	}{
+		{3.2, 4.0},
+		{3.8, 4.0},
+		{-3.2, -3.0},
+		{-3.8, -3.0},
+		{3.0, 3.0},
+	}
+
+	for i, tc := range tests {
+		result := ceil.Call([]types.Value{types.NewFloat(tc.input)})
+		if result.Float() != tc.expect {
+			t.Errorf("test %d: CEIL(%f) expected %f, got %f", i, tc.input, tc.expect, result.Float())
+		}
+	}
+}
+
+func TestFloor(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	floor := registry.Lookup("FLOOR")
+	if floor == nil {
+		t.Fatal("FLOOR function not found")
+	}
+
+	tests := []struct {
+		input  float64
+		expect float64
+	}{
+		{3.2, 3.0},
+		{3.8, 3.0},
+		{-3.2, -4.0},
+		{-3.8, -4.0},
+		{3.0, 3.0},
+	}
+
+	for i, tc := range tests {
+		result := floor.Call([]types.Value{types.NewFloat(tc.input)})
+		if result.Float() != tc.expect {
+			t.Errorf("test %d: FLOOR(%f) expected %f, got %f", i, tc.input, tc.expect, result.Float())
+		}
+	}
+}
+
+func TestTrunc(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	trunc := registry.Lookup("TRUNC")
+	if trunc == nil {
+		t.Fatal("TRUNC function not found")
+	}
+
+	tests := []struct {
+		input    float64
+		decimals int64
+		expect   float64
+	}{
+		{3.789, 0, 3.0},
+		{3.789, 2, 3.78},
+		{-3.789, 0, -3.0},
+		{-3.789, 2, -3.78},
+		{1234.5678, -2, 1200.0},
+	}
+
+	for i, tc := range tests {
+		var args []types.Value
+		if tc.decimals == 0 && i < 2 {
+			args = []types.Value{types.NewFloat(tc.input)}
+		} else {
+			args = []types.Value{types.NewFloat(tc.input), types.NewInt(tc.decimals)}
+		}
+		result := trunc.Call(args)
+		if result.Float() != tc.expect {
+			t.Errorf("test %d: TRUNC(%f, %d) expected %f, got %f", i, tc.input, tc.decimals, tc.expect, result.Float())
 		}
 	}
 }
