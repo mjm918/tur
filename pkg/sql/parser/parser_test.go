@@ -3155,3 +3155,30 @@ END`
 		t.Errorf("Type = %v, want RaiseAbort", raise.Type)
 	}
 }
+
+func TestParseValuesFunction(t *testing.T) {
+	input := "SELECT VALUES(name) FROM t"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	selectStmt, ok := stmt.(*SelectStmt)
+	if !ok {
+		t.Fatalf("expected SelectStmt, got %T", stmt)
+	}
+
+	if len(selectStmt.Columns) != 1 {
+		t.Fatalf("expected 1 column, got %d", len(selectStmt.Columns))
+	}
+
+	valuesFunc, ok := selectStmt.Columns[0].Expr.(*ValuesFunc)
+	if !ok {
+		t.Fatalf("expected ValuesFunc, got %T", selectStmt.Columns[0].Expr)
+	}
+
+	if valuesFunc.ColumnName != "name" {
+		t.Errorf("expected column 'name', got %q", valuesFunc.ColumnName)
+	}
+}

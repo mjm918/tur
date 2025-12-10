@@ -4,6 +4,7 @@ package parser
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"tur/pkg/sql/lexer"
 	"tur/pkg/types"
@@ -1528,6 +1529,12 @@ func (p *Parser) parsePrefixExpression() (Expression, error) {
 			return nil, err
 		}
 		return &UnaryExpr{Op: op, Right: right}, nil
+	case lexer.VALUES:
+		// Handle VALUES(column) function
+		if p.peekIs(lexer.LPAREN) {
+			return p.parseFunctionCall()
+		}
+		return nil, fmt.Errorf("VALUES must be followed by '('")
 	case lexer.IDENT:
 		// Check if this is a function call (IDENT followed by LPAREN)
 		if p.peekIs(lexer.LPAREN) {
@@ -1646,6 +1653,18 @@ func (p *Parser) parseFunctionCall() (Expression, error) {
 
 	if !p.expectPeek(lexer.RPAREN) {
 		return nil, fmt.Errorf("expected ')' or ',' in function call")
+	}
+
+	// Special handling for VALUES(column) function
+	if strings.ToUpper(funcCall.Name) == "VALUES" {
+		if len(funcCall.Args) != 1 {
+			return nil, fmt.Errorf("VALUES() function requires exactly one argument")
+		}
+		colRef, ok := funcCall.Args[0].(*ColumnRef)
+		if !ok {
+			return nil, fmt.Errorf("VALUES() argument must be a column name")
+		}
+		return &ValuesFunc{ColumnName: colRef.Name}, nil
 	}
 
 	return p.maybeParseWindowFunction(funcCall)
