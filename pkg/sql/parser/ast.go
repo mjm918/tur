@@ -570,3 +570,147 @@ type IfStmt struct {
 }
 
 func (s *IfStmt) statementNode() {}
+
+// ParamMode represents the mode of a procedure parameter
+type ParamMode int
+
+const (
+	ParamModeIn    ParamMode = iota // IN parameter (default)
+	ParamModeOut                    // OUT parameter
+	ParamModeInOut                  // INOUT parameter
+)
+
+// ProcedureParam represents a stored procedure parameter
+type ProcedureParam struct {
+	Name string          // Parameter name
+	Mode ParamMode       // IN, OUT, or INOUT
+	Type types.ValueType // Data type
+}
+
+// CreateProcedureStmt represents a CREATE PROCEDURE statement
+type CreateProcedureStmt struct {
+	Name       string            // Procedure name
+	Parameters []ProcedureParam  // Procedure parameters
+	Body       []Statement       // Procedure body statements
+}
+
+func (s *CreateProcedureStmt) statementNode() {}
+
+// DropProcedureStmt represents a DROP PROCEDURE statement
+type DropProcedureStmt struct {
+	Name     string // Procedure name
+	IfExists bool   // IF EXISTS clause
+}
+
+func (s *DropProcedureStmt) statementNode() {}
+
+// CallStmt represents a CALL statement to execute a procedure
+type CallStmt struct {
+	Name string       // Procedure name
+	Args []Expression // Arguments to pass to the procedure
+}
+
+func (s *CallStmt) statementNode() {}
+
+// SessionVariable represents a session variable reference (@var)
+type SessionVariable struct {
+	Name string // Variable name (without @)
+}
+
+func (s *SessionVariable) expressionNode() {}
+
+// SetStmt represents a SET statement for variable assignment
+type SetStmt struct {
+	Variable Expression // Variable to set (SessionVariable or ColumnRef for local vars)
+	Value    Expression // Value to assign
+}
+
+func (s *SetStmt) statementNode() {}
+
+// DeclareStmt represents a DECLARE statement for local variables
+type DeclareStmt struct {
+	Name         string          // Variable name
+	Type         types.ValueType // Variable type
+	DefaultValue Expression      // Optional default value
+}
+
+func (s *DeclareStmt) statementNode() {}
+
+// LoopStmt represents a LOOP...END LOOP statement
+type LoopStmt struct {
+	Label string      // Optional loop label
+	Body  []Statement // Loop body statements
+}
+
+func (s *LoopStmt) statementNode() {}
+
+// LeaveStmt represents a LEAVE statement to exit a loop
+type LeaveStmt struct {
+	Label string // Optional label to leave (empty for innermost loop)
+}
+
+func (s *LeaveStmt) statementNode() {}
+
+// SelectIntoStmt represents a SELECT ... INTO statement
+type SelectIntoStmt struct {
+	Select    *SelectStmt  // The SELECT statement
+	Variables []Expression // Variables to store results into
+}
+
+func (s *SelectIntoStmt) statementNode() {}
+
+// DeclareCursorStmt represents a DECLARE cursor_name CURSOR FOR select_stmt
+type DeclareCursorStmt struct {
+	Name   string      // Cursor name
+	Query  *SelectStmt // Query for the cursor
+}
+
+func (s *DeclareCursorStmt) statementNode() {}
+
+// OpenStmt represents an OPEN cursor statement
+type OpenStmt struct {
+	CursorName string // Cursor to open
+}
+
+func (s *OpenStmt) statementNode() {}
+
+// FetchStmt represents a FETCH cursor INTO variables statement
+type FetchStmt struct {
+	CursorName string       // Cursor to fetch from
+	Variables  []Expression // Variables to fetch into
+}
+
+func (s *FetchStmt) statementNode() {}
+
+// CloseStmt represents a CLOSE cursor statement
+type CloseStmt struct {
+	CursorName string // Cursor to close
+}
+
+func (s *CloseStmt) statementNode() {}
+
+// HandlerCondition represents a condition for a handler
+type HandlerCondition int
+
+const (
+	HandlerConditionNotFound     HandlerCondition = iota // NOT FOUND
+	HandlerConditionSQLException                         // SQLEXCEPTION
+	HandlerConditionSQLWarning                           // SQLWARNING
+)
+
+// HandlerAction represents the action type for a handler
+type HandlerAction int
+
+const (
+	HandlerActionContinue HandlerAction = iota // CONTINUE HANDLER
+	HandlerActionExit                          // EXIT HANDLER
+)
+
+// DeclareHandlerStmt represents DECLARE handler_action HANDLER FOR condition statement
+type DeclareHandlerStmt struct {
+	Action    HandlerAction    // CONTINUE or EXIT
+	Condition HandlerCondition // NOT FOUND, SQLEXCEPTION, SQLWARNING
+	Body      []Statement      // Handler body statements
+}
+
+func (s *DeclareHandlerStmt) statementNode() {}

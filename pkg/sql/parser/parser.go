@@ -69,6 +69,10 @@ func (p *Parser) Parse() (Statement, error) {
 		return p.parseRelease()
 	case lexer.IF:
 		return p.parseIfStmt()
+	case lexer.CALL:
+		return p.parseCall()
+	case lexer.SET:
+		return p.parseSetStmt()
 	default:
 		return nil, fmt.Errorf("unexpected token: %s", p.cur.Literal)
 	}
@@ -99,6 +103,8 @@ func (p *Parser) parseCreate() (Statement, error) {
 		return p.parseCreateView(false)
 	case lexer.TRIGGER:
 		return p.parseCreateTrigger()
+	case lexer.PROCEDURE:
+		return p.parseCreateProcedure()
 	case lexer.IF:
 		// CREATE IF NOT EXISTS VIEW (SQLite extension)
 		if !p.expectPeek(lexer.NOT) {
@@ -113,7 +119,7 @@ func (p *Parser) parseCreate() (Statement, error) {
 		}
 		return nil, fmt.Errorf("expected VIEW after IF NOT EXISTS, got %s", p.peek.Literal)
 	default:
-		return nil, fmt.Errorf("expected TABLE, INDEX, VIEW, TRIGGER, or UNIQUE after CREATE, got %s", p.cur.Literal)
+		return nil, fmt.Errorf("expected TABLE, INDEX, VIEW, TRIGGER, PROCEDURE, or UNIQUE after CREATE, got %s", p.cur.Literal)
 	}
 }
 
@@ -130,8 +136,10 @@ func (p *Parser) parseDrop() (Statement, error) {
 		return p.parseDropView()
 	case lexer.TRIGGER:
 		return p.parseDropTrigger()
+	case lexer.PROCEDURE:
+		return p.parseDropProcedure()
 	default:
-		return nil, fmt.Errorf("expected TABLE, INDEX, VIEW, or TRIGGER after DROP, got %s", p.cur.Literal)
+		return nil, fmt.Errorf("expected TABLE, INDEX, VIEW, TRIGGER, or PROCEDURE after DROP, got %s", p.cur.Literal)
 	}
 }
 
@@ -1616,6 +1624,13 @@ func (p *Parser) parsePrefixExpression() (Expression, error) {
 			return p.parseFunctionCall()
 		}
 		return nil, fmt.Errorf("VALUES must be followed by '('")
+	case lexer.AT:
+		// Session variable: @var
+		p.nextToken() // consume @
+		if p.cur.Type != lexer.IDENT {
+			return nil, fmt.Errorf("expected identifier after @, got %s", p.cur.Literal)
+		}
+		return &SessionVariable{Name: p.cur.Literal}, nil
 	case lexer.IDENT:
 		// Check if this is a function call (IDENT followed by LPAREN)
 		if p.peekIs(lexer.LPAREN) {
@@ -2911,7 +2926,582 @@ func (p *Parser) parseStatementAtCurrent() (Statement, error) {
 		return p.parseDelete()
 	case lexer.IF:
 		return p.parseIfStmt()
+	case lexer.SET:
+		return p.parseSetStmt()
+	case lexer.LOOP:
+		return p.parseLoopStmt("")
+	case lexer.LEAVE:
+		return p.parseLeaveStmt()
 	default:
-		return nil, fmt.Errorf("unexpected token in IF body: %s", p.cur.Literal)
+		return nil, fmt.Errorf("unexpected token in statement block: %s", p.cur.Literal)
 	}
+}
+
+// parseCreateProcedure parses: PROCEDURE name(params) BEGIN body END
+// Current token is PROCEDURE
+func (p *Parser) parseCreateProcedure() (*CreateProcedureStmt, error) {
+	stmt := &CreateProcedureStmt{}
+
+	// Consume PROCEDURE, expect procedure name
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected procedure name, got %s", p.peek.Literal)
+	}
+	stmt.Name = p.cur.Literal
+
+	// Expect (
+	if !p.expectPeek(lexer.LPAREN) {
+		return nil, fmt.Errorf("expected '(' after procedure name, got %s", p.peek.Literal)
+	}
+
+	// Parse parameters
+	params, err := p.parseProcedureParams()
+	if err != nil {
+		return nil, err
+	}
+	stmt.Parameters = params
+
+	// Expect BEGIN
+	if !p.expectPeek(lexer.BEGIN) {
+		return nil, fmt.Errorf("expected BEGIN after procedure parameters, got %s", p.peek.Literal)
+	}
+
+	// Parse procedure body
+	body, err := p.parseProcedureBody()
+	if err != nil {
+		return nil, err
+	}
+	stmt.Body = body
+
+	return stmt, nil
+}
+
+// parseProcedureParams parses: [IN|OUT|INOUT] name type, ...
+// Current token is LPAREN
+func (p *Parser) parseProcedureParams() ([]ProcedureParam, error) {
+	var params []ProcedureParam
+
+	// Check for empty parameter list
+	if p.peekIs(lexer.RPAREN) {
+		p.nextToken() // consume )
+		return params, nil
+	}
+
+	p.nextToken() // move past (
+
+	for {
+		param, err := p.parseProcedureParam()
+		if err != nil {
+			return nil, err
+		}
+		params = append(params, param)
+
+		// Check for comma or closing paren
+		if p.peekIs(lexer.COMMA) {
+			p.nextToken() // consume comma
+			p.nextToken() // move to next parameter
+		} else if p.peekIs(lexer.RPAREN) {
+			p.nextToken() // consume )
+			break
+		} else {
+			return nil, fmt.Errorf("expected ',' or ')' in parameter list, got %s", p.peek.Literal)
+		}
+	}
+
+	return params, nil
+}
+
+// parseProcedureParam parses: [IN|OUT|INOUT] name type
+func (p *Parser) parseProcedureParam() (ProcedureParam, error) {
+	param := ProcedureParam{Mode: ParamModeIn} // default is IN
+
+	// Check for optional IN/OUT/INOUT
+	switch p.cur.Type {
+	case lexer.IN_KW:
+		param.Mode = ParamModeIn
+		p.nextToken()
+	case lexer.OUT:
+		param.Mode = ParamModeOut
+		p.nextToken()
+	case lexer.INOUT:
+		param.Mode = ParamModeInOut
+		p.nextToken()
+	}
+
+	// Expect parameter name
+	if p.cur.Type != lexer.IDENT {
+		return param, fmt.Errorf("expected parameter name, got %s", p.cur.Literal)
+	}
+	param.Name = p.cur.Literal
+
+	// Parse type
+	p.nextToken()
+	dataType, _, err := p.parseColumnType()
+	if err != nil {
+		return param, err
+	}
+	param.Type = dataType
+
+	return param, nil
+}
+
+// parseProcedureBody parses statements between BEGIN and END
+// Current token is BEGIN
+func (p *Parser) parseProcedureBody() ([]Statement, error) {
+	var stmts []Statement
+
+	p.nextToken() // move past BEGIN
+
+	for p.cur.Type != lexer.END && p.cur.Type != lexer.EOF {
+		stmt, err := p.parseProcedureStatement()
+		if err != nil {
+			return nil, err
+		}
+		stmts = append(stmts, stmt)
+
+		// Skip optional semicolon
+		if p.peekIs(lexer.SEMICOLON) {
+			p.nextToken()
+		}
+		p.nextToken()
+	}
+
+	if p.cur.Type != lexer.END {
+		return nil, fmt.Errorf("expected END, got %s", p.cur.Literal)
+	}
+
+	return stmts, nil
+}
+
+// parseProcedureStatement parses a single statement in a procedure body
+func (p *Parser) parseProcedureStatement() (Statement, error) {
+	switch p.cur.Type {
+	case lexer.SELECT:
+		return p.parseSelect()
+	case lexer.INSERT:
+		return p.parseInsert()
+	case lexer.UPDATE:
+		return p.parseUpdate()
+	case lexer.DELETE:
+		return p.parseDelete()
+	case lexer.IF:
+		return p.parseIfStmt()
+	case lexer.SET:
+		return p.parseSetStmt()
+	case lexer.DECLARE:
+		return p.parseDeclare()
+	case lexer.LOOP:
+		return p.parseLoopStmt("")
+	case lexer.LEAVE:
+		return p.parseLeaveStmt()
+	case lexer.OPEN:
+		return p.parseOpenStmt()
+	case lexer.FETCH:
+		return p.parseFetchStmt()
+	case lexer.CLOSE:
+		return p.parseCloseStmt()
+	case lexer.IDENT:
+		// Check for labeled loop: label: LOOP
+		if p.peekIs(lexer.COLON) {
+			label := p.cur.Literal
+			p.nextToken() // consume label
+			p.nextToken() // consume :
+			if p.cur.Type == lexer.LOOP {
+				return p.parseLoopStmt(label)
+			}
+			return nil, fmt.Errorf("unexpected token after label: expected LOOP, got %s", p.cur.Literal)
+		}
+		return nil, fmt.Errorf("unexpected identifier in procedure body: %s", p.cur.Literal)
+	default:
+		return nil, fmt.Errorf("unexpected token in procedure body: %s", p.cur.Literal)
+	}
+}
+
+// parseDropProcedure parses: PROCEDURE [IF EXISTS] name
+// Current token is PROCEDURE
+func (p *Parser) parseDropProcedure() (*DropProcedureStmt, error) {
+	stmt := &DropProcedureStmt{}
+
+	p.nextToken() // consume PROCEDURE
+
+	// Check for IF EXISTS
+	if p.cur.Type == lexer.IF {
+		if !p.expectPeek(lexer.EXISTS) {
+			return nil, fmt.Errorf("expected EXISTS after IF, got %s", p.peek.Literal)
+		}
+		stmt.IfExists = true
+		p.nextToken() // move past EXISTS
+	}
+
+	// Expect procedure name
+	if p.cur.Type != lexer.IDENT {
+		return nil, fmt.Errorf("expected procedure name, got %s", p.cur.Literal)
+	}
+	stmt.Name = p.cur.Literal
+
+	return stmt, nil
+}
+
+// parseCall parses: CALL procedure_name(args)
+// Current token is CALL
+func (p *Parser) parseCall() (*CallStmt, error) {
+	stmt := &CallStmt{}
+
+	// Expect procedure name
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected procedure name after CALL, got %s", p.peek.Literal)
+	}
+	stmt.Name = p.cur.Literal
+
+	// Expect (
+	if !p.expectPeek(lexer.LPAREN) {
+		return nil, fmt.Errorf("expected '(' after procedure name, got %s", p.peek.Literal)
+	}
+
+	// Parse arguments
+	args, err := p.parseCallArgs()
+	if err != nil {
+		return nil, err
+	}
+	stmt.Args = args
+
+	return stmt, nil
+}
+
+// parseCallArgs parses: arg1, arg2, ... )
+// Current token is LPAREN
+func (p *Parser) parseCallArgs() ([]Expression, error) {
+	var args []Expression
+
+	// Check for empty argument list
+	if p.peekIs(lexer.RPAREN) {
+		p.nextToken() // consume )
+		return args, nil
+	}
+
+	p.nextToken() // move past (
+
+	for {
+		expr, err := p.parseExpression(LOWEST)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, expr)
+
+		if p.peekIs(lexer.COMMA) {
+			p.nextToken() // consume comma
+			p.nextToken() // move to next argument
+		} else if p.peekIs(lexer.RPAREN) {
+			p.nextToken() // consume )
+			break
+		} else {
+			return nil, fmt.Errorf("expected ',' or ')' in argument list, got %s", p.peek.Literal)
+		}
+	}
+
+	return args, nil
+}
+
+// parseSetStmt parses: SET variable = expression
+// Current token is SET
+func (p *Parser) parseSetStmt() (*SetStmt, error) {
+	stmt := &SetStmt{}
+
+	p.nextToken() // consume SET
+
+	// Parse variable (either @session_var or local_var)
+	var variable Expression
+	if p.cur.Type == lexer.AT {
+		p.nextToken() // consume @
+		if p.cur.Type != lexer.IDENT {
+			return nil, fmt.Errorf("expected identifier after @, got %s", p.cur.Literal)
+		}
+		variable = &SessionVariable{Name: p.cur.Literal}
+	} else if p.cur.Type == lexer.IDENT {
+		variable = &ColumnRef{Name: p.cur.Literal}
+	} else {
+		return nil, fmt.Errorf("expected variable name after SET, got %s", p.cur.Literal)
+	}
+	stmt.Variable = variable
+
+	// Expect =
+	if !p.expectPeek(lexer.EQ) {
+		return nil, fmt.Errorf("expected '=' after variable, got %s", p.peek.Literal)
+	}
+
+	p.nextToken() // move past =
+
+	// Parse value expression
+	value, err := p.parseExpression(LOWEST)
+	if err != nil {
+		return nil, err
+	}
+	stmt.Value = value
+
+	return stmt, nil
+}
+
+// parseDeclare parses: DECLARE name type [DEFAULT value] or DECLARE CURSOR or DECLARE HANDLER
+// Current token is DECLARE
+func (p *Parser) parseDeclare() (Statement, error) {
+	p.nextToken() // consume DECLARE
+
+	// Check for special DECLARE types
+	switch p.cur.Type {
+	case lexer.CONTINUE, lexer.EXIT:
+		return p.parseDeclareHandler()
+	default:
+		// Check if next token after identifier is CURSOR
+		if p.peekIs(lexer.CURSOR) {
+			return p.parseDeclareCursor()
+		}
+		return p.parseDeclareVariable()
+	}
+}
+
+// parseDeclareVariable parses: name type [DEFAULT value]
+// Current token is the variable name (IDENT)
+func (p *Parser) parseDeclareVariable() (*DeclareStmt, error) {
+	stmt := &DeclareStmt{}
+
+	if p.cur.Type != lexer.IDENT {
+		return nil, fmt.Errorf("expected variable name, got %s", p.cur.Literal)
+	}
+	stmt.Name = p.cur.Literal
+
+	// Parse type
+	p.nextToken()
+	dataType, _, err := p.parseColumnType()
+	if err != nil {
+		return nil, err
+	}
+	stmt.Type = dataType
+
+	// Check for optional DEFAULT
+	if p.peekIs(lexer.DEFAULT) {
+		p.nextToken() // consume DEFAULT
+		p.nextToken() // move to value
+		defaultVal, err := p.parseExpression(LOWEST)
+		if err != nil {
+			return nil, err
+		}
+		stmt.DefaultValue = defaultVal
+	}
+
+	return stmt, nil
+}
+
+// parseDeclareCursor parses: name CURSOR FOR select_stmt
+// Current token is the cursor name (IDENT)
+func (p *Parser) parseDeclareCursor() (*DeclareCursorStmt, error) {
+	stmt := &DeclareCursorStmt{}
+
+	if p.cur.Type != lexer.IDENT {
+		return nil, fmt.Errorf("expected cursor name, got %s", p.cur.Literal)
+	}
+	stmt.Name = p.cur.Literal
+
+	// Expect CURSOR
+	if !p.expectPeek(lexer.CURSOR) {
+		return nil, fmt.Errorf("expected CURSOR, got %s", p.peek.Literal)
+	}
+
+	// Expect FOR
+	if !p.expectPeek(lexer.FOR_KW) {
+		return nil, fmt.Errorf("expected FOR after CURSOR, got %s", p.peek.Literal)
+	}
+
+	// Expect SELECT
+	if !p.expectPeek(lexer.SELECT) {
+		return nil, fmt.Errorf("expected SELECT after FOR, got %s", p.peek.Literal)
+	}
+
+	// Parse SELECT statement
+	selectStmt, err := p.parseSelect()
+	if err != nil {
+		return nil, err
+	}
+	stmt.Query = selectStmt.(*SelectStmt)
+
+	return stmt, nil
+}
+
+// parseDeclareHandler parses: CONTINUE|EXIT HANDLER FOR condition BEGIN body END
+// Current token is CONTINUE or EXIT
+func (p *Parser) parseDeclareHandler() (*DeclareHandlerStmt, error) {
+	stmt := &DeclareHandlerStmt{}
+
+	// Parse handler action
+	switch p.cur.Type {
+	case lexer.CONTINUE:
+		stmt.Action = HandlerActionContinue
+	case lexer.EXIT:
+		stmt.Action = HandlerActionExit
+	}
+
+	// Expect HANDLER
+	if !p.expectPeek(lexer.HANDLER) {
+		return nil, fmt.Errorf("expected HANDLER, got %s", p.peek.Literal)
+	}
+
+	// Expect FOR
+	if !p.expectPeek(lexer.FOR_KW) {
+		return nil, fmt.Errorf("expected FOR after HANDLER, got %s", p.peek.Literal)
+	}
+
+	p.nextToken() // move to condition
+
+	// Parse condition
+	switch p.cur.Type {
+	case lexer.NOT:
+		// NOT FOUND
+		if !p.expectPeek(lexer.FOUND) {
+			return nil, fmt.Errorf("expected FOUND after NOT, got %s", p.peek.Literal)
+		}
+		stmt.Condition = HandlerConditionNotFound
+	case lexer.SQLEXCEPTION:
+		stmt.Condition = HandlerConditionSQLException
+	case lexer.SQLWARNING:
+		stmt.Condition = HandlerConditionSQLWarning
+	default:
+		return nil, fmt.Errorf("expected NOT FOUND, SQLEXCEPTION, or SQLWARNING, got %s", p.cur.Literal)
+	}
+
+	// Expect BEGIN (for handler body) or single statement
+	if p.peekIs(lexer.BEGIN) {
+		p.nextToken() // consume BEGIN
+		body, err := p.parseProcedureBody()
+		if err != nil {
+			return nil, err
+		}
+		stmt.Body = body
+	} else {
+		// Single statement handler
+		p.nextToken()
+		singleStmt, err := p.parseProcedureStatement()
+		if err != nil {
+			return nil, err
+		}
+		stmt.Body = []Statement{singleStmt}
+	}
+
+	return stmt, nil
+}
+
+// parseLoopStmt parses: [label:] LOOP body END LOOP
+// Current token is LOOP, label is passed in if present
+func (p *Parser) parseLoopStmt(label string) (*LoopStmt, error) {
+	stmt := &LoopStmt{Label: label}
+
+	p.nextToken() // consume LOOP
+
+	// Parse loop body
+	var body []Statement
+	for p.cur.Type != lexer.END && p.cur.Type != lexer.EOF {
+		s, err := p.parseProcedureStatement()
+		if err != nil {
+			return nil, err
+		}
+		body = append(body, s)
+
+		// Skip optional semicolon
+		if p.peekIs(lexer.SEMICOLON) {
+			p.nextToken()
+		}
+		p.nextToken()
+	}
+	stmt.Body = body
+
+	if p.cur.Type != lexer.END {
+		return nil, fmt.Errorf("expected END, got %s", p.cur.Literal)
+	}
+
+	// Expect LOOP after END
+	if !p.expectPeek(lexer.LOOP) {
+		return nil, fmt.Errorf("expected LOOP after END, got %s", p.peek.Literal)
+	}
+
+	return stmt, nil
+}
+
+// parseLeaveStmt parses: LEAVE [label]
+// Current token is LEAVE
+func (p *Parser) parseLeaveStmt() (*LeaveStmt, error) {
+	stmt := &LeaveStmt{}
+
+	// Optional label
+	if p.peekIs(lexer.IDENT) {
+		p.nextToken()
+		stmt.Label = p.cur.Literal
+	}
+
+	return stmt, nil
+}
+
+// parseOpenStmt parses: OPEN cursor_name
+// Current token is OPEN
+func (p *Parser) parseOpenStmt() (*OpenStmt, error) {
+	stmt := &OpenStmt{}
+
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected cursor name after OPEN, got %s", p.peek.Literal)
+	}
+	stmt.CursorName = p.cur.Literal
+
+	return stmt, nil
+}
+
+// parseFetchStmt parses: FETCH cursor_name INTO var1, var2, ...
+// Current token is FETCH
+func (p *Parser) parseFetchStmt() (*FetchStmt, error) {
+	stmt := &FetchStmt{}
+
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected cursor name after FETCH, got %s", p.peek.Literal)
+	}
+	stmt.CursorName = p.cur.Literal
+
+	// Expect INTO
+	if !p.expectPeek(lexer.INTO) {
+		return nil, fmt.Errorf("expected INTO after cursor name, got %s", p.peek.Literal)
+	}
+
+	// Parse variables
+	p.nextToken() // move past INTO
+	for {
+		var variable Expression
+		if p.cur.Type == lexer.AT {
+			p.nextToken() // consume @
+			if p.cur.Type != lexer.IDENT {
+				return nil, fmt.Errorf("expected identifier after @, got %s", p.cur.Literal)
+			}
+			variable = &SessionVariable{Name: p.cur.Literal}
+		} else if p.cur.Type == lexer.IDENT {
+			variable = &ColumnRef{Name: p.cur.Literal}
+		} else {
+			return nil, fmt.Errorf("expected variable name, got %s", p.cur.Literal)
+		}
+		stmt.Variables = append(stmt.Variables, variable)
+
+		if p.peekIs(lexer.COMMA) {
+			p.nextToken() // consume comma
+			p.nextToken() // move to next variable
+		} else {
+			break
+		}
+	}
+
+	return stmt, nil
+}
+
+// parseCloseStmt parses: CLOSE cursor_name
+// Current token is CLOSE
+func (p *Parser) parseCloseStmt() (*CloseStmt, error) {
+	stmt := &CloseStmt{}
+
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected cursor name after CLOSE, got %s", p.peek.Literal)
+	}
+	stmt.CursorName = p.cur.Literal
+
+	return stmt, nil
 }

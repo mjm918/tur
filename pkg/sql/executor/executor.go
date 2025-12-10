@@ -44,17 +44,20 @@ type Executor struct {
 	// valuesContext holds the would-be-inserted values for VALUES() function
 	// during ON DUPLICATE KEY UPDATE evaluation
 	valuesContext map[string]types.Value
+	// sessionVars holds session-level variables (@var)
+	sessionVars map[string]types.Value
 }
 
 // New creates a new Executor
 func New(p *pager.Pager) *Executor {
 	e := &Executor{
-		pager:     p,
-		catalog:   schema.NewCatalog(),
-		trees:     make(map[string]*btree.BTree),
-		rowid:     make(map[string]uint64),
-		maxRowid:  make(map[string]int64),
-		txManager: mvcc.NewTransactionManager(),
+		pager:       p,
+		catalog:     schema.NewCatalog(),
+		trees:       make(map[string]*btree.BTree),
+		rowid:       make(map[string]uint64),
+		maxRowid:    make(map[string]int64),
+		txManager:   mvcc.NewTransactionManager(),
+		sessionVars: make(map[string]types.Value),
 	}
 
 	// Initialize schema B-tree on page 1
@@ -164,6 +167,14 @@ func (e *Executor) Execute(sql string) (*Result, error) {
 		return e.executeDropTrigger(s)
 	case *parser.IfStmt:
 		return e.executeIfStmt(s)
+	case *parser.CreateProcedureStmt:
+		return e.executeCreateProcedure(s)
+	case *parser.DropProcedureStmt:
+		return e.executeDropProcedure(s)
+	case *parser.CallStmt:
+		return e.executeCall(s)
+	case *parser.SetStmt:
+		return e.executeSetStmt(s)
 	default:
 		return nil, fmt.Errorf("unsupported statement type: %T", stmt)
 	}
@@ -4565,7 +4576,400 @@ func (e *Executor) executeBlockStatement(stmt parser.Statement) (*Result, error)
 		return e.executeDelete(s)
 	case *parser.IfStmt:
 		return e.executeIfStmt(s)
+	case *parser.SetStmt:
+		return e.executeSetStmt(s)
 	default:
 		return nil, fmt.Errorf("unsupported statement type in block: %T", stmt)
+	}
+}
+
+// executeCreateProcedure handles CREATE PROCEDURE
+func (e *Executor) executeCreateProcedure(stmt *parser.CreateProcedureStmt) (*Result, error) {
+	// Check if procedure already exists
+	if e.catalog.GetProcedure(stmt.Name) != nil {
+		return nil, fmt.Errorf("procedure %s already exists", stmt.Name)
+	}
+
+	// Convert parameters from parser to schema types
+	params := make([]schema.ProcedureParam, len(stmt.Parameters))
+	for i, p := range stmt.Parameters {
+		params[i] = schema.ProcedureParam{
+			Name: p.Name,
+			Type: p.Type,
+		}
+		switch p.Mode {
+		case parser.ParamModeIn:
+			params[i].Mode = schema.ParamModeIn
+		case parser.ParamModeOut:
+			params[i].Mode = schema.ParamModeOut
+		case parser.ParamModeInOut:
+			params[i].Mode = schema.ParamModeInOut
+		}
+	}
+
+	// Convert body statements to interface{} slice
+	body := make([]interface{}, len(stmt.Body))
+	for i, s := range stmt.Body {
+		body[i] = s
+	}
+
+	// Create procedure definition
+	proc := &schema.ProcedureDef{
+		Name:       stmt.Name,
+		Parameters: params,
+		Body:       body,
+	}
+
+	// Add to catalog
+	if err := e.catalog.CreateProcedure(proc); err != nil {
+		return nil, err
+	}
+
+	return &Result{}, nil
+}
+
+// executeDropProcedure handles DROP PROCEDURE
+func (e *Executor) executeDropProcedure(stmt *parser.DropProcedureStmt) (*Result, error) {
+	// Check if procedure exists
+	if e.catalog.GetProcedure(stmt.Name) == nil {
+		if stmt.IfExists {
+			return &Result{}, nil
+		}
+		return nil, fmt.Errorf("procedure %s not found", stmt.Name)
+	}
+
+	// Remove from catalog
+	if err := e.catalog.DropProcedure(stmt.Name); err != nil {
+		return nil, err
+	}
+
+	return &Result{}, nil
+}
+
+// executeCall handles CALL procedure_name(args)
+func (e *Executor) executeCall(stmt *parser.CallStmt) (*Result, error) {
+	// Get procedure from catalog
+	proc := e.catalog.GetProcedure(stmt.Name)
+	if proc == nil {
+		return nil, fmt.Errorf("procedure %s not found", stmt.Name)
+	}
+
+	// Validate argument count
+	if len(stmt.Args) != len(proc.Parameters) {
+		return nil, fmt.Errorf("procedure %s expects %d arguments, got %d",
+			stmt.Name, len(proc.Parameters), len(stmt.Args))
+	}
+
+	// Create local scope for procedure execution
+	localVars := make(map[string]types.Value)
+
+	// Evaluate arguments and bind to parameters
+	for i, param := range proc.Parameters {
+		argExpr := stmt.Args[i]
+
+		switch param.Mode {
+		case schema.ParamModeIn, schema.ParamModeInOut:
+			// Evaluate the argument expression (use evaluateExprWithLocals for session variable support)
+			val, err := e.evaluateExprWithLocals(argExpr, nil, nil, nil)
+			if err != nil {
+				return nil, fmt.Errorf("error evaluating argument %d: %w", i+1, err)
+			}
+			localVars[param.Name] = val
+
+		case schema.ParamModeOut:
+			// OUT parameters start as NULL
+			localVars[param.Name] = types.NewNull()
+		}
+	}
+
+	// Execute procedure body with local scope
+	var lastResult *Result
+	for _, bodyStmt := range proc.Body {
+		stmt, ok := bodyStmt.(parser.Statement)
+		if !ok {
+			return nil, fmt.Errorf("invalid statement in procedure body")
+		}
+
+		result, err := e.executeProcedureStatement(stmt, localVars)
+		if err != nil {
+			return nil, err
+		}
+		lastResult = result
+	}
+
+	// Copy OUT/INOUT parameter values back to session variables
+	for i, param := range proc.Parameters {
+		if param.Mode == schema.ParamModeOut || param.Mode == schema.ParamModeInOut {
+			argExpr := stmt.Args[i]
+
+			// The argument should be a session variable
+			if sessVar, ok := argExpr.(*parser.SessionVariable); ok {
+				e.sessionVars[sessVar.Name] = localVars[param.Name]
+			}
+		}
+	}
+
+	if lastResult == nil {
+		return &Result{}, nil
+	}
+	return lastResult, nil
+}
+
+// executeProcedureStatement executes a single statement within a procedure context
+func (e *Executor) executeProcedureStatement(stmt parser.Statement, localVars map[string]types.Value) (*Result, error) {
+	switch s := stmt.(type) {
+	case *parser.SelectStmt:
+		return e.executeSelect(s)
+	case *parser.InsertStmt:
+		return e.executeInsert(s)
+	case *parser.UpdateStmt:
+		return e.executeUpdate(s)
+	case *parser.DeleteStmt:
+		return e.executeDelete(s)
+	case *parser.IfStmt:
+		return e.executeIfStmtWithLocals(s, localVars)
+	case *parser.SetStmt:
+		return e.executeSetStmtWithLocals(s, localVars)
+	case *parser.DeclareStmt:
+		return e.executeDeclareStmt(s, localVars)
+	case *parser.LoopStmt:
+		return e.executeLoopStmt(s, localVars)
+	case *parser.LeaveStmt:
+		return nil, &LeaveError{Label: s.Label}
+	default:
+		return nil, fmt.Errorf("unsupported statement type in procedure: %T", stmt)
+	}
+}
+
+// LeaveError is used to signal a LEAVE statement for loop control
+type LeaveError struct {
+	Label string
+}
+
+func (e *LeaveError) Error() string {
+	return "LEAVE"
+}
+
+// executeSetStmt handles SET variable = expression
+func (e *Executor) executeSetStmt(stmt *parser.SetStmt) (*Result, error) {
+	return e.executeSetStmtWithLocals(stmt, nil)
+}
+
+// executeSetStmtWithLocals handles SET with local variable support
+func (e *Executor) executeSetStmtWithLocals(stmt *parser.SetStmt, localVars map[string]types.Value) (*Result, error) {
+	// Evaluate the value expression
+	val, err := e.evaluateExprWithLocals(stmt.Value, nil, nil, localVars)
+	if err != nil {
+		return nil, fmt.Errorf("error evaluating SET value: %w", err)
+	}
+
+	// Determine target variable
+	switch v := stmt.Variable.(type) {
+	case *parser.SessionVariable:
+		e.sessionVars[v.Name] = val
+	case *parser.ColumnRef:
+		// Could be a local variable
+		if localVars != nil {
+			if _, exists := localVars[v.Name]; exists {
+				localVars[v.Name] = val
+			} else {
+				return nil, fmt.Errorf("undefined variable: %s", v.Name)
+			}
+		} else {
+			return nil, fmt.Errorf("undefined variable: %s", v.Name)
+		}
+	default:
+		return nil, fmt.Errorf("invalid SET target: %T", stmt.Variable)
+	}
+
+	return &Result{}, nil
+}
+
+// executeDeclareStmt handles DECLARE variable type [DEFAULT value]
+func (e *Executor) executeDeclareStmt(stmt *parser.DeclareStmt, localVars map[string]types.Value) (*Result, error) {
+	var val types.Value
+
+	if stmt.DefaultValue != nil {
+		var err error
+		val, err = e.evaluateExprWithLocals(stmt.DefaultValue, nil, nil, localVars)
+		if err != nil {
+			return nil, fmt.Errorf("error evaluating DEFAULT: %w", err)
+		}
+	} else {
+		val = types.NewNull()
+	}
+
+	localVars[stmt.Name] = val
+	return &Result{}, nil
+}
+
+// executeLoopStmt handles LOOP ... END LOOP
+func (e *Executor) executeLoopStmt(stmt *parser.LoopStmt, localVars map[string]types.Value) (*Result, error) {
+	var lastResult *Result
+
+	for {
+		for _, bodyStmt := range stmt.Body {
+			result, err := e.executeProcedureStatement(bodyStmt, localVars)
+			if err != nil {
+				// Check for LEAVE
+				if leaveErr, ok := err.(*LeaveError); ok {
+					// Check if label matches (empty label means innermost loop)
+					if leaveErr.Label == "" || leaveErr.Label == stmt.Label {
+						if lastResult == nil {
+							return &Result{}, nil
+						}
+						return lastResult, nil
+					}
+					// Propagate LEAVE for outer loop
+					return nil, err
+				}
+				return nil, err
+			}
+			lastResult = result
+		}
+	}
+}
+
+// executeIfStmtWithLocals handles IF with local variable support
+func (e *Executor) executeIfStmtWithLocals(stmt *parser.IfStmt, localVars map[string]types.Value) (*Result, error) {
+	// Evaluate condition
+	condVal, err := e.evaluateExprWithLocals(stmt.Condition, nil, nil, localVars)
+	if err != nil {
+		return nil, fmt.Errorf("error evaluating IF condition: %w", err)
+	}
+
+	if e.isTruthy(condVal) {
+		// Execute THEN branch
+		for _, s := range stmt.ThenBranch {
+			result, err := e.executeProcedureStatement(s, localVars)
+			if err != nil {
+				return nil, err
+			}
+			if result != nil {
+				return result, nil
+			}
+		}
+		return &Result{}, nil
+	}
+
+	// Check ELSIF clauses
+	for _, elsif := range stmt.ElsIfClauses {
+		condVal, err := e.evaluateExprWithLocals(elsif.Condition, nil, nil, localVars)
+		if err != nil {
+			return nil, fmt.Errorf("error evaluating ELSIF condition: %w", err)
+		}
+		if e.isTruthy(condVal) {
+			for _, s := range elsif.Body {
+				result, err := e.executeProcedureStatement(s, localVars)
+				if err != nil {
+					return nil, err
+				}
+				if result != nil {
+					return result, nil
+				}
+			}
+			return &Result{}, nil
+		}
+	}
+
+	// Execute ELSE branch if present
+	if stmt.ElseBranch != nil {
+		for _, s := range stmt.ElseBranch {
+			result, err := e.executeProcedureStatement(s, localVars)
+			if err != nil {
+				return nil, err
+			}
+			if result != nil {
+				return result, nil
+			}
+		}
+	}
+
+	return &Result{}, nil
+}
+
+// evaluateExprWithLocals evaluates an expression with local variable support
+func (e *Executor) evaluateExprWithLocals(expr parser.Expression, row []types.Value, colMap map[string]int, localVars map[string]types.Value) (types.Value, error) {
+	switch ex := expr.(type) {
+	case *parser.SessionVariable:
+		if val, ok := e.sessionVars[ex.Name]; ok {
+			return val, nil
+		}
+		return types.NewNull(), nil
+	case *parser.ColumnRef:
+		// Check local variables first
+		if localVars != nil {
+			if val, ok := localVars[ex.Name]; ok {
+				return val, nil
+			}
+		}
+		// Fall back to column reference
+		if colMap == nil {
+			return types.NewNull(), fmt.Errorf("undefined variable: %s", ex.Name)
+		}
+		return e.evaluateExpr(expr, row, colMap)
+	case *parser.Literal:
+		return ex.Value, nil
+	case *parser.BinaryExpr:
+		left, err := e.evaluateExprWithLocals(ex.Left, row, colMap, localVars)
+		if err != nil {
+			return types.NewNull(), err
+		}
+		right, err := e.evaluateExprWithLocals(ex.Right, row, colMap, localVars)
+		if err != nil {
+			return types.NewNull(), err
+		}
+		switch ex.Op {
+		case lexer.PLUS:
+			return e.addValues(left, right)
+		case lexer.MINUS:
+			return e.subtractValues(left, right)
+		case lexer.STAR:
+			return e.multiplyValues(left, right)
+		case lexer.SLASH:
+			return e.divideValues(left, right)
+		default:
+			// Comparison operators
+			cmp := e.compareValues(left, right)
+			var result bool
+			switch ex.Op {
+			case lexer.EQ:
+				result = cmp == 0
+			case lexer.NEQ:
+				result = cmp != 0
+			case lexer.LT:
+				result = cmp < 0
+			case lexer.GT:
+				result = cmp > 0
+			case lexer.LTE:
+				result = cmp <= 0
+			case lexer.GTE:
+				result = cmp >= 0
+			default:
+				return types.NewNull(), fmt.Errorf("unsupported binary operator: %v", ex.Op)
+			}
+			if result {
+				return types.NewInt(1), nil
+			}
+			return types.NewInt(0), nil
+		}
+	case *parser.UnaryExpr:
+		right, err := e.evaluateExprWithLocals(ex.Right, row, colMap, localVars)
+		if err != nil {
+			return types.NewNull(), err
+		}
+		if ex.Op == lexer.MINUS {
+			if right.Type() == types.TypeInt {
+				return types.NewInt(-right.Int()), nil
+			}
+			if right.Type() == types.TypeFloat {
+				return types.NewFloat(-right.Float()), nil
+			}
+		}
+		return types.NewNull(), fmt.Errorf("unsupported unary operator")
+	case *parser.FunctionCall:
+		return e.evaluateFunctionCall(ex, row, colMap)
+	default:
+		return e.evaluateExpr(expr, row, colMap)
 	}
 }
