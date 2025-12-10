@@ -2528,23 +2528,23 @@
     {
       "title": "Monitoring - Query Profiling",
       "description": "Profile query execution time and resource usage",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Add timing instrumentation to VDBE opcodes",
-          "done": false
+          "done": true
         },
         {
           "task": "Track time spent in each query phase",
-          "done": false
+          "done": true
         },
         {
           "task": "Collect memory allocation statistics",
-          "done": false
+          "done": true
         },
         {
           "task": "Output profiling report after query execution",
-          "done": false
+          "done": true
         }
       ]
     },

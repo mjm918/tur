@@ -89,6 +89,7 @@ type VM struct {
 	results    [][]types.Value  // Result rows
 	aggregates []AggregateFunc  // Aggregate function contexts
 	halted     bool
+	profiler   *Profiler        // Optional profiler for timing instrumentation
 }
 
 // NewVM creates a new VM with the given program
@@ -155,6 +156,17 @@ func (vm *VM) GetAggregateContext(idx int) AggregateFunc {
 	return vm.aggregates[idx]
 }
 
+// SetProfiler sets the profiler for timing instrumentation.
+// If nil, profiling is disabled.
+func (vm *VM) SetProfiler(p *Profiler) {
+	vm.profiler = p
+}
+
+// Profiler returns the current profiler, or nil if not set.
+func (vm *VM) Profiler() *Profiler {
+	return vm.profiler
+}
+
 // Run executes the program until halt
 func (vm *VM) Run() error {
 	return vm.RunContext(context.Background())
@@ -215,8 +227,17 @@ func (vm *VM) RunContext(ctx context.Context) error {
 			return fmt.Errorf("nil instruction at pc=%d", vm.pc)
 		}
 
-		if err := vm.step(instr); err != nil {
-			return err
+		// Profile the opcode execution if profiler is enabled
+		if vm.profiler != nil {
+			startTime := vm.profiler.BeforeOpcode(instr.Op)
+			if err := vm.step(instr); err != nil {
+				return err
+			}
+			vm.profiler.AfterOpcode(instr.Op, startTime)
+		} else {
+			if err := vm.step(instr); err != nil {
+				return err
+			}
 		}
 	}
 
