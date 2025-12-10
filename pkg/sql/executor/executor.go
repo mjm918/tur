@@ -4926,6 +4926,30 @@ func (e *Executor) executePragma(stmt *parser.PragmaStmt) (*Result, error) {
 			},
 		}, nil
 
+	case "vdbe_max_cursors":
+		if stmt.Value != nil {
+			// SET vdbe_max_cursors = value
+			val, err := e.evaluateExpr(stmt.Value, nil, nil)
+			if err != nil {
+				return nil, fmt.Errorf("invalid vdbe_max_cursors value: %w", err)
+			}
+
+			count := val.Int()
+			if count < 1 {
+				return nil, fmt.Errorf("vdbe_max_cursors must be at least 1, got %d", count)
+			}
+
+			e.vdbeMaxCursors = int(count)
+			return &Result{RowsAffected: 0}, nil
+		}
+		// GET vdbe_max_cursors
+		return &Result{
+			Columns: []string{"vdbe_max_cursors"},
+			Rows: [][]types.Value{
+				{types.NewInt(int64(e.vdbeMaxCursors))},
+			},
+		}, nil
+
 	default:
 		return nil, fmt.Errorf("unknown PRAGMA: %s", stmt.Name)
 	}
