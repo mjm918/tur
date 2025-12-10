@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -259,5 +260,111 @@ func TestExecutor_ExplainAnalyze_Select(t *testing.T) {
 
 	if !foundExecutionInfo {
 		t.Error("Expected EXPLAIN ANALYZE output to contain execution information (timing, row counts, etc.)")
+	}
+}
+
+func TestExecutor_ExplainAnalyze_RowCounts(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create a table and insert data
+	_, err := exec.Execute("CREATE TABLE products (id INT, name TEXT, price REAL)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	for i := 1; i <= 5; i++ {
+		_, err = exec.Execute(fmt.Sprintf("INSERT INTO products VALUES (%d, 'Product%d', %d.99)", i, i, i*10))
+		if err != nil {
+			t.Fatalf("INSERT: %v", err)
+		}
+	}
+
+	// EXPLAIN ANALYZE a SELECT that returns all rows
+	result, err := exec.Execute("EXPLAIN ANALYZE SELECT * FROM products")
+	if err != nil {
+		t.Fatalf("EXPLAIN ANALYZE: %v", err)
+	}
+
+	// Find the "Actual Rows Returned" row
+	foundRowCount := false
+	for _, row := range result.Rows {
+		text := row[0].Text() // operation column
+		if strings.Contains(text, "Actual Rows") {
+			// Check the actual_rows column (index 4)
+			rowCount := row[4].Int()
+			// We inserted 5 rows, so we expect 5 rows in the result
+			if rowCount == 5 {
+				foundRowCount = true
+			} else {
+				t.Errorf("Expected actual rows = 5, got %d", rowCount)
+			}
+			break
+		}
+	}
+
+	if !foundRowCount {
+		t.Error("Expected to find actual row count of 5 in EXPLAIN ANALYZE output")
+	}
+
+	// Also check that ResultRow opcode shows it was executed 5 times
+	foundResultRow := false
+	for _, row := range result.Rows {
+		opcode := row[0].Text()
+		if opcode == "ResultRow" {
+			count := row[1].Int() // count column
+			// ResultRow should have been executed 5 times (once per row)
+			if count == 5 {
+				foundResultRow = true
+			} else {
+				t.Errorf("Expected ResultRow count = 5, got %d", count)
+			}
+			break
+		}
+	}
+
+	if !foundResultRow {
+		t.Error("Expected to find ResultRow opcode with count = 5")
+	}
+}
+
+func TestExecutor_ExplainAnalyze_MemoryStats(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create a table and insert data
+	_, err := exec.Execute("CREATE TABLE items (id INT, data TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	_, err = exec.Execute("INSERT INTO items VALUES (1, 'test data')")
+	if err != nil {
+		t.Fatalf("INSERT: %v", err)
+	}
+
+	// EXPLAIN ANALYZE a SELECT
+	result, err := exec.Execute("EXPLAIN ANALYZE SELECT * FROM items")
+	if err != nil {
+		t.Fatalf("EXPLAIN ANALYZE: %v", err)
+	}
+
+	// Look for memory statistics in the output
+	foundMemoryInfo := false
+	for _, row := range result.Rows {
+		for i := range row {
+			text := strings.ToLower(row[i].Text())
+			if strings.Contains(text, "memory") || strings.Contains(text, "bytes") {
+				foundMemoryInfo = true
+				break
+			}
+		}
+		if foundMemoryInfo {
+			break
+		}
+	}
+
+	if !foundMemoryInfo {
+		t.Error("Expected EXPLAIN ANALYZE output to contain memory usage information")
 	}
 }

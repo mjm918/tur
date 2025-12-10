@@ -4024,6 +4024,24 @@ func (e *Executor) executeExplainAnalyze(stmt *parser.ExplainStmt) (*Result, err
 		types.NewInt(int64(len(vm.Results()))),
 	})
 
+	// Add memory usage statistics
+	memStats := report.MemoryStats
+	result.Rows = append(result.Rows, []types.Value{
+		types.NewText("Peak Memory Usage"),
+		types.NewInt(0),
+		types.NewText(fmt.Sprintf("%d bytes", memStats.PeakUsage)),
+		types.NewText("-"),
+		types.NewInt(0),
+	})
+
+	result.Rows = append(result.Rows, []types.Value{
+		types.NewText("Total Memory Allocated"),
+		types.NewInt(0),
+		types.NewText(fmt.Sprintf("%d bytes", memStats.TotalAllocated)),
+		types.NewText("-"),
+		types.NewInt(0),
+	})
+
 	// Add opcode statistics
 	for _, opStat := range report.OpcodeStats {
 		row := []types.Value{
