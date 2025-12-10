@@ -1168,3 +1168,108 @@ func TestReverse(t *testing.T) {
 		}
 	}
 }
+
+func TestInitcap(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	initcap := registry.Lookup("INITCAP")
+	if initcap == nil {
+		t.Fatal("INITCAP function not found")
+	}
+
+	tests := []struct {
+		input  string
+		expect string
+	}{
+		{"hello world", "Hello World"},
+		{"HELLO WORLD", "Hello World"},
+		{"hello-world", "Hello-World"},
+		{"", ""},
+	}
+
+	for i, tc := range tests {
+		result := initcap.Call([]types.Value{types.NewText(tc.input)})
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestQuote(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	quote := registry.Lookup("QUOTE")
+	if quote == nil {
+		t.Fatal("QUOTE function not found")
+	}
+
+	tests := []struct {
+		input  string
+		expect string
+	}{
+		{"hello", "'hello'"},
+		{"it's", "'it''s'"},
+		{"", "''"},
+	}
+
+	for i, tc := range tests {
+		result := quote.Call([]types.Value{types.NewText(tc.input)})
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestLPad(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	lpad := registry.Lookup("LPAD")
+	if lpad == nil {
+		t.Fatal("LPAD function not found")
+	}
+
+	tests := []struct {
+		str    string
+		length int64
+		pad    string
+		expect string
+	}{
+		{"hello", 10, " ", "     hello"},
+		{"hello", 10, "xy", "xyxyxhello"},
+		{"hello", 3, " ", "hel"},
+		{"hello", 5, " ", "hello"},
+	}
+
+	for i, tc := range tests {
+		args := []types.Value{types.NewText(tc.str), types.NewInt(tc.length), types.NewText(tc.pad)}
+		result := lpad.Call(args)
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestRPad(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	rpad := registry.Lookup("RPAD")
+	if rpad == nil {
+		t.Fatal("RPAD function not found")
+	}
+
+	tests := []struct {
+		str    string
+		length int64
+		pad    string
+		expect string
+	}{
+		{"hello", 10, " ", "hello     "},
+		{"hello", 10, "xy", "helloxyxyx"},
+		{"hello", 3, " ", "hel"},
+		{"hello", 5, " ", "hello"},
+	}
+
+	for i, tc := range tests {
+		args := []types.Value{types.NewText(tc.str), types.NewInt(tc.length), types.NewText(tc.pad)}
+		result := rpad.Call(args)
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}

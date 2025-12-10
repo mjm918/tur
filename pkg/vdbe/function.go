@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"unicode"
 
 	"tur/pkg/types"
 )
@@ -191,6 +192,20 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Name:     "REVERSE",
 		NumArgs:  1,
 		Function: builtinReverse,
+	})
+
+	// Register INITCAP function
+	r.Register(&ScalarFunction{
+		Name:     "INITCAP",
+		NumArgs:  1,
+		Function: builtinInitcap,
+	})
+
+	// Register QUOTE function
+	r.Register(&ScalarFunction{
+		Name:     "QUOTE",
+		NumArgs:  1,
+		Function: builtinQuote,
 	})
 
 	return r
@@ -677,4 +692,44 @@ func builtinReverse(args []types.Value) types.Value {
 		runes[i], runes[j] = runes[j], runes[i]
 	}
 	return types.NewText(string(runes))
+}
+
+// builtinInitcap implements INITCAP(string)
+// Converts the first letter of each word to uppercase and the rest to lowercase.
+// A word is defined as a sequence of letters or numbers.
+// If argument is NULL, returns NULL.
+func builtinInitcap(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	str := args[0].Text()
+	runes := []rune(strings.ToLower(str))
+	inWord := false
+	for i, r := range runes {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			if !inWord {
+				runes[i] = unicode.ToUpper(r)
+				inWord = true
+			}
+		} else {
+			inWord = false
+		}
+	}
+	return types.NewText(string(runes))
+}
+
+// builtinQuote implements QUOTE(value)
+// Returns a string that is the value of the argument enclosed in single quotes.
+// Single quotes within the string are escaped by doubling them.
+// If argument is NULL, returns the string "NULL" (without quotes).
+func builtinQuote(args []types.Value) types.Value {
+	if len(args) != 1 {
+		return types.NewNull()
+	}
+	if args[0].IsNull() {
+		return types.NewText("NULL")
+	}
+	str := args[0].Text()
+	escaped := strings.ReplaceAll(str, "'", "''")
+	return types.NewText("'" + escaped + "'")
 }
