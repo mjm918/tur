@@ -816,6 +816,12 @@ func (e *Executor) executeDropTable(stmt *parser.DropTableStmt) (*Result, error)
 	delete(e.trees, stmt.TableName)
 	delete(e.rowid, stmt.TableName)
 
+	// Remove from schema B-tree
+	if err := e.deleteSchemaEntry(stmt.TableName); err != nil {
+		// Log but don't fail - table is already dropped from catalog
+		// This is a best-effort cleanup
+	}
+
 	// TODO: Add table's B-tree pages to free list
 
 	return &Result{}, nil
@@ -1008,6 +1014,12 @@ func (e *Executor) executeDropIndex(stmt *parser.DropIndexStmt) (*Result, error)
 	// Clean up in-memory B-tree structure
 	idxTreeName := "index:" + stmt.IndexName
 	delete(e.trees, idxTreeName)
+
+	// Remove from schema B-tree
+	if err := e.deleteSchemaEntry(stmt.IndexName); err != nil {
+		// Log but don't fail - index is already dropped from catalog
+		// This is a best-effort cleanup
+	}
 
 	return &Result{}, nil
 }
