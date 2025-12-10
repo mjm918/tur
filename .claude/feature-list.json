@@ -1890,58 +1890,58 @@
     {
       "title": "API - Prepared Statements",
       "description": "Prepare, bind parameters, and execute statements efficiently",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Design Stmt struct with compiled bytecode",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement Prepare(sql string) method",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement parameter binding (Bind methods)",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement Exec() for statements without results",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement Query() for statements with results",
-          "done": false
+          "done": true
         },
         {
           "task": "Cache prepared statements for reuse",
-          "done": false
+          "done": true
         }
       ]
     },
     {
       "title": "API - Result Sets",
       "description": "Iterate over query results with typed column access",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Design Rows struct with VDBE cursor",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement Next() bool method",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement Scan(...interface{}) method",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement typed column access (ColumnInt, ColumnText, etc.)",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement Close() for early result cleanup",
-          "done": false
+          "done": true
         }
       ]
     },
