@@ -15,13 +15,14 @@ import (
 	"tur/pkg/types"
 )
 
-// executeVectorQuantize implements the vector_quantize(table_name, column_name) function.
+// executeVectorQuantize implements the vector_quantize(table_name, column_name [, distance_metric]) function.
 // It builds an HNSW index on the specified VECTOR column.
 // Returns the number of vectors indexed.
+// Optional distance_metric can be: 'cosine' (default), 'euclidean'/'l2', 'manhattan'/'l1'
 func (e *Executor) executeVectorQuantize(args []types.Value) (types.Value, error) {
-	// Validate arguments: need exactly 2 string arguments
-	if len(args) != 2 {
-		return types.NewNull(), fmt.Errorf("vector_quantize requires 2 arguments: table_name, column_name")
+	// Validate arguments: need 2 or 3 string arguments
+	if len(args) < 2 || len(args) > 3 {
+		return types.NewNull(), fmt.Errorf("vector_quantize requires 2-3 arguments: table_name, column_name [, distance_metric]")
 	}
 
 	// Extract table name (first argument)
@@ -35,6 +36,19 @@ func (e *Executor) executeVectorQuantize(args []types.Value) (types.Value, error
 		return types.NewNull(), fmt.Errorf("vector_quantize: column_name must be a string")
 	}
 	columnName := args[1].Text()
+
+	// Extract optional distance metric (third argument)
+	distanceMetric := types.DistanceMetricCosine // default
+	if len(args) == 3 {
+		if args[2].Type() != types.TypeText {
+			return types.NewNull(), fmt.Errorf("vector_quantize: distance_metric must be a string")
+		}
+		var err error
+		distanceMetric, err = types.ParseDistanceMetric(args[2].Text())
+		if err != nil {
+			return types.NewNull(), fmt.Errorf("vector_quantize: %w", err)
+		}
+	}
 
 	// Look up table in catalog
 	table := e.catalog.GetTable(tableName)
@@ -72,8 +86,9 @@ func (e *Executor) executeVectorQuantize(args []types.Value) (types.Value, error
 		return types.NewInt(0), nil
 	}
 
-	// Build HNSW index
+	// Build HNSW index with configured distance metric
 	config := hnsw.DefaultConfig(vecColumn.VectorDim)
+	config.DistanceMetric = distanceMetric
 	idx := hnsw.NewIndex(config)
 
 	for i, vec := range vectors {
@@ -82,7 +97,7 @@ func (e *Executor) executeVectorQuantize(args []types.Value) (types.Value, error
 		}
 	}
 
-	// Store index metadata in catalog
+	// Store index metadata in catalog (including distance metric)
 	indexName := fmt.Sprintf("hnsw_%s_%s", tableName, columnName)
 	indexDef := &schema.IndexDef{
 		Name:      indexName,
@@ -94,6 +109,7 @@ func (e *Executor) executeVectorQuantize(args []types.Value) (types.Value, error
 		HNSWParams: &schema.HNSWParams{
 			M:              config.M,
 			EfConstruction: config.EfConstruction,
+			DistanceMetric: schema.DistanceMetric(distanceMetric),
 		},
 	}
 

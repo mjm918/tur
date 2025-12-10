@@ -54,7 +54,7 @@ func (idx *Index) SearchKNNWithEf(query *types.Vector, k int, ef int) ([]SearchR
 		}
 		results = append(results, SearchResult{
 			RowID:    node.RowID(),
-			Distance: query.CosineDistance(node.Vector()),
+			Distance: idx.distance(query, node.Vector()),
 		})
 	}
 
