@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"tur/pkg/cache"
 	"tur/pkg/pager"
 	"tur/pkg/schema"
 	"tur/pkg/types"
@@ -3223,5 +3224,60 @@ func TestPragmaPageCacheSize(t *testing.T) {
 	_, err = exec.Execute("PRAGMA page_cache_size = -10")
 	if err == nil {
 		t.Error("Expected error for page_cache_size = -10, got nil")
+	}
+}
+
+// TestPragmaQueryCacheSize tests PRAGMA query_cache_size setting and querying
+func TestPragmaQueryCacheSize(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Set up a query cache (default setup doesn't include one)
+	qc := cache.NewQueryCache(100)
+	exec.SetQueryCache(qc)
+
+	// Test setting query cache size
+	_, err := exec.Execute("PRAGMA query_cache_size = 10")
+	if err != nil {
+		t.Fatalf("PRAGMA query_cache_size = 10: %v", err)
+	}
+
+	// Verify the setting
+	result, err := exec.Execute("PRAGMA query_cache_size")
+	if err != nil {
+		t.Fatalf("PRAGMA query_cache_size query: %v", err)
+	}
+
+	if len(result.Columns) != 1 || result.Columns[0] != "query_cache_size" {
+		t.Errorf("Expected column 'query_cache_size', got %v", result.Columns)
+	}
+
+	if len(result.Rows) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result.Rows))
+	}
+
+	cacheSize := result.Rows[0][0].Int()
+	if cacheSize != 10 {
+		t.Errorf("Expected query_cache_size = 10, got %d", cacheSize)
+	}
+
+	// Test disabling (size = 0) - this should be allowed for query cache
+	_, err = exec.Execute("PRAGMA query_cache_size = 0")
+	if err != nil {
+		t.Fatalf("PRAGMA query_cache_size = 0 should be allowed: %v", err)
+	}
+
+	result, err = exec.Execute("PRAGMA query_cache_size")
+	if err != nil {
+		t.Fatalf("PRAGMA query_cache_size query: %v", err)
+	}
+	if result.Rows[0][0].Int() != 0 {
+		t.Errorf("Expected query_cache_size = 0, got %d", result.Rows[0][0].Int())
+	}
+
+	// Test invalid value (negative)
+	_, err = exec.Execute("PRAGMA query_cache_size = -5")
+	if err == nil {
+		t.Error("Expected error for query_cache_size = -5, got nil")
 	}
 }

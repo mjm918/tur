@@ -4866,6 +4866,37 @@ func (e *Executor) executePragma(stmt *parser.PragmaStmt) (*Result, error) {
 			},
 		}, nil
 
+	case "query_cache_size":
+		if stmt.Value != nil {
+			// SET query_cache_size = value
+			val, err := e.evaluateExpr(stmt.Value, nil, nil)
+			if err != nil {
+				return nil, fmt.Errorf("invalid query_cache_size value: %w", err)
+			}
+
+			size := val.Int()
+			if size < 0 {
+				return nil, fmt.Errorf("query_cache_size must be non-negative, got %d", size)
+			}
+
+			if e.queryCache != nil {
+				e.queryCache.SetCapacity(int(size))
+			}
+
+			return &Result{RowsAffected: 0}, nil
+		}
+		// GET query_cache_size
+		size := 0
+		if e.queryCache != nil {
+			size = e.queryCache.Capacity()
+		}
+		return &Result{
+			Columns: []string{"query_cache_size"},
+			Rows: [][]types.Value{
+				{types.NewInt(int64(size))},
+			},
+		}, nil
+
 	default:
 		return nil, fmt.Errorf("unknown PRAGMA: %s", stmt.Name)
 	}
