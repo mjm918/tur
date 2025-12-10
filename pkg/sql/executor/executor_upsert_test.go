@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"tur/pkg/pager"
+	"tur/pkg/sql/lexer"
 	"tur/pkg/sql/parser"
 	"tur/pkg/types"
 )
@@ -238,4 +239,78 @@ func TestEvaluateValuesFunc(t *testing.T) {
 
 	// Clean up
 	exec.valuesContext = nil
+}
+
+func TestExecuteOnDuplicateUpdate(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "test_ondupupdate_*.db")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	tmpFile.Close()
+	defer os.Remove(tmpFile.Name())
+
+	p, err := pager.Open(tmpFile.Name(), pager.Options{})
+	if err != nil {
+		t.Fatalf("failed to open pager: %v", err)
+	}
+
+	exec := New(p)
+	defer exec.Close()
+
+	_, err = exec.Execute("CREATE TABLE counter (id INTEGER PRIMARY KEY, count INTEGER, name TEXT)")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	// Insert initial row
+	_, err = exec.Execute("INSERT INTO counter (id, count, name) VALUES (1, 10, 'test')")
+	if err != nil {
+		t.Fatalf("failed to insert: %v", err)
+	}
+
+	table := exec.catalog.GetTable("counter")
+
+	// Prepare update assignments: count = count + VALUES(count), name = VALUES(name)
+	assignments := []parser.Assignment{
+		{Column: "count", Value: &parser.BinaryExpr{
+			Left:  &parser.ColumnRef{Name: "count"},
+			Op:    lexer.PLUS,
+			Right: &parser.ValuesFunc{ColumnName: "count"},
+		}},
+		{Column: "name", Value: &parser.ValuesFunc{ColumnName: "name"}},
+	}
+
+	// New values that would be inserted
+	newValues := []types.Value{types.NewInt(1), types.NewInt(5), types.NewText("updated")}
+
+	// Execute update on existing row (rowID 1 - first insert gets rowID 1)
+	changed, err := exec.executeOnDuplicateUpdate(table, 1, newValues, assignments)
+	if err != nil {
+		t.Fatalf("executeOnDuplicateUpdate error: %v", err)
+	}
+
+	if !changed {
+		t.Error("expected changed=true")
+	}
+
+	// Verify the update
+	result, err := exec.Execute("SELECT id, count, name FROM counter WHERE id = 1")
+	if err != nil {
+		t.Fatalf("select error: %v", err)
+	}
+
+	if len(result.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(result.Rows))
+	}
+
+	row := result.Rows[0]
+	if row[0].Int() != 1 {
+		t.Errorf("expected id=1, got %v", row[0])
+	}
+	if row[1].Int() != 15 { // 10 + 5
+		t.Errorf("expected count=15, got %v", row[1])
+	}
+	if row[2].Text() != "updated" {
+		t.Errorf("expected name='updated', got %v", row[2])
+	}
 }
