@@ -74,6 +74,7 @@ type ColumnDef struct {
 	NotNull     bool
 	Unique      bool
 	VectorDim   int
+	NoNormalize bool           // For VECTOR columns: skip auto-normalization
 	DefaultExpr Expression     // For DEFAULT constraint
 	CheckExpr   Expression     // For CHECK constraint
 	ForeignKey  *ForeignKeyRef // For REFERENCES constraint

@@ -166,6 +166,9 @@ const (
 	RAISE
 	ABORT
 	IGNORE
+
+	// Vector keywords
+	NONORMALIZE
 )
 
 // Token represents a lexical token
@@ -412,6 +415,8 @@ func (t TokenType) String() string {
 		return "ABORT"
 	case IGNORE:
 		return "IGNORE"
+	case NONORMALIZE:
+		return "NONORMALIZE"
 	default:
 		return "UNKNOWN"
 	}
@@ -514,6 +519,7 @@ var keywords = map[string]TokenType{
 	"RAISE":       RAISE,
 	"ABORT":       ABORT,
 	"IGNORE":      IGNORE,
+	"NONORMALIZE": NONORMALIZE,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT

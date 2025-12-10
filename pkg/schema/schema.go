@@ -219,6 +219,7 @@ type ColumnDef struct {
 	NotNull     bool         // Legacy field for backward compatibility
 	Default     *types.Value // nil means no default (legacy)
 	VectorDim   int          // Dimension for VECTOR type, 0 for others
+	NoNormalize bool         // If true, skip auto-normalization for VECTOR columns
 	Constraints []Constraint // Column-level constraints
 }
 

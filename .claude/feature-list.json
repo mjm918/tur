@@ -1510,27 +1510,27 @@
     {
       "title": "Vector Extensions - Vector Normalization",
       "description": "Automatic vector normalization on insert for cosine similarity",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Detect VECTOR column inserts",
-          "done": false
+          "done": true
         },
         {
           "task": "Compute L2 norm of vector",
-          "done": false
+          "done": true
         },
         {
           "task": "Divide vector by norm to normalize",
-          "done": false
+          "done": true
         },
         {
           "task": "Store normalized vector in table",
-          "done": false
+          "done": true
         },
         {
           "task": "Add configuration option to disable auto-normalization",
-          "done": false
+          "done": true
         }
       ]
     },

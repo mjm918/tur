@@ -136,11 +136,12 @@ func (e *Executor) executeCreateTable(stmt *parser.CreateTableStmt) (*Result, er
 	columns := make([]schema.ColumnDef, len(stmt.Columns))
 	for i, col := range stmt.Columns {
 		columns[i] = schema.ColumnDef{
-			Name:       col.Name,
-			Type:       col.Type,
-			PrimaryKey: col.PrimaryKey,
-			NotNull:    col.NotNull,
-			VectorDim:  col.VectorDim,
+			Name:        col.Name,
+			Type:        col.Type,
+			PrimaryKey:  col.PrimaryKey,
+			NotNull:     col.NotNull,
+			VectorDim:   col.VectorDim,
+			NoNormalize: col.NoNormalize,
 		}
 
 		// Build column constraints
@@ -1051,9 +1052,11 @@ func (e *Executor) executeInsertInternal(stmt *parser.InsertStmt, fireTriggers b
 					return nil, fmt.Errorf("column %s expects VECTOR(%d), got dimension %d", colDef.Name, colDef.VectorDim, vec.Dimension())
 				}
 
-				// Normalize and update value
-				vec.Normalize()
-				values[idx] = types.NewBlob(vec.ToBytes())
+				// Normalize and update value (unless NONORMALIZE is set)
+				if !colDef.NoNormalize {
+					vec.Normalize()
+					values[idx] = types.NewBlob(vec.ToBytes())
+				}
 			}
 		}
 
