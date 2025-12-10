@@ -46,18 +46,24 @@ type Executor struct {
 	valuesContext map[string]types.Value
 	// sessionVars holds session-level variables (@var)
 	sessionVars map[string]types.Value
+	// VDBE configuration
+	vdbeMaxRegisters int  // default register count for VDBE VMs
+	vdbeMaxCursors   int  // default cursor count for VDBE VMs
+	resultStreaming  bool // enable streaming result mode
 }
 
 // New creates a new Executor
 func New(p *pager.Pager) *Executor {
 	e := &Executor{
-		pager:       p,
-		catalog:     schema.NewCatalog(),
-		trees:       make(map[string]*btree.BTree),
-		rowid:       make(map[string]uint64),
-		maxRowid:    make(map[string]int64),
-		txManager:   mvcc.NewTransactionManager(),
-		sessionVars: make(map[string]types.Value),
+		pager:            p,
+		catalog:          schema.NewCatalog(),
+		trees:            make(map[string]*btree.BTree),
+		rowid:            make(map[string]uint64),
+		maxRowid:         make(map[string]int64),
+		txManager:        mvcc.NewTransactionManager(),
+		sessionVars:      make(map[string]types.Value),
+		vdbeMaxRegisters: 16, // default (matches VDBE VM default)
+		vdbeMaxCursors:   8,  // default (matches VDBE VM default)
 	}
 
 	// Initialize schema B-tree on page 1
@@ -175,6 +181,8 @@ func (e *Executor) Execute(sql string) (*Result, error) {
 		return e.executeCall(s)
 	case *parser.SetStmt:
 		return e.executeSetStmt(s)
+	case *parser.PragmaStmt:
+		return e.executePragma(s)
 	default:
 		return nil, fmt.Errorf("unsupported statement type: %T", stmt)
 	}
@@ -5016,5 +5024,228 @@ func (e *Executor) evaluateExprWithLocals(expr parser.Expression, row []types.Va
 		return e.evaluateFunctionCall(ex, row, colMap)
 	default:
 		return e.evaluateExpr(expr, row, colMap)
+	}
+}
+
+// executePragma handles PRAGMA statements
+func (e *Executor) executePragma(stmt *parser.PragmaStmt) (*Result, error) {
+	switch stmt.Name {
+	case "page_cache_size":
+		if stmt.Value != nil {
+			// SET page_cache_size = value
+			val, err := e.evaluateExpr(stmt.Value, nil, nil)
+			if err != nil {
+				return nil, fmt.Errorf("invalid page_cache_size value: %w", err)
+			}
+
+			size := val.Int()
+			if size <= 0 {
+				return nil, fmt.Errorf("page_cache_size must be positive, got %d", size)
+			}
+
+			if err := e.pager.SetCacheSize(int(size)); err != nil {
+				return nil, err
+			}
+
+			return &Result{RowsAffected: 0}, nil
+		}
+		// GET page_cache_size
+		size := e.pager.GetCacheSize()
+		return &Result{
+			Columns: []string{"page_cache_size"},
+			Rows: [][]types.Value{
+				{types.NewInt(int64(size))},
+			},
+		}, nil
+
+	case "query_cache_size":
+		if stmt.Value != nil {
+			// SET query_cache_size = value
+			val, err := e.evaluateExpr(stmt.Value, nil, nil)
+			if err != nil {
+				return nil, fmt.Errorf("invalid query_cache_size value: %w", err)
+			}
+
+			size := val.Int()
+			if size < 0 {
+				return nil, fmt.Errorf("query_cache_size must be non-negative, got %d", size)
+			}
+
+			if e.queryCache != nil {
+				e.queryCache.SetCapacity(int(size))
+			}
+
+			return &Result{RowsAffected: 0}, nil
+		}
+		// GET query_cache_size
+		size := 0
+		if e.queryCache != nil {
+			size = e.queryCache.Capacity()
+		}
+		return &Result{
+			Columns: []string{"query_cache_size"},
+			Rows: [][]types.Value{
+				{types.NewInt(int64(size))},
+			},
+		}, nil
+
+	case "vdbe_max_registers":
+		if stmt.Value != nil {
+			// SET vdbe_max_registers = value
+			val, err := e.evaluateExpr(stmt.Value, nil, nil)
+			if err != nil {
+				return nil, fmt.Errorf("invalid vdbe_max_registers value: %w", err)
+			}
+
+			count := val.Int()
+			if count < 1 {
+				return nil, fmt.Errorf("vdbe_max_registers must be at least 1, got %d", count)
+			}
+
+			e.vdbeMaxRegisters = int(count)
+			return &Result{RowsAffected: 0}, nil
+		}
+		// GET vdbe_max_registers
+		return &Result{
+			Columns: []string{"vdbe_max_registers"},
+			Rows: [][]types.Value{
+				{types.NewInt(int64(e.vdbeMaxRegisters))},
+			},
+		}, nil
+
+	case "vdbe_max_cursors":
+		if stmt.Value != nil {
+			// SET vdbe_max_cursors = value
+			val, err := e.evaluateExpr(stmt.Value, nil, nil)
+			if err != nil {
+				return nil, fmt.Errorf("invalid vdbe_max_cursors value: %w", err)
+			}
+
+			count := val.Int()
+			if count < 1 {
+				return nil, fmt.Errorf("vdbe_max_cursors must be at least 1, got %d", count)
+			}
+
+			e.vdbeMaxCursors = int(count)
+			return &Result{RowsAffected: 0}, nil
+		}
+		// GET vdbe_max_cursors
+		return &Result{
+			Columns: []string{"vdbe_max_cursors"},
+			Rows: [][]types.Value{
+				{types.NewInt(int64(e.vdbeMaxCursors))},
+			},
+		}, nil
+
+	case "memory_budget":
+		memBudget := e.pager.MemoryBudget()
+		if stmt.Value != nil {
+			// SET memory_budget = value (in MB)
+			val, err := e.evaluateExpr(stmt.Value, nil, nil)
+			if err != nil {
+				return nil, fmt.Errorf("invalid memory_budget value: %w", err)
+			}
+
+			budgetMB := val.Int()
+			if budgetMB < 1 {
+				return nil, fmt.Errorf("memory_budget must be at least 1 MB, got %d", budgetMB)
+			}
+
+			budgetBytes := budgetMB * 1024 * 1024
+			if memBudget != nil {
+				memBudget.SetLimit(budgetBytes)
+			}
+
+			return &Result{RowsAffected: 0}, nil
+		}
+		// GET memory_budget (return in MB)
+		limitMB := int64(0)
+		if memBudget != nil {
+			limitMB = memBudget.Limit() / (1024 * 1024)
+		}
+		return &Result{
+			Columns: []string{"memory_budget"},
+			Rows: [][]types.Value{
+				{types.NewInt(limitMB)},
+			},
+		}, nil
+
+	case "result_streaming":
+		if stmt.Value != nil {
+			// SET result_streaming = ON/OFF
+			val, err := e.evaluateExpr(stmt.Value, nil, nil)
+			if err != nil {
+				return nil, fmt.Errorf("invalid result_streaming value: %w", err)
+			}
+
+			// Handle both string and integer values
+			var enabled bool
+			switch val.Type() {
+			case types.TypeText:
+				valStr := strings.ToUpper(val.Text())
+				if valStr == "ON" || valStr == "TRUE" || valStr == "1" {
+					enabled = true
+				} else if valStr == "OFF" || valStr == "FALSE" || valStr == "0" {
+					enabled = false
+				} else {
+					return nil, fmt.Errorf("result_streaming must be ON/OFF, TRUE/FALSE, or 1/0, got %s", val.Text())
+				}
+			case types.TypeInt:
+				enabled = val.Int() != 0
+			default:
+				return nil, fmt.Errorf("result_streaming must be ON/OFF, TRUE/FALSE, or 1/0, got %v", val)
+			}
+
+			e.resultStreaming = enabled
+			return &Result{RowsAffected: 0}, nil
+		}
+		// GET result_streaming
+		status := "OFF"
+		if e.resultStreaming {
+			status = "ON"
+		}
+		return &Result{
+			Columns: []string{"result_streaming"},
+			Rows: [][]types.Value{
+				{types.NewText(status)},
+			},
+		}, nil
+
+	case "optimize_memory":
+		// This is a convenience pragma that sets all memory-related settings
+		// to their minimal values for ~1MB idle memory usage
+
+		// Page cache: 10 pages (~40 KB)
+		if err := e.pager.SetCacheSize(10); err != nil {
+			return nil, fmt.Errorf("failed to set page_cache_size: %w", err)
+		}
+
+		// Query cache: disabled
+		if e.queryCache != nil {
+			e.queryCache.SetCapacity(0)
+		}
+
+		// VDBE: minimal registers and cursors
+		e.vdbeMaxRegisters = 4
+		e.vdbeMaxCursors = 2
+
+		// Memory budget: 1 MB
+		memBudget := e.pager.MemoryBudget()
+		if memBudget != nil {
+			memBudget.SetLimit(1 * 1024 * 1024)
+		}
+
+		// Result streaming: enabled
+		e.resultStreaming = true
+
+		return &Result{
+			Columns: []string{"optimize_memory"},
+			Rows: [][]types.Value{
+				{types.NewText("Memory optimization applied")},
+			},
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown PRAGMA: %s", stmt.Name)
 	}
 }
