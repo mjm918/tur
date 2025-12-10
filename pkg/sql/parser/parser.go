@@ -1659,15 +1659,6 @@ func (p *Parser) parseFunctionCall() (Expression, error) {
 	if p.peekIs(lexer.RPAREN) {
 		p.nextToken()
 		return p.maybeParseWindowFunction(funcCall)
-		// Check for OVER clause (window function)
-		if p.peekIs(lexer.OVER) {
-			return p.parseWindowFunction(funcCall)
-		}
-		// Check for OVER clause
-		if p.peekIs(lexer.OVER) {
-			return p.parseWindowFunction(funcCall)
-		}
-		return funcCall, nil
 	}
 
 	// Handle COUNT(*) special case
@@ -1678,15 +1669,6 @@ func (p *Parser) parseFunctionCall() (Expression, error) {
 		if !p.expectPeek(lexer.RPAREN) {
 			return nil, fmt.Errorf("expected ')' after '*'")
 		}
-		// Check for OVER clause
-		if p.peekIs(lexer.OVER) {
-			return p.parseWindowFunction(funcCall)
-		}
-		// Check for OVER clause (window function)
-		if p.peekIs(lexer.OVER) {
-			return p.parseWindowFunction(funcCall)
-		}
-		return funcCall, nil
 		return p.maybeParseWindowFunction(funcCall)
 	}
 
