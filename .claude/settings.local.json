@@ -41,7 +41,9 @@
       "Bash(go clean:*)",
       "Bash(for i in 1 2 3 4 5)",
       "Bash(do echo \"=== Run $i ===\")",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(go mod download:*)",
+      "Bash(git -C /Users/julfikar/Documents/PassionFruit.nosync/tur log --oneline -20)"
     ],
     "deny": [],
     "ask": []

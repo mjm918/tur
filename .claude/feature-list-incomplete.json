@@ -1,0 +1,1164 @@
+{
+  "workflow": {
+    "codeQualityRules": {
+      "documentation": "Add godoc comments to all exported types and functions",
+      "errorHandling": "Always handle errors properly. No panic() in library code.",
+      "followPatterns": "Study existing code in pkg/ directories. Follow established patterns.",
+      "naming": "Follow Go naming conventions. Use SQLite naming where applicable.",
+      "noPartialWork": "Each task must be 100% complete before marking done=true",
+      "noPlaceholders": "NEVER write TODO comments or placeholder implementations. Complete each task fully.",
+      "testsMustPass": "All tests must pass before committing. Run 'go test ./...' to verify",
+      "useStdLib": "Prefer Go standard library. Minimize external dependencies."
+    },
+    "commitConvention": {
+      "examples": [
+        "feat(storage): define database file header structure with magic bytes",
+        "feat(storage): implement database file initialization logic",
+        "test(btree): add tests for node deletion scenarios",
+        "fix(mvcc): correct deadlock detection in wait-for graph"
+      ],
+      "format": "<type>(<scope>): <description>",
+      "scopes": [
+        "storage - Storage engine features",
+        "btree - B-tree related",
+        "hnsw - HNSW vector index",
+        "mvcc - Transaction/concurrency",
+        "sql - SQL parser/executor",
+        "vdbe - Virtual machine",
+        "api - Public API",
+        "cli - Command-line interface"
+      ],
+      "types": {
+        "docs": "Documentation updates",
+        "feat": "New feature implementation",
+        "fix": "Bug fix",
+        "refactor": "Code refactoring without behavior change",
+        "test": "Adding or updating tests"
+      }
+    },
+    "concurrency": {
+      "avoidConflicts": "Before starting, check 'git worktree list' for active feature worktrees",
+      "cleanup": "After merging a feature, remove the worktree: 'git worktree remove ../tur-feature-<name>' and optionally delete the branch if merged",
+      "mergeStrategy": "Each feature worktree is isolated. After completion, merge from the worktree or create PR, then remove worktree with 'git worktree remove <path>'",
+      "multipleAgents": "Multiple agents can work on DIFFERENT features simultaneously using git worktrees",
+      "worktreeNaming": "Directory: ../tur-feature-<feature-title-kebab-case>, Branch: feature/<feature-title-kebab-case>"
+    },
+    "mandatorySteps": {
+      "beforeStarting": [
+        "Read this entire workflow section carefully",
+        "Check active worktrees: run 'git worktree list' to see active feature worktrees",
+        "Pick ONE feature where isCompleted=false AND no worktree exists for it",
+        "Review PROJECT_CONTEXT.md and CLAUDE.md for context",
+        "Review existing code in relevant pkg/ directories"
+      ],
+      "implementationCycle": [
+        "STEP 1: Create feature worktree with dedicated directory",
+        "  → Run: git worktree add ./tur-feature-<feature-title-kebab-case> -b feature/<feature-title-kebab-case>",
+        "  → Example: git worktree add ./tur-feature-storage-database-file-format -b feature/storage-database-file-format",
+        "  → Change directory: cd ./tur-feature-<feature-title-kebab-case>",
+        "",
+        "STEP 2: For EACH task in the feature.tasks array (in order):",
+        "  ",
+        "  2a. ANALYZE THE TASK",
+        "     → Read the task description carefully",
+        "     → Identify what files need to be created/modified",
+        "     → Review SQLite source code in .claude/sqlite/ if relevant",
+        "     → Check existing implementations in pkg/ for patterns",
+        "  ",
+        "  2b. WRITE TEST FIRST (RED phase)",
+        "     → Create or update *_test.go file",
+        "     → Write specific test case for this task",
+        "     → Run: go test ./... -v",
+        "     → VERIFY test FAILS (if it passes, test is wrong or task already done)",
+        "  ",
+        "  2c. IMPLEMENT CODE (GREEN phase)",
+        "     → Write MINIMAL code to make the test pass",
+        "     → No premature optimization",
+        "     → No unnecessary abstractions",
+        "     → Focus on making THIS test pass",
+        "     → Run: go test ./... -v",
+        "     → VERIFY test now PASSES",
+        "  ",
+        "  2d. REFACTOR (if needed)",
+        "     → Clean up code while keeping tests green",
+        "     → Improve names, extract functions, add comments",
+        "     → Run: go test ./... -v (ensure still passing)",
+        "  ",
+        "  2e. UPDATE FEATURE LIST",
+        "     → Edit .claude/feature-list.json",
+        "     → Find this exact task in the feature",
+        "     → Change 'done': false to 'done': true",
+        "  ",
+        "  2f. COMMIT",
+        "     → Run: git add .",
+        "     → Run: git commit -m 'feat(<feature-scope>): <task-description>'",
+        "     → Example: git commit -m 'feat(storage): define database file header structure with magic bytes'",
+        "  ",
+        "  REPEAT 2a-2f for ALL tasks in the feature",
+        "",
+        "STEP 3: Complete feature",
+        "  → Verify ALL tasks have 'done': true",
+        "  → Run full test suite: go test ./... -v -race",
+        "  → Run: go build ./... (ensure no compile errors)",
+        "  → Update feature-list.json: set 'isCompleted': true for this feature",
+        "  → Commit: git commit -m 'feat(<feature-scope>): complete feature implementation'",
+        "",
+        "STEP 4: Report completion",
+        "  → List completed tasks",
+        "  → Show test coverage: go test ./pkg/<package> -cover",
+        "  → Report any blockers or dependencies discovered",
+        "  → Mention if feature ready to merge or needs review"
+      ]
+    },
+    "method": "TDD (Test-Driven Development)",
+    "objective": "Achieve CONCRETE, WORKING implementation of TurDB features. No placeholders, no TODOs, no partial implementations.",
+    "referenceResources": {
+      "existingCode": [
+        "pkg/pager/ - Page management (completed, use as reference)",
+        "pkg/btree/ - B-tree implementation (completed, use as reference)",
+        "pkg/hnsw/ - HNSW index (completed, use as reference)",
+        "pkg/mvcc/ - MVCC implementation (completed, use as reference)"
+      ],
+      "projectDocs": [
+        "PROJECT_CONTEXT.md - Overall architecture and design decisions",
+        "CLAUDE.md - Project requirements and goals"
+      ],
+      "sqliteSource": ".claude/sqlite/ - Reference implementation to study",
+      "testExamples": "Look at existing *_test.go files for testing patterns"
+    },
+    "testingGuidelines": {
+      "coverage": "Aim for >80% code coverage per package",
+      "examples": [
+        "func TestDatabaseHeader_Encode(t *testing.T) { ... }",
+        "func TestDatabaseHeader_Decode_InvalidMagic(t *testing.T) { ... }",
+        "func TestDatabaseHeader_Validate_ReturnsErrorOnCorruption(t *testing.T) { ... }"
+      ],
+      "location": "Tests in *_test.go files alongside implementation",
+      "naming": "func Test<FunctionName>_<Scenario>(t *testing.T)",
+      "structure": "Arrange-Act-Assert pattern",
+      "tableTests": "Use table-driven tests for multiple scenarios"
+    },
+    "troubleshooting": {
+      "conflictingWorktree": "Feature worktree already exists? Another agent is working on it. Check 'git worktree list', then pick a different feature.",
+      "missingDependencies": "Task depends on another incomplete feature? Note as blocker in report. Consider implementing dependency first or pick different feature.",
+      "testWontFail": "Test passes immediately? Either task is already done, or test isn't testing the right thing. Review test logic.",
+      "testWontPass": "Can't make test pass? Break task into smaller steps. Study SQLite source. Ask for clarification.",
+      "unsureHowToImplement": "Study SQLite source in .claude/sqlite/, review PROJECT_CONTEXT.md, examine similar completed features in pkg/",
+      "worktreeCleanup": "When done with a feature: push branch to remote (if needed), then 'git worktree remove <path>' to clean up the worktree directory"
+    }
+  },
+  "features": [
+    {
+      "title": "SQL Statements - DROP TABLE",
+      "description": "DROP TABLE implementation with cascade option",
+      "isCompleted": true,
+      "futureEnhancements": [
+        {
+          "task": "Check for dependent views before dropping table",
+          "done": false,
+          "blockedBy": "CREATE VIEW and DROP VIEW features",
+          "description": "When DROP TABLE is called without CASCADE, check if any views depend on this table and error if found"
+        },
+        {
+          "task": "Check for dependent triggers before dropping table",
+          "done": false,
+          "blockedBy": "CREATE TRIGGER and DROP TRIGGER features",
+          "description": "When DROP TABLE is called without CASCADE, check if any triggers are attached to this table and error if found"
+        },
+        {
+          "task": "Automatically drop associated indexes when CASCADE is specified",
+          "done": false,
+          "blockedBy": "CREATE INDEX feature needs index-to-table tracking",
+          "description": "When CASCADE is specified, automatically drop all indexes associated with the table"
+        },
+        {
+          "task": "Handle CASCADE for foreign key constraints",
+          "done": false,
+          "blockedBy": "FOREIGN KEY constraint enforcement",
+          "description": "When CASCADE is specified, handle foreign key references (either cascade delete or prevent drop)"
+        },
+        {
+          "task": "Return table's B-tree pages to free list",
+          "done": false,
+          "blockedBy": "B-tree page tracking in schema catalog",
+          "description": "Free all pages used by the table's B-tree structure back to the database free list"
+        },
+        {
+          "task": "Drop dependent views automatically when CASCADE is specified",
+          "done": false,
+          "blockedBy": "CREATE VIEW feature",
+          "description": "When CASCADE is specified, automatically drop all views that depend on this table"
+        },
+        {
+          "task": "Drop dependent triggers automatically when CASCADE is specified",
+          "done": false,
+          "blockedBy": "CREATE TRIGGER feature",
+          "description": "When CASCADE is specified, automatically drop all triggers attached to this table"
+        }
+      ]
+    },
+    {
+      "title": "CLI - Script Execution",
+      "description": "Execute SQL scripts from files",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Parse command-line arguments for script file",
+          "done": false
+        },
+        {
+          "task": "Read SQL script from file",
+          "done": false
+        },
+        {
+          "task": "Split script into individual statements",
+          "done": false
+        },
+        {
+          "task": "Execute statements in order",
+          "done": false
+        },
+        {
+          "task": "Stop on error or continue based on flag",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "CLI - Output Formatting",
+      "description": "Format query results as tables, CSV, JSON",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Implement table formatter with column alignment",
+          "done": false
+        },
+        {
+          "task": "Implement CSV output formatter",
+          "done": false
+        },
+        {
+          "task": "Implement JSON output formatter",
+          "done": false
+        },
+        {
+          "task": "Add mode selection flag (.mode command)",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "CLI - Meta Commands",
+      "description": "Special commands like .tables, .schema, .indices",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Implement .tables command to list tables",
+          "done": false
+        },
+        {
+          "task": "Implement .schema [table] to show CREATE TABLE",
+          "done": false
+        },
+        {
+          "task": "Implement .indices [table] to list indexes",
+          "done": false
+        },
+        {
+          "task": "Implement .help command",
+          "done": false
+        },
+        {
+          "task": "Implement .exit/.quit commands",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Performance - Page Compression",
+      "description": "Compress database pages to reduce file size",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Choose compression algorithm (zstd, lz4)",
+          "done": false
+        },
+        {
+          "task": "Compress pages before writing to disk",
+          "done": false
+        },
+        {
+          "task": "Decompress pages on read",
+          "done": false
+        },
+        {
+          "task": "Store compression metadata in page header",
+          "done": false
+        },
+        {
+          "task": "Benchmark compression ratio vs CPU overhead",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Performance - Vector Compression",
+      "description": "Product quantization for compressed vector storage",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Implement product quantization algorithm",
+          "done": false
+        },
+        {
+          "task": "Train codebooks on vector dataset",
+          "done": false
+        },
+        {
+          "task": "Encode vectors using codebook indices",
+          "done": false
+        },
+        {
+          "task": "Decode vectors for distance computation",
+          "done": false
+        },
+        {
+          "task": "Measure recall degradation with compression",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Performance - Adaptive HNSW Tuning",
+      "description": "Automatically adjust ef parameter based on query patterns",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Track query latency and recall statistics",
+          "done": false
+        },
+        {
+          "task": "Implement ef adjustment algorithm",
+          "done": false
+        },
+        {
+          "task": "Increase ef if recall is too low",
+          "done": false
+        },
+        {
+          "task": "Decrease ef if latency is too high",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Performance - Background Index Optimization",
+      "description": "Background process to optimize indexes without blocking queries",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Implement background goroutine for optimization",
+          "done": false
+        },
+        {
+          "task": "Rebalance B-tree indexes during idle time",
+          "done": false
+        },
+        {
+          "task": "Rebuild fragmented HNSW indexes",
+          "done": false
+        },
+        {
+          "task": "Use low-priority I/O to avoid query interference",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Scalability - Vector Sharding",
+      "description": "Distribute large vector datasets across multiple index files",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Design sharding key (hash-based or range-based)",
+          "done": false
+        },
+        {
+          "task": "Partition vectors across N HNSW indexes",
+          "done": false
+        },
+        {
+          "task": "Query all shards and merge results",
+          "done": false
+        },
+        {
+          "task": "Handle shard rebalancing as data grows",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Scalability - Parallel Query Execution",
+      "description": "Execute queries in parallel across multiple CPU cores",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Identify parallelizable query operations (scans, joins)",
+          "done": false
+        },
+        {
+          "task": "Partition data into chunks for parallel processing",
+          "done": false
+        },
+        {
+          "task": "Execute chunks in parallel goroutines",
+          "done": false
+        },
+        {
+          "task": "Merge results from parallel workers",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Scalability - Horizontal Partitioning",
+      "description": "Table partitioning for managing very large tables",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Parse PARTITION BY clause in CREATE TABLE",
+          "done": false
+        },
+        {
+          "task": "Create separate B-trees for each partition",
+          "done": false
+        },
+        {
+          "task": "Route inserts to appropriate partition",
+          "done": false
+        },
+        {
+          "task": "Prune partitions during query execution",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Backup - Hot Backup",
+      "description": "Create backups without stopping database operations",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Start read transaction to freeze consistent snapshot",
+          "done": false
+        },
+        {
+          "task": "Copy database file while snapshot is active",
+          "done": false
+        },
+        {
+          "task": "Copy WAL entries since snapshot started",
+          "done": false
+        },
+        {
+          "task": "Create backup metadata file with timestamp",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Backup - Point-in-Time Recovery",
+      "description": "Restore database to specific point in time using WAL",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Copy base backup to restore location",
+          "done": false
+        },
+        {
+          "task": "Replay WAL entries up to target timestamp",
+          "done": false
+        },
+        {
+          "task": "Stop replay at target point in time",
+          "done": false
+        },
+        {
+          "task": "Validate restored database integrity",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Backup - Incremental Backup",
+      "description": "Back up only changed pages since last backup",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Track modified pages since last backup",
+          "done": false
+        },
+        {
+          "task": "Copy only modified pages to backup",
+          "done": false
+        },
+        {
+          "task": "Store page map in backup metadata",
+          "done": false
+        },
+        {
+          "task": "Implement restore from incremental backups",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Monitoring - Performance Counters",
+      "description": "Track query counts, cache hits, page reads/writes",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Add counters to pager for page reads/writes",
+          "done": false
+        },
+        {
+          "task": "Add counters for cache hits/misses",
+          "done": false
+        },
+        {
+          "task": "Track query execution counts and timing",
+          "done": false
+        },
+        {
+          "task": "Expose counters via PRAGMA or API",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Monitoring - Lock Contention Metrics",
+      "description": "Track lock wait times and contention points",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Measure time spent waiting for locks",
+          "done": false
+        },
+        {
+          "task": "Track which locks have highest contention",
+          "done": false
+        },
+        {
+          "task": "Expose lock metrics via monitoring API",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Monitoring - WAL Performance Metrics",
+      "description": "Monitor WAL size, checkpoint frequency, sync times",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Track WAL file size growth",
+          "done": false
+        },
+        {
+          "task": "Measure time spent in WAL sync operations",
+          "done": false
+        },
+        {
+          "task": "Count checkpoint operations and duration",
+          "done": false
+        },
+        {
+          "task": "Alert on WAL growth beyond threshold",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Testing - Unit Test Coverage",
+      "description": "Comprehensive unit tests for all components (target: >80% coverage)",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Add unit tests for pager operations",
+          "done": false
+        },
+        {
+          "task": "Add unit tests for B-tree operations",
+          "done": false
+        },
+        {
+          "task": "Add unit tests for HNSW operations",
+          "done": false
+        },
+        {
+          "task": "Add unit tests for MVCC logic",
+          "done": false
+        },
+        {
+          "task": "Add unit tests for SQL parser",
+          "done": false
+        },
+        {
+          "task": "Add unit tests for VDBE execution",
+          "done": false
+        },
+        {
+          "task": "Measure test coverage with go test -cover",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Testing - SQLite Compatibility Tests",
+      "description": "Pass core subset of SQLite test suite for compatibility",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Import SQLite test cases for SELECT/INSERT/UPDATE/DELETE",
+          "done": false
+        },
+        {
+          "task": "Run tests and identify failures",
+          "done": false
+        },
+        {
+          "task": "Fix compatibility issues",
+          "done": false
+        },
+        {
+          "task": "Achieve >90% pass rate on core test suite",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Testing - Vector Search Benchmarks",
+      "description": "Benchmark recall/latency for 10M vectors (target: >95% recall <50ms)",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Generate synthetic vector dataset (10M vectors)",
+          "done": false
+        },
+        {
+          "task": "Build HNSW index with various parameters",
+          "done": false
+        },
+        {
+          "task": "Measure recall at different k values",
+          "done": false
+        },
+        {
+          "task": "Measure query latency (p50, p95, p99)",
+          "done": false
+        },
+        {
+          "task": "Tune M and efConstruction for target metrics",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Testing - Concurrency Stress Tests",
+      "description": "Test 100 concurrent readers and 10 concurrent writers",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Create test harness for concurrent goroutines",
+          "done": false
+        },
+        {
+          "task": "Spawn 100 reader goroutines",
+          "done": false
+        },
+        {
+          "task": "Spawn 10 writer goroutines",
+          "done": false
+        },
+        {
+          "task": "Verify no data corruption or deadlocks",
+          "done": false
+        },
+        {
+          "task": "Measure throughput under concurrent load",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Testing - Crash Recovery Tests",
+      "description": "Verify database integrity after simulated crashes",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Inject crash at random point during transaction",
+          "done": false
+        },
+        {
+          "task": "Reopen database and verify recovery succeeds",
+          "done": false
+        },
+        {
+          "task": "Validate committed transactions are preserved",
+          "done": false
+        },
+        {
+          "task": "Validate uncommitted transactions are rolled back",
+          "done": false
+        },
+        {
+          "task": "Run integrity check after recovery",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Testing - Fuzz Testing",
+      "description": "Fuzz testing for SQL parser and storage engine",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Set up go-fuzz for SQL parser",
+          "done": false
+        },
+        {
+          "task": "Generate random SQL inputs",
+          "done": false
+        },
+        {
+          "task": "Detect parser crashes and hangs",
+          "done": false
+        },
+        {
+          "task": "Fuzz VDBE bytecode execution",
+          "done": false
+        },
+        {
+          "task": "Fix bugs discovered by fuzzing",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Documentation - API Documentation",
+      "description": "Complete godoc documentation for all public APIs",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Write package-level documentation",
+          "done": false
+        },
+        {
+          "task": "Document all exported types",
+          "done": false
+        },
+        {
+          "task": "Document all exported functions",
+          "done": false
+        },
+        {
+          "task": "Add code examples in documentation",
+          "done": false
+        },
+        {
+          "task": "Generate documentation website",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Documentation - SQL Extension Guide",
+      "description": "Document vector SQL extensions with examples",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Write VECTOR type documentation",
+          "done": false
+        },
+        {
+          "task": "Document vector_quantize function with examples",
+          "done": false
+        },
+        {
+          "task": "Document vector_quantize_scan with examples",
+          "done": false
+        },
+        {
+          "task": "Document vector_distance with examples",
+          "done": false
+        },
+        {
+          "task": "Provide end-to-end tutorial for vector search",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Documentation - Architecture Guide",
+      "description": "Detailed architecture documentation explaining design decisions",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Document overall system architecture with diagrams",
+          "done": false
+        },
+        {
+          "task": "Explain storage layer design",
+          "done": false
+        },
+        {
+          "task": "Explain MVCC implementation",
+          "done": false
+        },
+        {
+          "task": "Explain query processing pipeline",
+          "done": false
+        },
+        {
+          "task": "Document HNSW integration approach",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Documentation - Performance Tuning Guide",
+      "description": "Guide for optimizing query performance and index configuration",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Document HNSW parameter tuning (M, efConstruction, ef)",
+          "done": false
+        },
+        {
+          "task": "Explain when to create indexes",
+          "done": false
+        },
+        {
+          "task": "Document query optimization techniques",
+          "done": false
+        },
+        {
+          "task": "Provide benchmarking methodology",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Documentation - Migration Guide",
+      "description": "Guide for migrating from SQLite or other databases",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Document SQLite compatibility and differences",
+          "done": false
+        },
+        {
+          "task": "Provide schema migration scripts",
+          "done": false
+        },
+        {
+          "task": "Explain data migration process",
+          "done": false
+        },
+        {
+          "task": "Document vector data conversion from other formats",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Security - Authentication",
+      "description": "User authentication for database connections",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Design user credential storage",
+          "done": false
+        },
+        {
+          "task": "Implement password hashing (bcrypt)",
+          "done": false
+        },
+        {
+          "task": "Add authentication check on database open",
+          "done": false
+        },
+        {
+          "task": "Support username/password authentication",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Security - Authorization",
+      "description": "Role-based access control for tables and operations",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Design role and permission system",
+          "done": false
+        },
+        {
+          "task": "Store roles and permissions in system tables",
+          "done": false
+        },
+        {
+          "task": "Check permissions before table operations",
+          "done": false
+        },
+        {
+          "task": "Implement GRANT and REVOKE statements",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Security - Encryption at Rest",
+      "description": "Encrypt database file with AES-256",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Implement page-level encryption with AES-256",
+          "done": false
+        },
+        {
+          "task": "Derive encryption key from user password (PBKDF2)",
+          "done": false
+        },
+        {
+          "task": "Encrypt pages before writing to disk",
+          "done": false
+        },
+        {
+          "task": "Decrypt pages on read",
+          "done": false
+        },
+        {
+          "task": "Store encryption metadata in file header",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Security - SQL Injection Prevention",
+      "description": "Parameterized queries and input validation",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Enforce parameterized query usage in API",
+          "done": false
+        },
+        {
+          "task": "Validate parameter types before binding",
+          "done": false
+        },
+        {
+          "task": "Escape special characters in string literals",
+          "done": false
+        },
+        {
+          "task": "Add SQL injection detection heuristics",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Replication - Write-Ahead Log Streaming",
+      "description": "Stream WAL entries to replica databases",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Design WAL streaming protocol",
+          "done": false
+        },
+        {
+          "task": "Implement WAL sender on primary",
+          "done": false
+        },
+        {
+          "task": "Implement WAL receiver on replica",
+          "done": false
+        },
+        {
+          "task": "Handle connection failures and reconnection",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Replication - Read Replicas",
+      "description": "Support for read-only replica databases",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Apply WAL entries to replica database",
+          "done": false
+        },
+        {
+          "task": "Reject write operations on replicas",
+          "done": false
+        },
+        {
+          "task": "Track replication lag",
+          "done": false
+        },
+        {
+          "task": "Support multiple replicas per primary",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Replication - Conflict Resolution",
+      "description": "Handle conflicts in multi-master replication",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Detect write conflicts across masters",
+          "done": false
+        },
+        {
+          "task": "Implement last-write-wins conflict resolution",
+          "done": false
+        },
+        {
+          "task": "Support custom conflict resolution callbacks",
+          "done": false
+        },
+        {
+          "task": "Log conflicts for manual resolution",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "SQL Statements - IF/ELSE Conditional",
+      "description": "Conditional logic support for procedural SQL (IF-THEN-ELSE-END IF)",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Parse IF condition THEN ... END IF syntax",
+          "done": false
+        },
+        {
+          "task": "Parse ELSE clause for alternative execution path",
+          "done": false
+        },
+        {
+          "task": "Parse ELSIF/ELSEIF for multiple conditions",
+          "done": false
+        },
+        {
+          "task": "Compile IF statement to VDBE bytecode with conditional jumps",
+          "done": false
+        },
+        {
+          "task": "Support nested IF statements",
+          "done": false
+        },
+        {
+          "task": "Evaluate boolean expressions in IF conditions",
+          "done": false
+        },
+        {
+          "task": "Handle variable assignments within IF blocks",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "SQL Statements - Stored Procedures",
+      "description": "CREATE PROCEDURE with parameters, local variables, and procedural logic",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Parse CREATE PROCEDURE procedure_name(parameters) syntax",
+          "done": false
+        },
+        {
+          "task": "Parse procedure body with multiple statements (BEGIN...END)",
+          "done": false
+        },
+        {
+          "task": "Support IN, OUT, INOUT parameter modes",
+          "done": false
+        },
+        {
+          "task": "Parse DECLARE for local variable definitions",
+          "done": false
+        },
+        {
+          "task": "Store procedure definition in schema catalog",
+          "done": false
+        },
+        {
+          "task": "Implement CALL statement to execute procedures",
+          "done": false
+        },
+        {
+          "task": "Support RETURN statement for procedure exit",
+          "done": false
+        },
+        {
+          "task": "Handle procedure-level exception handling",
+          "done": false
+        },
+        {
+          "task": "Compile procedure body to VDBE bytecode on first call",
+          "done": false
+        },
+        {
+          "task": "Cache compiled procedure bytecode for reuse",
+          "done": false
+        },
+        {
+          "task": "Support cursor declarations within procedures",
+          "done": false
+        },
+        {
+          "task": "Implement DROP PROCEDURE statement",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "SQL Statements - EXPLAIN ANALYZE",
+      "description": "Execute query and show actual runtime statistics (extends EXPLAIN)",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Parse EXPLAIN ANALYZE statement_to_analyze syntax",
+          "done": false
+        },
+        {
+          "task": "Execute query and collect runtime metrics per operation",
+          "done": false
+        },
+        {
+          "task": "Track actual row counts vs estimated row counts",
+          "done": false
+        },
+        {
+          "task": "Measure execution time for each query phase",
+          "done": false
+        },
+        {
+          "task": "Collect I/O statistics (page reads, cache hits)",
+          "done": false
+        },
+        {
+          "task": "Display comparison of estimates vs actuals in output",
+          "done": false
+        },
+        {
+          "task": "Show memory usage during query execution",
+          "done": false
+        }
+      ]
+    }
+  ]
+}

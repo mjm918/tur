@@ -9,9 +9,9 @@ import (
 func TestProfilerRecordsOpcodeExecutionTime(t *testing.T) {
 	// Create a simple program: Init -> Integer -> Halt
 	prog := NewProgram()
-	prog.AddOp(OpInit, 0, 1, 0)   // 0: Jump to 1
+	prog.AddOp(OpInit, 0, 1, 0)     // 0: Jump to 1
 	prog.AddOp(OpInteger, 42, 0, 0) // 1: r[0] = 42
-	prog.AddOp(OpHalt, 0, 0, 0)    // 2: Halt
+	prog.AddOp(OpHalt, 0, 0, 0)     // 2: Halt
 
 	vm := NewVM(prog, nil)
 
@@ -47,15 +47,15 @@ func TestProfilerRecordsOpcodeExecutionTime(t *testing.T) {
 func TestProfilerTracksOpcodeCallCount(t *testing.T) {
 	// Create a program with a loop that executes Integer multiple times
 	prog := NewProgram()
-	prog.AddOp(OpInit, 0, 1, 0)     // 0: Jump to 1
-	prog.AddOp(OpInteger, 0, 0, 0)  // 1: r[0] = 0 (counter)
-	prog.AddOp(OpInteger, 5, 1, 0)  // 2: r[1] = 5 (limit)
+	prog.AddOp(OpInit, 0, 1, 0)    // 0: Jump to 1
+	prog.AddOp(OpInteger, 0, 0, 0) // 1: r[0] = 0 (counter)
+	prog.AddOp(OpInteger, 5, 1, 0) // 2: r[1] = 5 (limit)
 	// Loop start
-	prog.AddOp(OpGe, 0, 7, 1)       // 3: if r[0] >= r[1] goto 7
-	prog.AddOp(OpInteger, 1, 2, 0)  // 4: r[2] = 1
-	prog.AddOp(OpAdd, 0, 2, 0)      // 5: r[0] = r[0] + r[2]
-	prog.AddOp(OpGoto, 0, 3, 0)     // 6: goto 3
-	prog.AddOp(OpHalt, 0, 0, 0)     // 7: Halt
+	prog.AddOp(OpGe, 0, 7, 1)      // 3: if r[0] >= r[1] goto 7
+	prog.AddOp(OpInteger, 1, 2, 0) // 4: r[2] = 1
+	prog.AddOp(OpAdd, 0, 2, 0)     // 5: r[0] = r[0] + r[2]
+	prog.AddOp(OpGoto, 0, 3, 0)    // 6: goto 3
+	prog.AddOp(OpHalt, 0, 0, 0)    // 7: Halt
 
 	vm := NewVM(prog, nil)
 	profiler := NewProfiler()
@@ -396,9 +396,9 @@ func TestProfilerMemoryStats(t *testing.T) {
 	profiler := NewProfiler()
 
 	// Simulate memory tracking during query execution
-	profiler.RecordAllocation(1024)      // 1KB allocation
-	profiler.RecordAllocation(2048)      // 2KB allocation
-	profiler.RecordDeallocation(1024)    // Free 1KB
+	profiler.RecordAllocation(1024)   // 1KB allocation
+	profiler.RecordAllocation(2048)   // 2KB allocation
+	profiler.RecordDeallocation(1024) // Free 1KB
 
 	stats := profiler.MemoryStats()
 

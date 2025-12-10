@@ -3139,6 +3139,275 @@
           "done": false
         }
       ]
+    },
+    {
+      "title": "SQL Statements - Bulk INSERT",
+      "description": "Efficient bulk insert with multiple rows in single statement, including ON DUPLICATE KEY UPDATE support",
+      "isCompleted": true,
+      "tasks": [
+        {
+          "task": "Parse INSERT INTO table VALUES (row1), (row2), (row3) syntax",
+          "done": true
+        },
+        {
+          "task": "Batch multiple row inserts in single transaction",
+          "done": true
+        },
+        {
+          "task": "Optimize constraint validation for batch inserts",
+          "done": true
+        },
+        {
+          "task": "Defer index updates until all rows inserted",
+          "done": true
+        },
+        {
+          "task": "Return total number of rows inserted",
+          "done": true
+        },
+        {
+          "task": "Handle partial failures with proper error reporting",
+          "done": true
+        },
+        {
+          "task": "Implement ON DUPLICATE KEY UPDATE clause parsing",
+          "done": true
+        },
+        {
+          "task": "Support VALUES() function for accessing new values",
+          "done": true
+        },
+        {
+          "task": "Handle conflict detection and row updates",
+          "done": true
+        }
+      ]
+    },
+    {
+      "title": "SQL Statements - Bulk UPDATE with CASE",
+      "description": "UPDATE multiple rows with different values using CASE expressions",
+      "isCompleted": true,
+      "tasks": [
+        {
+          "task": "Parse UPDATE table SET column = CASE WHEN ... THEN ... END WHERE clause",
+          "done": true
+        },
+        {
+          "task": "Support multiple columns in single UPDATE CASE statement",
+          "done": true
+        },
+        {
+          "task": "Optimize CASE evaluation for bulk updates",
+          "done": true
+        },
+        {
+          "task": "Batch index updates for affected rows",
+          "done": true
+        },
+        {
+          "task": "Validate all CASE branches for type consistency",
+          "done": true
+        },
+        {
+          "task": "Handle ELSE clause for unmatched rows",
+          "done": true
+        }
+      ]
+    },
+    {
+      "title": "SQL Statements - Bulk DELETE",
+      "description": "Optimized bulk delete operations with batch processing",
+      "isCompleted": true,
+      "tasks": [
+        {
+          "task": "Optimize DELETE with IN (value1, value2, ...) syntax",
+          "done": true
+        },
+        {
+          "task": "Batch multiple row deletions in single operation",
+          "done": true
+        },
+        {
+          "task": "Defer index updates until all deletions complete",
+          "done": true
+        },
+        {
+          "task": "Optimize foreign key constraint checking for bulk deletes",
+          "done": true
+        },
+        {
+          "task": "Return total number of rows deleted",
+          "done": true
+        },
+        {
+          "task": "Support DELETE with subquery for large batch operations",
+          "done": true
+        }
+      ]
+    },
+    {
+      "title": "SQL Statements - TRUNCATE TABLE",
+      "description": "Fast table truncation by deallocating pages instead of row-by-row deletion",
+      "isCompleted": true,
+      "tasks": [
+        {
+          "task": "Parse TRUNCATE TABLE table_name syntax",
+          "done": true
+        },
+        {
+          "task": "Validate table exists and user has permissions",
+          "done": true
+        },
+        {
+          "task": "Check foreign key constraints before truncation",
+          "done": true
+        },
+        {
+          "task": "Deallocate all B-tree pages for table",
+          "done": true
+        },
+        {
+          "task": "Return freed pages to free list",
+          "done": true
+        },
+        {
+          "task": "Reset auto-increment sequence to 1",
+          "done": true
+        },
+        {
+          "task": "Rebuild all associated indexes (empty)",
+          "done": true
+        },
+        {
+          "task": "Update table statistics after truncation",
+          "done": true
+        }
+      ]
+    },
+    {
+      "title": "SQL Statements - IF/ELSE Conditional",
+      "description": "Conditional logic support for procedural SQL (IF-THEN-ELSE-END IF)",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Parse IF condition THEN ... END IF syntax",
+          "done": false
+        },
+        {
+          "task": "Parse ELSE clause for alternative execution path",
+          "done": false
+        },
+        {
+          "task": "Parse ELSIF/ELSEIF for multiple conditions",
+          "done": false
+        },
+        {
+          "task": "Compile IF statement to VDBE bytecode with conditional jumps",
+          "done": false
+        },
+        {
+          "task": "Support nested IF statements",
+          "done": false
+        },
+        {
+          "task": "Evaluate boolean expressions in IF conditions",
+          "done": false
+        },
+        {
+          "task": "Handle variable assignments within IF blocks",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "SQL Statements - Stored Procedures",
+      "description": "CREATE PROCEDURE with parameters, local variables, and procedural logic",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Parse CREATE PROCEDURE procedure_name(parameters) syntax",
+          "done": false
+        },
+        {
+          "task": "Parse procedure body with multiple statements (BEGIN...END)",
+          "done": false
+        },
+        {
+          "task": "Support IN, OUT, INOUT parameter modes",
+          "done": false
+        },
+        {
+          "task": "Parse DECLARE for local variable definitions",
+          "done": false
+        },
+        {
+          "task": "Store procedure definition in schema catalog",
+          "done": false
+        },
+        {
+          "task": "Implement CALL statement to execute procedures",
+          "done": false
+        },
+        {
+          "task": "Support RETURN statement for procedure exit",
+          "done": false
+        },
+        {
+          "task": "Handle procedure-level exception handling",
+          "done": false
+        },
+        {
+          "task": "Compile procedure body to VDBE bytecode on first call",
+          "done": false
+        },
+        {
+          "task": "Cache compiled procedure bytecode for reuse",
+          "done": false
+        },
+        {
+          "task": "Support cursor declarations within procedures",
+          "done": false
+        },
+        {
+          "task": "Implement DROP PROCEDURE statement",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "SQL Statements - EXPLAIN ANALYZE",
+      "description": "Execute query and show actual runtime statistics (extends EXPLAIN)",
+      "isCompleted": false,
+      "tasks": [
+        {
+          "task": "Parse EXPLAIN ANALYZE statement_to_analyze syntax",
+          "done": false
+        },
+        {
+          "task": "Execute query and collect runtime metrics per operation",
+          "done": false
+        },
+        {
+          "task": "Track actual row counts vs estimated row counts",
+          "done": false
+        },
+        {
+          "task": "Measure execution time for each query phase",
+          "done": false
+        },
+        {
+          "task": "Collect I/O statistics (page reads, cache hits)",
+          "done": false
+        },
+        {
+          "task": "Display comparison of estimates vs actuals in output",
+          "done": false
+        },
+        {
+          "task": "Show memory usage during query execution",
+          "done": false
+        }
+      ]
     }
   ]
 }
