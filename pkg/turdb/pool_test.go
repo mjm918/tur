@@ -350,3 +350,123 @@ func TestPool_Close_ClosesAllConnections(t *testing.T) {
 		t.Errorf("expected NumOpen=0 after Close, got %d", pool.NumOpen())
 	}
 }
+
+func TestPool_Stats(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "turdb_pool_test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	pool, err := OpenPool(dbPath, 1)
+	if err != nil {
+		t.Fatalf("OpenPool failed: %v", err)
+	}
+	defer pool.Close()
+
+	// Initial stats should be zero
+	stats := pool.Stats()
+	if stats.TotalGets != 0 {
+		t.Errorf("expected TotalGets=0, got %d", stats.TotalGets)
+	}
+	if stats.TotalPuts != 0 {
+		t.Errorf("expected TotalPuts=0, got %d", stats.TotalPuts)
+	}
+	if stats.TotalCreated != 0 {
+		t.Errorf("expected TotalCreated=0, got %d", stats.TotalCreated)
+	}
+	if stats.TotalClosed != 0 {
+		t.Errorf("expected TotalClosed=0, got %d", stats.TotalClosed)
+	}
+
+	// Get a connection (should create one)
+	conn, err := pool.Get()
+	if err != nil {
+		t.Fatalf("Get failed: %v", err)
+	}
+
+	stats = pool.Stats()
+	if stats.TotalGets != 1 {
+		t.Errorf("expected TotalGets=1, got %d", stats.TotalGets)
+	}
+	if stats.TotalCreated != 1 {
+		t.Errorf("expected TotalCreated=1, got %d", stats.TotalCreated)
+	}
+	if stats.HitCount != 0 {
+		t.Errorf("expected HitCount=0 (first Get creates new), got %d", stats.HitCount)
+	}
+
+	// Put and Get again (should be a hit)
+	pool.Put(conn)
+	stats = pool.Stats()
+	if stats.TotalPuts != 1 {
+		t.Errorf("expected TotalPuts=1, got %d", stats.TotalPuts)
+	}
+
+	conn2, err := pool.Get()
+	if err != nil {
+		t.Fatalf("Get #2 failed: %v", err)
+	}
+
+	stats = pool.Stats()
+	if stats.TotalGets != 2 {
+		t.Errorf("expected TotalGets=2, got %d", stats.TotalGets)
+	}
+	if stats.HitCount != 1 {
+		t.Errorf("expected HitCount=1 (second Get reused), got %d", stats.HitCount)
+	}
+	if stats.TotalCreated != 1 {
+		t.Errorf("expected TotalCreated=1 (should reuse), got %d", stats.TotalCreated)
+	}
+
+	pool.Put(conn2)
+}
+
+func TestPool_Stats_NumInUse(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "turdb_pool_test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	pool, err := OpenPool(dbPath, 1)
+	if err != nil {
+		t.Fatalf("OpenPool failed: %v", err)
+	}
+	defer pool.Close()
+
+	// Initially no connections in use
+	stats := pool.Stats()
+	if stats.NumInUse != 0 {
+		t.Errorf("expected NumInUse=0, got %d", stats.NumInUse)
+	}
+
+	// Get a connection
+	conn, err := pool.Get()
+	if err != nil {
+		t.Fatalf("Get failed: %v", err)
+	}
+
+	stats = pool.Stats()
+	if stats.NumInUse != 1 {
+		t.Errorf("expected NumInUse=1, got %d", stats.NumInUse)
+	}
+	if stats.NumIdle != 0 {
+		t.Errorf("expected NumIdle=0, got %d", stats.NumIdle)
+	}
+
+	// Return connection
+	pool.Put(conn)
+
+	stats = pool.Stats()
+	if stats.NumInUse != 0 {
+		t.Errorf("expected NumInUse=0 after Put, got %d", stats.NumInUse)
+	}
+	if stats.NumIdle != 1 {
+		t.Errorf("expected NumIdle=1 after Put, got %d", stats.NumIdle)
+	}
+}

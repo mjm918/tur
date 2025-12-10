@@ -30,6 +30,39 @@ type PoolOptions struct {
 	MaxLifetime time.Duration
 }
 
+// PoolStats contains statistics about the connection pool
+type PoolStats struct {
+	// MaxConns is the configured maximum connections
+	MaxConns int
+
+	// NumOpen is the total number of open connections (idle + in-use)
+	NumOpen int
+
+	// NumIdle is the number of idle connections waiting to be used
+	NumIdle int
+
+	// NumInUse is the number of connections currently checked out
+	NumInUse int
+
+	// TotalGets is the total number of Get() calls
+	TotalGets int64
+
+	// TotalPuts is the total number of Put() calls
+	TotalPuts int64
+
+	// TotalCreated is the total number of new connections created
+	TotalCreated int64
+
+	// TotalClosed is the total number of connections closed
+	TotalClosed int64
+
+	// HitCount is the number of Get() calls that returned an idle connection
+	HitCount int64
+
+	// MissCount is the number of Get() calls that required creating a new connection
+	MissCount int64
+}
+
 // Pool manages a pool of database connections for concurrent access.
 // It maintains a queue of idle connections and creates new ones as needed,
 // up to the configured maximum.
@@ -59,6 +92,14 @@ type Pool struct {
 
 	// closed indicates if the pool has been closed
 	closed bool
+
+	// Stats counters
+	totalGets    int64
+	totalPuts    int64
+	totalCreated int64
+	totalClosed  int64
+	hitCount     int64
+	missCount    int64
 }
 
 // OpenPool creates a new connection pool for the given database path.
@@ -152,11 +193,14 @@ func (p *Pool) Get() (*DB, error) {
 		return nil, ErrPoolClosed
 	}
 
+	p.totalGets++
+
 	// Try to get an idle connection
 	if p.idle.Len() > 0 {
 		elem := p.idle.Front()
 		p.idle.Remove(elem)
 		pc := elem.Value.(*poolConn)
+		p.hitCount++
 		return pc.db, nil
 	}
 
@@ -174,6 +218,8 @@ func (p *Pool) Get() (*DB, error) {
 		}
 		p.connMeta[db] = pc
 		p.numOpen++
+		p.totalCreated++
+		p.missCount++
 		return db, nil
 	}
 
@@ -193,9 +239,12 @@ func (p *Pool) Put(conn *DB) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	p.totalPuts++
+
 	// If pool is closed, close the connection
 	if p.closed {
 		conn.Close()
+		p.totalClosed++
 		return
 	}
 
@@ -204,6 +253,7 @@ func (p *Pool) Put(conn *DB) {
 	if !ok {
 		// Connection not from this pool or was already closed, just close it
 		conn.Close()
+		p.totalClosed++
 		return
 	}
 
@@ -215,6 +265,7 @@ func (p *Pool) Put(conn *DB) {
 		conn.Close()
 		delete(p.connMeta, conn)
 		p.numOpen--
+		p.totalClosed++
 		return
 	}
 
@@ -265,5 +316,26 @@ func (p *Pool) CleanupExpired() {
 		pc.db.Close()
 		delete(p.connMeta, pc.db)
 		p.numOpen--
+		p.totalClosed++
+	}
+}
+
+// Stats returns a snapshot of pool statistics.
+func (p *Pool) Stats() PoolStats {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	numIdle := p.idle.Len()
+	return PoolStats{
+		MaxConns:     p.maxConns,
+		NumOpen:      p.numOpen,
+		NumIdle:      numIdle,
+		NumInUse:     p.numOpen - numIdle,
+		TotalGets:    p.totalGets,
+		TotalPuts:    p.totalPuts,
+		TotalCreated: p.totalCreated,
+		TotalClosed:  p.totalClosed,
+		HitCount:     p.hitCount,
+		MissCount:    p.missCount,
 	}
 }
