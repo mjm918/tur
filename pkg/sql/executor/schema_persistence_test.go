@@ -74,3 +74,43 @@ func TestPersistSchemaEntry_RoundTrip(t *testing.T) {
 		t.Errorf("SQL mismatch: got %s, want %s", retrieved.SQL, entry.SQL)
 	}
 }
+
+func TestCreateTable_PersistsSchema(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test_create_table_persist.db")
+
+	// Phase 1: Create table and close
+	p, err := pager.Open(path, pager.Options{})
+	if err != nil {
+		t.Fatalf("Failed to open pager: %v", err)
+	}
+
+	exec := New(p)
+	_, err = exec.Execute("CREATE TABLE users (id INT PRIMARY KEY, name TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE failed: %v", err)
+	}
+
+	p.Close()
+
+	// Phase 2: Reopen and verify schema persisted
+	p2, err := pager.Open(path, pager.Options{})
+	if err != nil {
+		t.Fatalf("Failed to reopen pager: %v", err)
+	}
+	defer p2.Close()
+
+	exec2 := New(p2)
+	table := exec2.catalog.GetTable("users")
+	if table == nil {
+		t.Fatal("Table 'users' not found after reopen - schema not persisted")
+	}
+
+	if len(table.Columns) != 2 {
+		t.Errorf("Expected 2 columns, got %d", len(table.Columns))
+	}
+
+	if table.Columns[0].Name != "id" {
+		t.Errorf("First column should be 'id', got %s", table.Columns[0].Name)
+	}
+}
