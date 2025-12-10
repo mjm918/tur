@@ -2610,6 +2610,12 @@ func (p *Parser) parseExplain() (*ExplainStmt, error) {
 
 	p.nextToken() // consume EXPLAIN
 
+	// Check for ANALYZE
+	if p.curIs(lexer.ANALYZE) {
+		stmt.Analyze = true
+		p.nextToken() // consume ANALYZE
+	}
+
 	// Check for QUERY PLAN
 	if p.curIs(lexer.QUERY) {
 		if !p.expectPeek(lexer.PLAN) {

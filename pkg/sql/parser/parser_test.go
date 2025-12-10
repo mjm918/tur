@@ -2604,6 +2604,78 @@ func TestParser_ExplainQueryPlan_Join(t *testing.T) {
 	}
 }
 
+func TestParser_ExplainAnalyze_Select(t *testing.T) {
+	input := "EXPLAIN ANALYZE SELECT * FROM users"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	explain, ok := stmt.(*ExplainStmt)
+	if !ok {
+		t.Fatalf("Expected *ExplainStmt, got %T", stmt)
+	}
+
+	if !explain.Analyze {
+		t.Error("Analyze = false, want true (EXPLAIN ANALYZE)")
+	}
+
+	if explain.QueryPlan {
+		t.Error("QueryPlan = true, want false (EXPLAIN ANALYZE without QUERY PLAN)")
+	}
+
+	// Check the inner statement is a SELECT
+	sel, ok := explain.Statement.(*SelectStmt)
+	if !ok {
+		t.Fatalf("Statement type = %T, want *SelectStmt", explain.Statement)
+	}
+
+	fromTable, ok := sel.From.(*Table)
+	if !ok {
+		t.Fatalf("From type = %T, want *Table", sel.From)
+	}
+	if fromTable.Name != "users" {
+		t.Errorf("From.Name = %q, want 'users'", fromTable.Name)
+	}
+}
+
+func TestParser_ExplainAnalyzeQueryPlan_Select(t *testing.T) {
+	input := "EXPLAIN ANALYZE QUERY PLAN SELECT * FROM users"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	explain, ok := stmt.(*ExplainStmt)
+	if !ok {
+		t.Fatalf("Expected *ExplainStmt, got %T", stmt)
+	}
+
+	if !explain.Analyze {
+		t.Error("Analyze = false, want true (EXPLAIN ANALYZE)")
+	}
+
+	if !explain.QueryPlan {
+		t.Error("QueryPlan = false, want true (QUERY PLAN)")
+	}
+
+	// Check the inner statement is a SELECT
+	sel, ok := explain.Statement.(*SelectStmt)
+	if !ok {
+		t.Fatalf("Statement type = %T, want *SelectStmt", explain.Statement)
+	}
+
+	fromTable, ok := sel.From.(*Table)
+	if !ok {
+		t.Fatalf("From type = %T, want *Table", sel.From)
+	}
+	if fromTable.Name != "users" {
+		t.Errorf("From.Name = %q, want 'users'", fromTable.Name)
+	}
+}
+
 // ====== Window Functions Tests ======
 
 func TestParser_WindowFunction_RankWithOrderBy(t *testing.T) {
