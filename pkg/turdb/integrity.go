@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"tur/pkg/btree"
+	"tur/pkg/pager"
 	"tur/pkg/record"
 	"tur/pkg/schema"
 	"tur/pkg/types"
@@ -466,4 +467,67 @@ func compareBytes(a, b []byte) int {
 		return 1
 	}
 	return 0
+}
+
+// CorruptionCheck scans all database pages for corruption.
+// It verifies:
+// - Page checksums
+// - Torn page writes
+// Returns a slice of IntegrityError. Empty slice means no corruption found.
+func (db *DB) CorruptionCheck() []IntegrityError {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	if db.closed {
+		return []IntegrityError{{
+			Type:    "database",
+			Message: "database is closed",
+		}}
+	}
+
+	var errors []IntegrityError
+
+	// Create corruption checker
+	checker := pager.NewCorruptionChecker(db.pager)
+
+	// Check all pages
+	corruptionErrors := checker.CheckAllPages()
+
+	// Convert pager.CorruptionError to IntegrityError
+	for _, corrErr := range corruptionErrors {
+		errors = append(errors, IntegrityError{
+			Type:    "page",
+			Page:    corrErr.PageNo,
+			Message: corrErr.Error(),
+		})
+	}
+
+	return errors
+}
+
+// CheckPage checks a specific page for corruption.
+// Returns nil if the page is not corrupted.
+func (db *DB) CheckPage(pageNo uint32) *IntegrityError {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	if db.closed {
+		return &IntegrityError{
+			Type:    "database",
+			Message: "database is closed",
+		}
+	}
+
+	checker := pager.NewCorruptionChecker(db.pager)
+	corrErr := checker.CheckPage(pageNo)
+
+	if corrErr == nil {
+		return nil
+	}
+
+	return &IntegrityError{
+		Type:    "page",
+		Page:    corrErr.PageNo,
+		Message: corrErr.Error(),
+	}
 }

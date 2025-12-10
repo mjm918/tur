@@ -308,6 +308,110 @@ func TestIntegrityCheck_ClosedDatabase(t *testing.T) {
 	}
 }
 
+func TestCorruptionCheck_EmptyDatabase(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	db, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Run corruption check on empty database
+	errors := db.CorruptionCheck()
+	if len(errors) != 0 {
+		t.Errorf("Expected no corruption errors for empty database, got %d: %v", len(errors), errors)
+	}
+}
+
+func TestCorruptionCheck_WithData(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	db, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Create a table and insert data
+	_, err = db.Exec("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)")
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	_, err = db.Exec("INSERT INTO test (id, name) VALUES (1, 'Alice')")
+	if err != nil {
+		t.Fatalf("Failed to insert: %v", err)
+	}
+
+	// Run corruption check
+	errors := db.CorruptionCheck()
+	if len(errors) != 0 {
+		t.Errorf("Expected no corruption errors, got %d: %v", len(errors), errors)
+	}
+}
+
+func TestCheckPage_ValidPage(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	db, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Check page 0 (header page)
+	err2 := db.CheckPage(0)
+	if err2 != nil {
+		t.Errorf("Expected no error for page 0, got: %v", err2)
+	}
+}
+
+func TestCorruptionCheck_ClosedDatabase(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	db, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+
+	db.Close()
+
+	// Run corruption check on closed database
+	errors := db.CorruptionCheck()
+	if len(errors) != 1 {
+		t.Errorf("Expected 1 error for closed database, got %d", len(errors))
+	}
+	if len(errors) > 0 && errors[0].Type != "database" {
+		t.Errorf("Expected database error type, got %s", errors[0].Type)
+	}
+}
+
+func TestCheckPage_ClosedDatabase(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	db, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+
+	db.Close()
+
+	// Check page on closed database
+	err2 := db.CheckPage(0)
+	if err2 == nil {
+		t.Error("Expected error for closed database, got nil")
+	}
+	if err2 != nil && err2.Type != "database" {
+		t.Errorf("Expected database error type, got %s", err2.Type)
+	}
+}
+
 func cleanupFiles(path string) {
 	os.Remove(path)
 	os.Remove(path + "-wal")

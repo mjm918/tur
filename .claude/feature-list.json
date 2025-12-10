@@ -2478,23 +2478,27 @@
     {
       "title": "Recovery - Corruption Detection",
       "description": "Detect and report corrupted pages and indexes",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Add checksums to page headers",
-          "done": false
+          "done": true,
+          "note": "CRC32 checksum in last 4 bytes of page (PageChecksumSize=4)"
         },
         {
           "task": "Verify checksums on page read",
-          "done": false
+          "done": true,
+          "note": "VerifyPageChecksum() compares stored vs calculated checksum; optional via ChecksumEnabled flag"
         },
         {
           "task": "Detect torn page writes",
-          "done": false
+          "done": true,
+          "note": "DetectTornWrite() checks marker patterns at page start/middle/end"
         },
         {
           "task": "Report corruption with page number and type",
-          "done": false
+          "done": true,
+          "note": "CorruptionError struct with PageNo, PageType, ExpectedCRC, ActualCRC, IsTornWrite, Message"
         }
       ]
     },
