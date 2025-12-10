@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"tur/pkg/pager"
+	"tur/pkg/sql/parser"
 	"tur/pkg/types"
 )
 
@@ -195,4 +196,46 @@ func TestGetRowByID(t *testing.T) {
 	if values[2].Int() != 30 {
 		t.Errorf("expected age=30, got %v", values[2])
 	}
+}
+
+func TestEvaluateValuesFunc(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "test_valuesfunc_*.db")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	tmpFile.Close()
+	defer os.Remove(tmpFile.Name())
+
+	p, err := pager.Open(tmpFile.Name(), pager.Options{})
+	if err != nil {
+		t.Fatalf("failed to open pager: %v", err)
+	}
+
+	exec := New(p)
+	defer exec.Close()
+
+	// Create a ValuesFunc AST node
+	valuesFunc := &parser.ValuesFunc{ColumnName: "name"}
+
+	// Set up the values context with would-be-inserted values
+	exec.valuesContext = map[string]types.Value{
+		"id":   types.NewInt(1),
+		"name": types.NewText("Alice"),
+	}
+
+	// Evaluate - pass nil for row and colMap since we're using valuesContext
+	result, err := exec.evaluateExpr(valuesFunc, nil, nil)
+	if err != nil {
+		t.Fatalf("evaluateExpr error: %v", err)
+	}
+
+	if result.Type() != types.TypeText {
+		t.Errorf("expected TypeText, got %v", result.Type())
+	}
+	if result.Text() != "Alice" {
+		t.Errorf("expected 'Alice', got %q", result.Text())
+	}
+
+	// Clean up
+	exec.valuesContext = nil
 }

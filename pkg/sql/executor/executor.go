@@ -39,6 +39,9 @@ type Executor struct {
 	currentTx   *mvcc.Transaction          // current active transaction (nil if none)
 	hnswIndexes map[string]*hnsw.Index     // HNSW index name -> index
 	queryCache  *cache.QueryCache          // optional query result cache
+	// valuesContext holds the would-be-inserted values for VALUES() function
+	// during ON DUPLICATE KEY UPDATE evaluation
+	valuesContext map[string]types.Value
 }
 
 // New creates a new Executor
@@ -2466,6 +2469,18 @@ func (e *Executor) evaluateExpr(expr parser.Expression, rowValues []types.Value,
 		}
 		// RaiseIgnore
 		return types.NewNull(), schema.ErrTriggerIgnore
+	case *parser.ValuesFunc:
+		// VALUES(col) - look up the column in the values context
+		if e.valuesContext == nil {
+			return types.NewNull(), fmt.Errorf("VALUES() function used outside ON DUPLICATE KEY UPDATE context")
+		}
+		// Case-insensitive lookup
+		for colName, val := range e.valuesContext {
+			if strings.EqualFold(colName, ex.ColumnName) {
+				return val, nil
+			}
+		}
+		return types.NewNull(), nil
 	default:
 		return types.NewNull(), fmt.Errorf("unsupported expression type: %T", expr)
 	}
