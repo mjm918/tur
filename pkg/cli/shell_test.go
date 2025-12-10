@@ -179,3 +179,118 @@ func TestShell_IsComplete(t *testing.T) {
 		})
 	}
 }
+
+func TestShell_AddHistory(t *testing.T) {
+	shell := NewShell(nil, nil, nil)
+
+	// Add some history entries
+	shell.AddHistory("SELECT 1;")
+	shell.AddHistory("SELECT 2;")
+	shell.AddHistory("SELECT 3;")
+
+	history := shell.History()
+	if len(history) != 3 {
+		t.Errorf("expected 3 history entries, got %d", len(history))
+	}
+
+	if history[0] != "SELECT 1;" {
+		t.Errorf("expected first entry 'SELECT 1;', got %q", history[0])
+	}
+	if history[2] != "SELECT 3;" {
+		t.Errorf("expected last entry 'SELECT 3;', got %q", history[2])
+	}
+}
+
+func TestShell_AddHistory_NoDuplicates(t *testing.T) {
+	shell := NewShell(nil, nil, nil)
+
+	// Add same entry twice
+	shell.AddHistory("SELECT 1;")
+	shell.AddHistory("SELECT 1;")
+
+	history := shell.History()
+	if len(history) != 1 {
+		t.Errorf("expected 1 history entry (no duplicates), got %d", len(history))
+	}
+}
+
+func TestShell_HistoryNavigation(t *testing.T) {
+	shell := NewShell(nil, nil, nil)
+
+	shell.AddHistory("SELECT 1;")
+	shell.AddHistory("SELECT 2;")
+	shell.AddHistory("SELECT 3;")
+
+	// Navigate backward through history
+	prev := shell.HistoryPrev()
+	if prev != "SELECT 3;" {
+		t.Errorf("HistoryPrev() = %q, want 'SELECT 3;'", prev)
+	}
+
+	prev = shell.HistoryPrev()
+	if prev != "SELECT 2;" {
+		t.Errorf("HistoryPrev() = %q, want 'SELECT 2;'", prev)
+	}
+
+	prev = shell.HistoryPrev()
+	if prev != "SELECT 1;" {
+		t.Errorf("HistoryPrev() = %q, want 'SELECT 1;'", prev)
+	}
+
+	// At beginning, should return empty
+	prev = shell.HistoryPrev()
+	if prev != "" {
+		t.Errorf("HistoryPrev() at beginning = %q, want ''", prev)
+	}
+
+	// Navigate forward
+	next := shell.HistoryNext()
+	if next != "SELECT 2;" {
+		t.Errorf("HistoryNext() = %q, want 'SELECT 2;'", next)
+	}
+
+	next = shell.HistoryNext()
+	if next != "SELECT 3;" {
+		t.Errorf("HistoryNext() = %q, want 'SELECT 3;'", next)
+	}
+
+	// At end, should return empty
+	next = shell.HistoryNext()
+	if next != "" {
+		t.Errorf("HistoryNext() at end = %q, want ''", next)
+	}
+}
+
+func TestShell_ClearHistory(t *testing.T) {
+	shell := NewShell(nil, nil, nil)
+
+	shell.AddHistory("SELECT 1;")
+	shell.AddHistory("SELECT 2;")
+
+	shell.ClearHistory()
+
+	history := shell.History()
+	if len(history) != 0 {
+		t.Errorf("expected empty history after clear, got %d entries", len(history))
+	}
+}
+
+func TestShell_MaxHistory(t *testing.T) {
+	shell := NewShell(nil, nil, nil)
+	shell.maxHistory = 3
+
+	// Add more than max entries
+	for i := 1; i <= 5; i++ {
+		shell.AddHistory("SELECT " + string(rune('0'+i)) + ";")
+	}
+
+	history := shell.History()
+	if len(history) != 3 {
+		t.Errorf("expected 3 history entries (max), got %d", len(history))
+	}
+
+	// Should have the last 3 entries
+	if history[0] != "SELECT 3;" {
+		t.Errorf("expected first entry 'SELECT 3;', got %q", history[0])
+	}
+}
