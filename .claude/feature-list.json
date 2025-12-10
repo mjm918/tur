@@ -2532,7 +2532,7 @@
       "tasks": [
         {
           "task": "Add timing instrumentation to VDBE opcodes",
-          "done": false
+          "done": true
         },
         {
           "task": "Track time spent in each query phase",
