@@ -165,6 +165,8 @@ func (e *Executor) Execute(sql string) (*Result, error) {
 		return e.executeCall(s)
 	case *parser.SetStmt:
 		return e.executeSetStmt(s)
+	case *parser.PragmaStmt:
+		return e.executePragma(s)
 	default:
 		return nil, fmt.Errorf("unsupported statement type: %T", stmt)
 	}
@@ -4830,5 +4832,41 @@ func (e *Executor) evaluateExprWithLocals(expr parser.Expression, row []types.Va
 		return e.evaluateFunctionCall(ex, row, colMap)
 	default:
 		return e.evaluateExpr(expr, row, colMap)
+	}
+}
+
+// executePragma handles PRAGMA statements
+func (e *Executor) executePragma(stmt *parser.PragmaStmt) (*Result, error) {
+	switch stmt.Name {
+	case "page_cache_size":
+		if stmt.Value != nil {
+			// SET page_cache_size = value
+			val, err := e.evaluateExpr(stmt.Value, nil, nil)
+			if err != nil {
+				return nil, fmt.Errorf("invalid page_cache_size value: %w", err)
+			}
+
+			size := val.Int()
+			if size <= 0 {
+				return nil, fmt.Errorf("page_cache_size must be positive, got %d", size)
+			}
+
+			if err := e.pager.SetCacheSize(int(size)); err != nil {
+				return nil, err
+			}
+
+			return &Result{RowsAffected: 0}, nil
+		}
+		// GET page_cache_size
+		size := e.pager.GetCacheSize()
+		return &Result{
+			Columns: []string{"page_cache_size"},
+			Rows: [][]types.Value{
+				{types.NewInt(int64(size))},
+			},
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown PRAGMA: %s", stmt.Name)
 	}
 }

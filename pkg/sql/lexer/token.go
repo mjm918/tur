@@ -215,6 +215,9 @@ const (
 	DOUBLE_ARROW  // ->> for JSON extract unquote
 	LBRACKET      // [ for array access
 	RBRACKET      // ] for array access
+
+	// PRAGMA keyword
+	PRAGMA
 )
 
 // Token represents a lexical token
@@ -531,6 +534,8 @@ func (t TokenType) String() string {
 		return "["
 	case RBRACKET:
 		return "]"
+	case PRAGMA:
+		return "PRAGMA"
 	default:
 		return "UNKNOWN"
 	}
@@ -662,6 +667,7 @@ var keywords = map[string]TokenType{
 	"SQLWARNING":   SQLWARNING,
 	"SQLSTATE":     SQLSTATE,
 	"JSON":         JSON_TYPE_KW,
+	"PRAGMA":       PRAGMA,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT

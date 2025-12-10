@@ -3182,3 +3182,46 @@ func TestExecutor_IfStmt_FalseNoElse(t *testing.T) {
 		t.Errorf("Expected 0 rows, got %d", len(result.Rows))
 	}
 }
+
+// TestPragmaPageCacheSize tests PRAGMA page_cache_size setting and querying
+func TestPragmaPageCacheSize(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Test setting page cache size
+	_, err := exec.Execute("PRAGMA page_cache_size = 50")
+	if err != nil {
+		t.Fatalf("PRAGMA page_cache_size = 50: %v", err)
+	}
+
+	// Verify the setting by querying
+	result, err := exec.Execute("PRAGMA page_cache_size")
+	if err != nil {
+		t.Fatalf("PRAGMA page_cache_size query: %v", err)
+	}
+
+	if len(result.Columns) != 1 || result.Columns[0] != "page_cache_size" {
+		t.Errorf("Expected column 'page_cache_size', got %v", result.Columns)
+	}
+
+	if len(result.Rows) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result.Rows))
+	}
+
+	cacheSize := result.Rows[0][0].Int()
+	if cacheSize != 50 {
+		t.Errorf("Expected page_cache_size = 50, got %d", cacheSize)
+	}
+
+	// Test invalid value (zero)
+	_, err = exec.Execute("PRAGMA page_cache_size = 0")
+	if err == nil {
+		t.Error("Expected error for page_cache_size = 0, got nil")
+	}
+
+	// Test invalid value (negative)
+	_, err = exec.Execute("PRAGMA page_cache_size = -10")
+	if err == nil {
+		t.Error("Expected error for page_cache_size = -10, got nil")
+	}
+}
