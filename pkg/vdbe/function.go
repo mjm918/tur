@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 	"unicode"
 
 	"tur/pkg/types"
@@ -353,6 +354,48 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Name:     "FORMAT",
 		NumArgs:  -1, // 2 or 3 arguments
 		Function: builtinFormat,
+	})
+
+	// Register NOW function
+	r.Register(&ScalarFunction{
+		Name:     "NOW",
+		NumArgs:  0,
+		Function: builtinNow,
+	})
+
+	// Register CURRENT_TIMESTAMP function (alias for NOW)
+	r.Register(&ScalarFunction{
+		Name:     "CURRENT_TIMESTAMP",
+		NumArgs:  0,
+		Function: builtinNow,
+	})
+
+	// Register CURRENT_DATE function
+	r.Register(&ScalarFunction{
+		Name:     "CURRENT_DATE",
+		NumArgs:  0,
+		Function: builtinCurrentDate,
+	})
+
+	// Register CURRENT_TIME function
+	r.Register(&ScalarFunction{
+		Name:     "CURRENT_TIME",
+		NumArgs:  0,
+		Function: builtinCurrentTime,
+	})
+
+	// Register LOCALTIME function
+	r.Register(&ScalarFunction{
+		Name:     "LOCALTIME",
+		NumArgs:  0,
+		Function: builtinLocaltime,
+	})
+
+	// Register LOCALTIMESTAMP function
+	r.Register(&ScalarFunction{
+		Name:     "LOCALTIMESTAMP",
+		NumArgs:  0,
+		Function: builtinLocaltimestamp,
 	})
 
 	return r
@@ -1437,4 +1480,47 @@ func builtinFormat(args []types.Value) types.Value {
 	}
 
 	return types.NewText(result.String())
+}
+
+// builtinNow implements NOW() and CURRENT_TIMESTAMP
+// Returns the current date and time as TIMESTAMPTZ (in UTC).
+func builtinNow(args []types.Value) types.Value {
+	return types.NewTimestampTZ(time.Now())
+}
+
+// builtinCurrentDate implements CURRENT_DATE
+// Returns the current date as DATE type.
+func builtinCurrentDate(args []types.Value) types.Value {
+	now := time.Now()
+	return types.NewDate(now.Year(), int(now.Month()), now.Day())
+}
+
+// builtinCurrentTime implements CURRENT_TIME
+// Returns the current time with timezone as TIMETZ type.
+func builtinCurrentTime(args []types.Value) types.Value {
+	now := time.Now()
+	_, offset := now.Zone()
+	return types.NewTimeTZ(now.Hour(), now.Minute(), now.Second(), now.Nanosecond()/1000, offset)
+}
+
+// builtinLocaltime implements LOCALTIME
+// Returns the current local date and time as TIMESTAMP (without timezone).
+// The local time components are preserved even though stored in UTC internally.
+func builtinLocaltime(args []types.Value) types.Value {
+	now := time.Now()
+	// Get the local time and store its components as-is
+	// Even though NewTimestamp stores in UTC, the time components represent local time
+	local := now.Local()
+	return types.NewTimestamp(local.Year(), int(local.Month()), local.Day(), local.Hour(), local.Minute(), local.Second(), local.Nanosecond()/1000)
+}
+
+// builtinLocaltimestamp implements LOCALTIMESTAMP
+// Returns the current local date and time as TIMESTAMP (without timezone).
+// The local time components are preserved even though stored in UTC internally.
+func builtinLocaltimestamp(args []types.Value) types.Value {
+	now := time.Now()
+	// Get the local time and store its components as-is
+	// Even though NewTimestamp stores in UTC, the time components represent local time
+	local := now.Local()
+	return types.NewTimestamp(local.Year(), int(local.Month()), local.Day(), local.Hour(), local.Minute(), local.Second(), local.Nanosecond()/1000)
 }

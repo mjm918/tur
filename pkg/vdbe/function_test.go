@@ -1770,9 +1770,19 @@ func TestLocaltime(t *testing.T) {
 		t.Fatal("LOCALTIME function not found")
 	}
 
+	now := time.Now().Local()
 	result := localtime.Call([]types.Value{})
+
 	if result.Type() != types.TypeTimestamp {
 		t.Fatalf("expected TIMESTAMP, got %v", result.Type())
+	}
+
+	ts := result.TimestampValue()
+	// Since NewTimestamp stores in UTC but with local time components,
+	// we need to verify the time components match local time
+	if ts.Year() != now.Year() || ts.Month() != now.Month() || ts.Day() != now.Day() ||
+		ts.Hour() != now.Hour() || ts.Minute() != now.Minute() {
+		t.Errorf("LOCALTIME() returned %v, expected local time components to match %v", ts, now)
 	}
 }
 
@@ -1783,16 +1793,18 @@ func TestLocaltimestamp(t *testing.T) {
 		t.Fatal("LOCALTIMESTAMP function not found")
 	}
 
-	before := time.Now()
+	now := time.Now().Local()
 	result := localtimestamp.Call([]types.Value{})
-	after := time.Now()
 
 	if result.Type() != types.TypeTimestamp {
 		t.Fatalf("expected TIMESTAMP, got %v", result.Type())
 	}
 
 	ts := result.TimestampValue()
-	if ts.Before(before) || ts.After(after) {
-		t.Errorf("LOCALTIMESTAMP() returned %v, expected between %v and %v", ts, before, after)
+	// Since NewTimestamp stores in UTC but with local time components,
+	// we need to verify the time components match local time
+	if ts.Year() != now.Year() || ts.Month() != now.Month() || ts.Day() != now.Day() ||
+		ts.Hour() != now.Hour() || ts.Minute() != now.Minute() {
+		t.Errorf("LOCALTIMESTAMP() returned %v, expected local time components to match %v", ts, now)
 	}
 }
