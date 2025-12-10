@@ -2038,11 +2038,11 @@
         },
         {
           "task": "Execute statements and display results",
-          "done": false
+          "done": true
         },
         {
           "task": "Handle errors gracefully with clear messages",
-          "done": false
+          "done": true
         },
         {
           "task": "Add command history and editing",
