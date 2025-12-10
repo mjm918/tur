@@ -881,3 +881,65 @@ func TestVectorDistance_InvalidBlob(t *testing.T) {
 		t.Error("VECTOR_DISTANCE with invalid blob should return NULL")
 	}
 }
+
+func TestConcat(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	concat := registry.Lookup("CONCAT")
+	if concat == nil {
+		t.Fatal("CONCAT function not found")
+	}
+
+	tests := []struct {
+		args   []types.Value
+		expect string
+	}{
+		{[]types.Value{types.NewText("Hello"), types.NewText(" "), types.NewText("World")}, "Hello World"},
+		{[]types.Value{types.NewText("A"), types.NewText("B")}, "AB"},
+		{[]types.Value{types.NewText("Hello"), types.NewNull(), types.NewText("World")}, "HelloWorld"}, // NULL skipped
+		{[]types.Value{types.NewInt(42), types.NewText(" items")}, "42 items"}, // Number coercion
+		{[]types.Value{}, ""}, // Empty
+	}
+
+	for i, tc := range tests {
+		result := concat.Call(tc.args)
+		if result.Type() != types.TypeText {
+			t.Errorf("test %d: expected text, got %v", i, result.Type())
+			continue
+		}
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestConcatWS(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	concatWS := registry.Lookup("CONCAT_WS")
+	if concatWS == nil {
+		t.Fatal("CONCAT_WS function not found")
+	}
+
+	tests := []struct {
+		args   []types.Value
+		expect string
+		isNull bool
+	}{
+		{[]types.Value{types.NewText(","), types.NewText("a"), types.NewText("b"), types.NewText("c")}, "a,b,c", false},
+		{[]types.Value{types.NewText("-"), types.NewText("Hello"), types.NewText("World")}, "Hello-World", false},
+		{[]types.Value{types.NewText(","), types.NewText("a"), types.NewNull(), types.NewText("c")}, "a,c", false}, // NULL skipped
+		{[]types.Value{types.NewNull(), types.NewText("a"), types.NewText("b")}, "", true}, // NULL separator = NULL result
+	}
+
+	for i, tc := range tests {
+		result := concatWS.Call(tc.args)
+		if tc.isNull {
+			if !result.IsNull() {
+				t.Errorf("test %d: expected NULL", i)
+			}
+			continue
+		}
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}

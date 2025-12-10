@@ -116,6 +116,20 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Function: builtinVectorDistance,
 	})
 
+	// Register CONCAT function (variadic)
+	r.Register(&ScalarFunction{
+		Name:     "CONCAT",
+		NumArgs:  -1,
+		Function: builtinConcat,
+	})
+
+	// Register CONCAT_WS function (variadic)
+	r.Register(&ScalarFunction{
+		Name:     "CONCAT_WS",
+		NumArgs:  -1,
+		Function: builtinConcatWS,
+	})
+
 	return r
 }
 
@@ -413,4 +427,56 @@ func extractVector(val types.Value) (*types.Vector, error) {
 	default:
 		return nil, fmt.Errorf("unsupported type for vector: %v", val.Type())
 	}
+}
+
+// valueToString converts a Value to its string representation.
+// Used by CONCAT and CONCAT_WS functions.
+func valueToString(v types.Value) string {
+	switch v.Type() {
+	case types.TypeText:
+		return v.Text()
+	case types.TypeInt:
+		return fmt.Sprintf("%d", v.Int())
+	case types.TypeFloat:
+		return fmt.Sprintf("%g", v.Float())
+	default:
+		return ""
+	}
+}
+
+// builtinConcat implements CONCAT(val1, val2, ...)
+// Concatenates all non-NULL arguments into a single string.
+// NULL values are skipped.
+func builtinConcat(args []types.Value) types.Value {
+	var sb strings.Builder
+	for _, arg := range args {
+		if arg.IsNull() {
+			continue
+		}
+		sb.WriteString(valueToString(arg))
+	}
+	return types.NewText(sb.String())
+}
+
+// builtinConcatWS implements CONCAT_WS(separator, val1, val2, ...)
+// Concatenates all non-NULL arguments with the given separator.
+// If separator is NULL, returns NULL.
+// NULL values in the arguments are skipped.
+func builtinConcatWS(args []types.Value) types.Value {
+	if len(args) < 1 {
+		return types.NewNull()
+	}
+	if args[0].IsNull() {
+		return types.NewNull()
+	}
+	sep := args[0].Text()
+
+	var parts []string
+	for _, arg := range args[1:] {
+		if arg.IsNull() {
+			continue
+		}
+		parts = append(parts, valueToString(arg))
+	}
+	return types.NewText(strings.Join(parts, sep))
 }
