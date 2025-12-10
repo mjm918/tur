@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"tur/pkg/btree"
+	"tur/pkg/cache"
 	"tur/pkg/hnsw"
 	"tur/pkg/mvcc"
 	"tur/pkg/pager"
@@ -37,6 +38,7 @@ type Executor struct {
 	txManager   *mvcc.TransactionManager
 	currentTx   *mvcc.Transaction          // current active transaction (nil if none)
 	hnswIndexes map[string]*hnsw.Index     // HNSW index name -> index
+	queryCache  *cache.QueryCache          // optional query result cache
 }
 
 // New creates a new Executor
@@ -71,6 +73,25 @@ func (e *Executor) SetTransaction(tx *mvcc.Transaction) {
 // GetTransaction returns the current transaction context.
 func (e *Executor) GetTransaction() *mvcc.Transaction {
 	return e.currentTx
+}
+
+// SetQueryCache sets the query result cache for the executor.
+// Pass nil to disable query caching.
+func (e *Executor) SetQueryCache(qc *cache.QueryCache) {
+	e.queryCache = qc
+}
+
+// GetQueryCache returns the query result cache, if any.
+func (e *Executor) GetQueryCache() *cache.QueryCache {
+	return e.queryCache
+}
+
+// InvalidateQueryCache invalidates cache entries for the specified table.
+// Called automatically on INSERT, UPDATE, DELETE operations.
+func (e *Executor) InvalidateQueryCache(tableName string) {
+	if e.queryCache != nil {
+		e.queryCache.InvalidateTable(tableName)
+	}
 }
 
 // Execute parses and executes a SQL statement
@@ -1111,6 +1132,8 @@ func (e *Executor) executeInsertInternal(stmt *parser.InsertStmt, fireTriggers b
 	// Update statistics incrementally if they exist
 	if rowsAffected > 0 {
 		e.incrementTableRowCount(stmt.TableName, rowsAffected)
+		// Invalidate query cache for this table
+		e.InvalidateQueryCache(stmt.TableName)
 	}
 
 	return &Result{RowsAffected: rowsAffected}, nil
@@ -1275,6 +1298,11 @@ func (e *Executor) executeUpdate(stmt *parser.UpdateStmt) (*Result, error) {
 		rowsAffected++
 	}
 
+	// Invalidate query cache for this table if any rows were updated
+	if rowsAffected > 0 {
+		e.InvalidateQueryCache(stmt.TableName)
+	}
+
 	return &Result{RowsAffected: rowsAffected}, nil
 }
 
@@ -1376,6 +1404,8 @@ func (e *Executor) executeDelete(stmt *parser.DeleteStmt) (*Result, error) {
 	// Update statistics incrementally if they exist (decrement for DELETE)
 	if rowsAffected > 0 {
 		e.incrementTableRowCount(stmt.TableName, -rowsAffected)
+		// Invalidate query cache for this table
+		e.InvalidateQueryCache(stmt.TableName)
 	}
 
 	return &Result{RowsAffected: rowsAffected}, nil
