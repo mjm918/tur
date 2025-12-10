@@ -208,6 +208,20 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Function: builtinQuote,
 	})
 
+	// Register LPAD function
+	r.Register(&ScalarFunction{
+		Name:     "LPAD",
+		NumArgs:  3,
+		Function: builtinLPad,
+	})
+
+	// Register RPAD function
+	r.Register(&ScalarFunction{
+		Name:     "RPAD",
+		NumArgs:  3,
+		Function: builtinRPad,
+	})
+
 	return r
 }
 
@@ -732,4 +746,65 @@ func builtinQuote(args []types.Value) types.Value {
 	str := args[0].Text()
 	escaped := strings.ReplaceAll(str, "'", "''")
 	return types.NewText("'" + escaped + "'")
+}
+
+// builtinLPad implements LPAD(string, length, pad)
+// Pads the left side of a string with a specified pad string until it reaches the desired length.
+// If the string is already longer than the desired length, it is truncated.
+// If pad is empty, returns the string as-is (potentially truncated).
+// If any argument is NULL, returns NULL.
+func builtinLPad(args []types.Value) types.Value {
+	if len(args) < 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+	runes := []rune(args[0].Text())
+	length := int(args[1].Int())
+	pad := " "
+	if len(args) >= 3 && !args[2].IsNull() {
+		pad = args[2].Text()
+	}
+	if pad == "" {
+		return types.NewText(string(runes))
+	}
+	if length <= len(runes) {
+		return types.NewText(string(runes[:length]))
+	}
+	padRunes := []rune(pad)
+	needed := length - len(runes)
+	var result []rune
+	for i := 0; i < needed; i++ {
+		result = append(result, padRunes[i%len(padRunes)])
+	}
+	result = append(result, runes...)
+	return types.NewText(string(result))
+}
+
+// builtinRPad implements RPAD(string, length, pad)
+// Pads the right side of a string with a specified pad string until it reaches the desired length.
+// If the string is already longer than the desired length, it is truncated.
+// If pad is empty, returns the string as-is (potentially truncated).
+// If any argument is NULL, returns NULL.
+func builtinRPad(args []types.Value) types.Value {
+	if len(args) < 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+	runes := []rune(args[0].Text())
+	length := int(args[1].Int())
+	pad := " "
+	if len(args) >= 3 && !args[2].IsNull() {
+		pad = args[2].Text()
+	}
+	if pad == "" {
+		return types.NewText(string(runes))
+	}
+	if length <= len(runes) {
+		return types.NewText(string(runes[:length]))
+	}
+	padRunes := []rune(pad)
+	needed := length - len(runes)
+	result := append([]rune{}, runes...)
+	for i := 0; i < needed; i++ {
+		result = append(result, padRunes[i%len(padRunes)])
+	}
+	return types.NewText(string(result))
 }

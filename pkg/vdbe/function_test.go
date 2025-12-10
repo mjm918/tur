@@ -1273,3 +1273,126 @@ func TestRPad(t *testing.T) {
 		}
 	}
 }
+
+func TestPosition(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	position := registry.Lookup("POSITION")
+	if position == nil {
+		t.Fatal("POSITION function not found")
+	}
+
+	tests := []struct {
+		substr, str string
+		expect      int64
+	}{
+		{"lo", "hello", 4},
+		{"x", "hello", 0},
+		{"", "hello", 1},
+		{"hello", "hello", 1},
+	}
+
+	for i, tc := range tests {
+		result := position.Call([]types.Value{types.NewText(tc.substr), types.NewText(tc.str)})
+		if result.Int() != tc.expect {
+			t.Errorf("test %d: expected %d, got %d", i, tc.expect, result.Int())
+		}
+	}
+}
+
+func TestInstr(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	instr := registry.Lookup("INSTR")
+	if instr == nil {
+		t.Fatal("INSTR function not found")
+	}
+
+	tests := []struct {
+		substr, str string
+		expect      int64
+	}{
+		{"lo", "hello", 4},
+		{"x", "hello", 0},
+		{"", "hello", 1},
+		{"hello", "hello", 1},
+	}
+
+	for i, tc := range tests {
+		result := instr.Call([]types.Value{types.NewText(tc.substr), types.NewText(tc.str)})
+		if result.Int() != tc.expect {
+			t.Errorf("test %d: expected %d, got %d", i, tc.expect, result.Int())
+		}
+	}
+}
+
+func TestASCII(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	ascii := registry.Lookup("ASCII")
+	if ascii == nil {
+		t.Fatal("ASCII function not found")
+	}
+
+	tests := []struct {
+		input  string
+		expect int64
+	}{
+		{"A", 65},
+		{"a", 97},
+		{"0", 48},
+		{"", 0},
+	}
+
+	for i, tc := range tests {
+		result := ascii.Call([]types.Value{types.NewText(tc.input)})
+		if result.Int() != tc.expect {
+			t.Errorf("test %d: expected %d, got %d", i, tc.expect, result.Int())
+		}
+	}
+}
+
+func TestCHR(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	chr := registry.Lookup("CHR")
+	if chr == nil {
+		t.Fatal("CHR function not found")
+	}
+
+	tests := []struct {
+		input  int64
+		expect string
+	}{
+		{65, "A"},
+		{97, "a"},
+		{48, "0"},
+	}
+
+	for i, tc := range tests {
+		result := chr.Call([]types.Value{types.NewInt(tc.input)})
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestCHAR(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	char := registry.Lookup("CHAR")
+	if char == nil {
+		t.Fatal("CHAR function not found")
+	}
+
+	tests := []struct {
+		input  int64
+		expect string
+	}{
+		{65, "A"},
+		{97, "a"},
+		{48, "0"},
+	}
+
+	for i, tc := range tests {
+		result := char.Call([]types.Value{types.NewInt(tc.input)})
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
