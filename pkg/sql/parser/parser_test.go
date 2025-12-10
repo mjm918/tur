@@ -3376,3 +3376,50 @@ func TestParser_TruncateTable_MissingTableKeyword(t *testing.T) {
 		t.Fatal("Expected error for TRUNCATE without TABLE keyword")
 	}
 }
+
+// ==================== IF Statement Tests ====================
+
+func TestParser_IfStmt_Simple(t *testing.T) {
+	// Simple IF with one statement in body
+	input := "IF x > 0 THEN SELECT 1 END IF"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	ifStmt, ok := stmt.(*IfStmt)
+	if !ok {
+		t.Fatalf("Expected *IfStmt, got %T", stmt)
+	}
+
+	// Check condition is a binary expression (x > 0)
+	binExpr, ok := ifStmt.Condition.(*BinaryExpr)
+	if !ok {
+		t.Fatalf("Expected *BinaryExpr for condition, got %T", ifStmt.Condition)
+	}
+	if binExpr.Op != lexer.GT {
+		t.Errorf("Condition operator = %v, want GT", binExpr.Op)
+	}
+
+	// Check we have one THEN statement
+	if len(ifStmt.ThenBranch) != 1 {
+		t.Fatalf("ThenBranch count = %d, want 1", len(ifStmt.ThenBranch))
+	}
+
+	// Verify it's a SELECT statement
+	_, ok = ifStmt.ThenBranch[0].(*SelectStmt)
+	if !ok {
+		t.Errorf("ThenBranch[0] = %T, want *SelectStmt", ifStmt.ThenBranch[0])
+	}
+
+	// No ELSE branch
+	if ifStmt.ElseBranch != nil {
+		t.Error("ElseBranch should be nil for simple IF")
+	}
+
+	// No ELSIF clauses
+	if len(ifStmt.ElsIfClauses) != 0 {
+		t.Errorf("ElsIfClauses count = %d, want 0", len(ifStmt.ElsIfClauses))
+	}
+}

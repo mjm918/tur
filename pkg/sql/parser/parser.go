@@ -67,6 +67,8 @@ func (p *Parser) Parse() (Statement, error) {
 		return p.parseSavepoint()
 	case lexer.RELEASE:
 		return p.parseRelease()
+	case lexer.IF:
+		return p.parseIfStmt()
 	default:
 		return nil, fmt.Errorf("unexpected token: %s", p.cur.Literal)
 	}
@@ -2770,4 +2772,146 @@ func (p *Parser) parseRaiseExpression() (*RaiseExpr, error) {
 	}
 
 	return raise, nil
+}
+
+// parseIfStmt parses an IF...THEN...ELSIF...ELSE...END IF statement
+// Syntax: IF condition THEN statements [ELSIF condition THEN statements]... [ELSE statements] END IF
+func (p *Parser) parseIfStmt() (*IfStmt, error) {
+	stmt := &IfStmt{}
+
+	// Currently on IF token
+	p.nextToken() // move to condition
+
+	// Parse the IF condition
+	cond, err := p.parseExpression(LOWEST)
+	if err != nil {
+		return nil, fmt.Errorf("parsing IF condition: %w", err)
+	}
+	stmt.Condition = cond
+
+	// Expect THEN
+	if !p.expectPeek(lexer.THEN) {
+		return nil, fmt.Errorf("expected THEN after IF condition, got %s", p.peek.Literal)
+	}
+
+	// Parse THEN branch statements
+	thenStmts, err := p.parseIfBodyStatements()
+	if err != nil {
+		return nil, fmt.Errorf("parsing THEN branch: %w", err)
+	}
+	stmt.ThenBranch = thenStmts
+
+	// After parseIfBodyStatements, we're positioned on ELSIF, ELSE, or END
+
+	// Parse ELSIF clauses
+	for p.curIs(lexer.ELSIF) || (p.curIs(lexer.IDENT) && (p.cur.Literal == "ELSIF" || p.cur.Literal == "ELSEIF")) {
+		elsifClause, err := p.parseElsIfClause()
+		if err != nil {
+			return nil, err
+		}
+		stmt.ElsIfClauses = append(stmt.ElsIfClauses, elsifClause)
+	}
+
+	// Parse ELSE branch if present
+	if p.curIs(lexer.ELSE_KW) {
+		p.nextToken() // consume ELSE
+
+		elseStmts, err := p.parseIfBodyStatements()
+		if err != nil {
+			return nil, fmt.Errorf("parsing ELSE branch: %w", err)
+		}
+		stmt.ElseBranch = elseStmts
+	}
+
+	// Expect END IF
+	if !p.curIs(lexer.END) {
+		return nil, fmt.Errorf("expected END at end of IF statement, got %s", p.cur.Literal)
+	}
+	p.nextToken() // consume END
+
+	if !p.curIs(lexer.IF) {
+		return nil, fmt.Errorf("expected IF after END, got %s", p.cur.Literal)
+	}
+
+	return stmt, nil
+}
+
+// parseElsIfClause parses an ELSIF condition THEN statements
+func (p *Parser) parseElsIfClause() (*ElsIfClause, error) {
+	clause := &ElsIfClause{}
+
+	// Currently on ELSIF token
+	p.nextToken() // move to condition
+
+	// Parse condition
+	cond, err := p.parseExpression(LOWEST)
+	if err != nil {
+		return nil, fmt.Errorf("parsing ELSIF condition: %w", err)
+	}
+	clause.Condition = cond
+
+	// Expect THEN
+	if !p.expectPeek(lexer.THEN) {
+		return nil, fmt.Errorf("expected THEN after ELSIF condition, got %s", p.peek.Literal)
+	}
+
+	// Parse body statements
+	stmts, err := p.parseIfBodyStatements()
+	if err != nil {
+		return nil, fmt.Errorf("parsing ELSIF body: %w", err)
+	}
+	clause.Body = stmts
+
+	return clause, nil
+}
+
+// parseIfBodyStatements parses statements inside an IF/ELSIF/ELSE block
+// Stops when it sees ELSIF, ELSE, or END
+func (p *Parser) parseIfBodyStatements() ([]Statement, error) {
+	var stmts []Statement
+
+	p.nextToken() // move to first statement
+
+	for !p.curIs(lexer.EOF) && !p.curIs(lexer.ELSIF) && !p.curIs(lexer.ELSE_KW) && !p.curIs(lexer.END) {
+		// Check for ELSEIF as identifier (in case it's not a keyword)
+		if p.curIs(lexer.IDENT) && (p.cur.Literal == "ELSIF" || p.cur.Literal == "ELSEIF") {
+			break
+		}
+
+		// Parse statement at current position
+		stmt, err := p.parseStatementAtCurrent()
+		if err != nil {
+			return nil, err
+		}
+		stmts = append(stmts, stmt)
+
+		// Skip optional semicolon
+		if p.peekIs(lexer.SEMICOLON) {
+			p.nextToken()
+			p.nextToken() // move past semicolon to next statement
+		} else {
+			p.nextToken() // move to next token
+		}
+	}
+
+	return stmts, nil
+}
+
+// parseStatementAtCurrent parses a statement starting at the current token position
+// This is similar to Parse() but doesn't advance past the first token
+func (p *Parser) parseStatementAtCurrent() (Statement, error) {
+	switch p.cur.Type {
+	case lexer.SELECT:
+		return p.parseSelect()
+	case lexer.INSERT:
+		return p.parseInsert()
+	case lexer.UPDATE:
+		return p.parseUpdate()
+	case lexer.DELETE:
+		return p.parseDelete()
+	case lexer.IF:
+		return p.parseIfStmt()
+	default:
+		return nil, fmt.Errorf("unexpected token in IF body: %s", p.cur.Literal)
+	}
 }
