@@ -4613,16 +4613,32 @@ func (e *Executor) executeCreateProcedure(stmt *parser.CreateProcedureStmt) (*Re
 		body[i] = s
 	}
 
+	// Reconstruct SQL for persistence
+	sql := reconstructCreateProcedureSQL(stmt)
+
 	// Create procedure definition
 	proc := &schema.ProcedureDef{
 		Name:       stmt.Name,
 		Parameters: params,
+		SQL:        sql,
 		Body:       body,
 	}
 
 	// Add to catalog
 	if err := e.catalog.CreateProcedure(proc); err != nil {
 		return nil, err
+	}
+
+	// Persist schema entry (procedures don't have a root page - stored in schema B-tree only)
+	entry := &dbfile.SchemaEntry{
+		Type:      dbfile.SchemaEntryProcedure,
+		Name:      stmt.Name,
+		TableName: "", // Procedures are not associated with a table
+		RootPage:  0,  // Procedures don't have a B-tree
+		SQL:       sql,
+	}
+	if err := e.persistSchemaEntry(entry); err != nil {
+		return nil, fmt.Errorf("failed to persist procedure schema: %w", err)
 	}
 
 	return &Result{}, nil
@@ -4641,6 +4657,12 @@ func (e *Executor) executeDropProcedure(stmt *parser.DropProcedureStmt) (*Result
 	// Remove from catalog
 	if err := e.catalog.DropProcedure(stmt.Name); err != nil {
 		return nil, err
+	}
+
+	// Delete schema entry from B-tree
+	if err := e.deleteSchemaEntry(stmt.Name); err != nil {
+		// Log but don't fail - catalog is already updated
+		// This can happen if the entry doesn't exist in schema B-tree
 	}
 
 	return &Result{}, nil

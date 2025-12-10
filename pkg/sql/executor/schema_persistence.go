@@ -308,6 +308,8 @@ func (e *Executor) addSchemaEntryToCatalog(entry *dbfile.SchemaEntry) error {
 		return e.loadViewSchema(entry)
 	case dbfile.SchemaEntryTrigger:
 		return e.loadTriggerSchema(entry)
+	case dbfile.SchemaEntryProcedure:
+		return e.loadProcedureSchema(entry)
 	default:
 		return fmt.Errorf("unknown schema type: %d", entry.Type)
 	}
@@ -484,4 +486,200 @@ func (e *Executor) loadTriggerSchema(entry *dbfile.SchemaEntry) error {
 	}
 
 	return e.catalog.CreateTrigger(trigger)
+}
+
+// loadProcedureSchema reconstructs a procedure from its stored SQL
+func (e *Executor) loadProcedureSchema(entry *dbfile.SchemaEntry) error {
+	// Parse the CREATE PROCEDURE SQL
+	p := parser.New(entry.SQL)
+	stmt, err := p.Parse()
+	if err != nil {
+		return fmt.Errorf("failed to parse procedure SQL: %w", err)
+	}
+
+	createStmt, ok := stmt.(*parser.CreateProcedureStmt)
+	if !ok {
+		return fmt.Errorf("expected CREATE PROCEDURE statement")
+	}
+
+	// Convert parser parameter types to schema types
+	params := make([]schema.ProcedureParam, len(createStmt.Parameters))
+	for i, param := range createStmt.Parameters {
+		params[i] = schema.ProcedureParam{
+			Name: param.Name,
+			Type: param.Type,
+		}
+		switch param.Mode {
+		case parser.ParamModeIn:
+			params[i].Mode = schema.ParamModeIn
+		case parser.ParamModeOut:
+			params[i].Mode = schema.ParamModeOut
+		case parser.ParamModeInOut:
+			params[i].Mode = schema.ParamModeInOut
+		}
+	}
+
+	// Convert body statements to interface{} slice
+	body := make([]interface{}, len(createStmt.Body))
+	for i, s := range createStmt.Body {
+		body[i] = s
+	}
+
+	proc := &schema.ProcedureDef{
+		Name:       entry.Name,
+		Parameters: params,
+		SQL:        entry.SQL,
+		Body:       body,
+	}
+
+	return e.catalog.CreateProcedure(proc)
+}
+
+// reconstructCreateProcedureSQL rebuilds CREATE PROCEDURE SQL from parsed statement
+func reconstructCreateProcedureSQL(stmt *parser.CreateProcedureStmt) string {
+	var sb strings.Builder
+	sb.WriteString("CREATE PROCEDURE ")
+	sb.WriteString(stmt.Name)
+	sb.WriteString("(")
+
+	// Parameters
+	for i, param := range stmt.Parameters {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		// Write mode
+		switch param.Mode {
+		case parser.ParamModeIn:
+			sb.WriteString("IN ")
+		case parser.ParamModeOut:
+			sb.WriteString("OUT ")
+		case parser.ParamModeInOut:
+			sb.WriteString("INOUT ")
+		}
+		sb.WriteString(param.Name)
+		sb.WriteString(" ")
+		sb.WriteString(param.Type.String())
+	}
+
+	sb.WriteString(") BEGIN ")
+
+	// Body statements
+	for i, bodyStmt := range stmt.Body {
+		if i > 0 {
+			sb.WriteString(" ")
+		}
+		sb.WriteString(procedureStatementToSQL(bodyStmt))
+		sb.WriteString(";")
+	}
+
+	sb.WriteString(" END")
+	return sb.String()
+}
+
+// procedureStatementToSQL converts a procedure body statement to SQL
+func procedureStatementToSQL(stmt parser.Statement) string {
+	switch s := stmt.(type) {
+	case *parser.InsertStmt:
+		return insertStmtToSQL(s)
+	case *parser.UpdateStmt:
+		return updateStmtToSQL(s)
+	case *parser.DeleteStmt:
+		return deleteStmtToSQL(s)
+	case *parser.SelectStmt:
+		return selectStmtToSQL(s)
+	case *parser.SetStmt:
+		return setStmtToSQL(s)
+	case *parser.DeclareStmt:
+		return declareStmtToSQL(s)
+	case *parser.LoopStmt:
+		return loopStmtToSQL(s)
+	case *parser.LeaveStmt:
+		return "LEAVE " + s.Label
+	case *parser.IfStmt:
+		return ifStmtToSQL(s)
+	default:
+		return ""
+	}
+}
+
+// setStmtToSQL converts a SET statement to SQL
+func setStmtToSQL(stmt *parser.SetStmt) string {
+	var sb strings.Builder
+	sb.WriteString("SET ")
+	sb.WriteString(exprToString(stmt.Variable))
+	sb.WriteString(" = ")
+	sb.WriteString(exprToString(stmt.Value))
+	return sb.String()
+}
+
+// declareStmtToSQL converts a DECLARE statement to SQL
+func declareStmtToSQL(stmt *parser.DeclareStmt) string {
+	var sb strings.Builder
+	sb.WriteString("DECLARE ")
+	sb.WriteString(stmt.Name)
+	sb.WriteString(" ")
+	sb.WriteString(stmt.Type.String())
+	if stmt.DefaultValue != nil {
+		sb.WriteString(" DEFAULT ")
+		sb.WriteString(exprToString(stmt.DefaultValue))
+	}
+	return sb.String()
+}
+
+// loopStmtToSQL converts a LOOP statement to SQL
+func loopStmtToSQL(stmt *parser.LoopStmt) string {
+	var sb strings.Builder
+	if stmt.Label != "" {
+		sb.WriteString(stmt.Label)
+		sb.WriteString(": ")
+	}
+	sb.WriteString("LOOP ")
+	for i, bodyStmt := range stmt.Body {
+		if i > 0 {
+			sb.WriteString(" ")
+		}
+		sb.WriteString(procedureStatementToSQL(bodyStmt))
+		sb.WriteString(";")
+	}
+	sb.WriteString(" END LOOP")
+	return sb.String()
+}
+
+// ifStmtToSQL converts an IF statement to SQL
+func ifStmtToSQL(stmt *parser.IfStmt) string {
+	var sb strings.Builder
+	sb.WriteString("IF ")
+	sb.WriteString(exprToString(stmt.Condition))
+	sb.WriteString(" THEN ")
+	for i, thenStmt := range stmt.ThenBranch {
+		if i > 0 {
+			sb.WriteString(" ")
+		}
+		sb.WriteString(procedureStatementToSQL(thenStmt))
+		sb.WriteString(";")
+	}
+	for _, elseif := range stmt.ElsIfClauses {
+		sb.WriteString(" ELSEIF ")
+		sb.WriteString(exprToString(elseif.Condition))
+		sb.WriteString(" THEN ")
+		for i, elseifStmt := range elseif.Body {
+			if i > 0 {
+				sb.WriteString(" ")
+			}
+			sb.WriteString(procedureStatementToSQL(elseifStmt))
+			sb.WriteString(";")
+		}
+	}
+	if len(stmt.ElseBranch) > 0 {
+		sb.WriteString(" ELSE ")
+		for i, elseStmt := range stmt.ElseBranch {
+			if i > 0 {
+				sb.WriteString(" ")
+			}
+			sb.WriteString(procedureStatementToSQL(elseStmt))
+			sb.WriteString(";")
+		}
+	}
+	sb.WriteString(" END IF")
+	return sb.String()
 }
