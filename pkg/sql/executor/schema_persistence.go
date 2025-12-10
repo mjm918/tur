@@ -122,6 +122,24 @@ func reconstructCreateIndexSQL(stmt *parser.CreateIndexStmt) string {
 	return sb.String()
 }
 
+// reconstructCreateViewSQL rebuilds CREATE VIEW SQL from parsed statement
+func reconstructCreateViewSQL(stmt *parser.CreateViewStmt, selectSQL string) string {
+	var sb strings.Builder
+	sb.WriteString("CREATE VIEW ")
+	sb.WriteString(stmt.ViewName)
+
+	// Add column list if present
+	if len(stmt.Columns) > 0 {
+		sb.WriteString(" (")
+		sb.WriteString(strings.Join(stmt.Columns, ", "))
+		sb.WriteString(")")
+	}
+
+	sb.WriteString(" AS ")
+	sb.WriteString(selectSQL)
+	return sb.String()
+}
+
 // loadSchemaFromBTree reads all schema entries from page 1 and populates the catalog
 func (e *Executor) loadSchemaFromBTree() error {
 	// Use cursor to iterate over all entries in the schema B-tree
@@ -267,8 +285,28 @@ func (e *Executor) loadIndexSchema(entry *dbfile.SchemaEntry) error {
 
 // loadViewSchema reconstructs a view from its stored SQL
 func (e *Executor) loadViewSchema(entry *dbfile.SchemaEntry) error {
-	// TODO: Implement view loading
-	return nil
+	// Parse the CREATE VIEW SQL
+	p := parser.New(entry.SQL)
+	stmt, err := p.Parse()
+	if err != nil {
+		return fmt.Errorf("failed to parse view SQL: %w", err)
+	}
+
+	createStmt, ok := stmt.(*parser.CreateViewStmt)
+	if !ok {
+		return fmt.Errorf("expected CREATE VIEW statement")
+	}
+
+	// Convert the SELECT statement to SQL text for the view definition
+	sql := selectStmtToSQL(createStmt.Query)
+
+	view := &schema.ViewDef{
+		Name:    entry.Name,
+		SQL:     sql,
+		Columns: createStmt.Columns,
+	}
+
+	return e.catalog.CreateView(view)
 }
 
 // loadTriggerSchema reconstructs a trigger from its stored SQL

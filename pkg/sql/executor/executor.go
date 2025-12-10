@@ -367,6 +367,19 @@ func (e *Executor) executeCreateView(stmt *parser.CreateViewStmt) (*Result, erro
 		return nil, err
 	}
 
+	// Persist view schema to B-tree
+	fullSQL := reconstructCreateViewSQL(stmt, sql)
+	entry := &dbfile.SchemaEntry{
+		Type:      dbfile.SchemaEntryView,
+		Name:      stmt.ViewName,
+		TableName: "", // Views don't have a table name
+		RootPage:  0,  // Views don't have a root page
+		SQL:       fullSQL,
+	}
+	if err := e.persistSchemaEntry(entry); err != nil {
+		return nil, fmt.Errorf("failed to persist view schema: %w", err)
+	}
+
 	return &Result{}, nil
 }
 
@@ -382,6 +395,11 @@ func (e *Executor) executeDropView(stmt *parser.DropViewStmt) (*Result, error) {
 
 	if err := e.catalog.DropView(stmt.ViewName); err != nil {
 		return nil, err
+	}
+
+	// Delete schema entry from B-tree
+	if err := e.deleteSchemaEntry(stmt.ViewName); err != nil {
+		// Log but don't fail - catalog already updated
 	}
 
 	return &Result{}, nil
