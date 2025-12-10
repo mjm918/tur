@@ -1047,6 +1047,29 @@ func (e *Executor) executeInsertInternal(stmt *parser.InsertStmt, fireTriggers b
 			}
 		}
 
+		// Check for ON DUPLICATE KEY UPDATE conflict
+		if stmt.OnDuplicateKey != nil {
+			conflictRowID, err := e.findConflictingRow(table, values)
+			if err != nil {
+				return nil, fmt.Errorf("failed to check for conflicts: %w", err)
+			}
+
+			if conflictRowID != -1 {
+				// Conflict found - perform update instead of insert
+				changed, err := e.executeOnDuplicateUpdate(table, conflictRowID, values, stmt.OnDuplicateKey)
+				if err != nil {
+					return nil, fmt.Errorf("failed to update on duplicate: %w", err)
+				}
+
+				if changed {
+					rowsAffected += 2 // MySQL convention: update with changes = 2
+				}
+				// If !changed, rowsAffected += 0 (no-op)
+
+				continue // Skip normal insert
+			}
+		}
+
 		// Fire BEFORE INSERT triggers
 		if fireTriggers {
 			ctx := &TriggerContext{

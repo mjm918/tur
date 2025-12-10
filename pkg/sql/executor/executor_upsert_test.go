@@ -314,3 +314,116 @@ func TestExecuteOnDuplicateUpdate(t *testing.T) {
 		t.Errorf("expected name='updated', got %v", row[2])
 	}
 }
+
+func TestInsertOnDuplicateKeyUpdateBasic(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "test_insert_ondup_*.db")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	tmpFile.Close()
+	defer os.Remove(tmpFile.Name())
+
+	p, err := pager.Open(tmpFile.Name(), pager.Options{})
+	if err != nil {
+		t.Fatalf("failed to open pager: %v", err)
+	}
+
+	exec := New(p)
+	defer exec.Close()
+
+	// Create table
+	_, err = exec.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, visits INTEGER)")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	// Initial insert
+	result, err := exec.Execute("INSERT INTO users (id, name, visits) VALUES (1, 'Alice', 1)")
+	if err != nil {
+		t.Fatalf("failed to insert: %v", err)
+	}
+	if result.RowsAffected != 1 {
+		t.Errorf("expected 1 row affected, got %d", result.RowsAffected)
+	}
+
+	// Insert with ON DUPLICATE KEY UPDATE - should update
+	result, err = exec.Execute("INSERT INTO users (id, name, visits) VALUES (1, 'Alice Updated', 1) ON DUPLICATE KEY UPDATE name = VALUES(name), visits = visits + VALUES(visits)")
+	if err != nil {
+		t.Fatalf("failed to execute ON DUPLICATE KEY UPDATE: %v", err)
+	}
+	// MySQL returns 2 for update with changes
+	if result.RowsAffected != 2 {
+		t.Errorf("expected 2 rows affected (update), got %d", result.RowsAffected)
+	}
+
+	// Verify
+	selectResult, err := exec.Execute("SELECT id, name, visits FROM users WHERE id = 1")
+	if err != nil {
+		t.Fatalf("select error: %v", err)
+	}
+	if len(selectResult.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(selectResult.Rows))
+	}
+	row := selectResult.Rows[0]
+	if row[1].Text() != "Alice Updated" {
+		t.Errorf("expected name='Alice Updated', got %q", row[1].Text())
+	}
+	if row[2].Int() != 2 {
+		t.Errorf("expected visits=2, got %d", row[2].Int())
+	}
+
+	// Insert new row - should insert
+	result, err = exec.Execute("INSERT INTO users (id, name, visits) VALUES (2, 'Bob', 1) ON DUPLICATE KEY UPDATE visits = visits + 1")
+	if err != nil {
+		t.Fatalf("failed to insert new row: %v", err)
+	}
+	if result.RowsAffected != 1 {
+		t.Errorf("expected 1 row affected (insert), got %d", result.RowsAffected)
+	}
+
+	// Verify total rows
+	selectAll, err := exec.Execute("SELECT id, name, visits FROM users")
+	if err != nil {
+		t.Fatalf("select all error: %v", err)
+	}
+	if len(selectAll.Rows) != 2 {
+		t.Errorf("expected 2 rows, got %d", len(selectAll.Rows))
+	}
+}
+
+func TestInsertOnDuplicateKeyUpdateNoChange(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "test_insert_nochange_*.db")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	tmpFile.Close()
+	defer os.Remove(tmpFile.Name())
+
+	p, err := pager.Open(tmpFile.Name(), pager.Options{})
+	if err != nil {
+		t.Fatalf("failed to open pager: %v", err)
+	}
+
+	exec := New(p)
+	defer exec.Close()
+
+	_, err = exec.Execute("CREATE TABLE items (id INTEGER PRIMARY KEY, value INTEGER)")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	_, err = exec.Execute("INSERT INTO items (id, value) VALUES (1, 100)")
+	if err != nil {
+		t.Fatalf("failed to insert: %v", err)
+	}
+
+	// Update with same value - no actual change
+	result, err := exec.Execute("INSERT INTO items (id, value) VALUES (1, 100) ON DUPLICATE KEY UPDATE value = VALUES(value)")
+	if err != nil {
+		t.Fatalf("failed to execute: %v", err)
+	}
+	// MySQL returns 0 for update with no changes
+	if result.RowsAffected != 0 {
+		t.Errorf("expected 0 rows affected (no change), got %d", result.RowsAffected)
+	}
+}
