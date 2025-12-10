@@ -422,6 +422,9 @@ func (p *Parser) parseColumnDef() (ColumnDef, error) {
 				return col, err
 			}
 			col.ForeignKey = fk
+		} else if p.peekIs(lexer.NONORMALIZE) {
+			p.nextToken() // NONORMALIZE
+			col.NoNormalize = true
 		} else {
 			break
 		}

@@ -349,3 +349,103 @@ func TestVectorQuantizeScan_NoIndex(t *testing.T) {
 		t.Errorf("expected error or empty result when no index exists")
 	}
 }
+
+// TestVectorInsert_NoNormalize tests that NONORMALIZE option skips normalization
+func TestVectorInsert_NoNormalize(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create a table with a VECTOR column with NONORMALIZE option
+	_, err := exec.Execute("CREATE TABLE embeddings (id INTEGER PRIMARY KEY, embedding VECTOR(3) NONORMALIZE)")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	// Insert an unnormalized vector [3, 4, 0] - L2 norm is 5
+	vec := vectorToHex([]float32{3.0, 4.0, 0.0})
+	_, err = exec.Execute(fmt.Sprintf("INSERT INTO embeddings (id, embedding) VALUES (1, x'%s')", vec))
+	if err != nil {
+		t.Fatalf("failed to insert row: %v", err)
+	}
+
+	// Retrieve the vector and check it was NOT normalized
+	result, err := exec.Execute("SELECT embedding FROM embeddings WHERE id = 1")
+	if err != nil {
+		t.Fatalf("failed to select: %v", err)
+	}
+
+	if len(result.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(result.Rows))
+	}
+
+	// Parse the stored vector
+	blob := result.Rows[0][0].Blob()
+	storedVec, err := types.VectorFromBytes(blob)
+	if err != nil {
+		t.Fatalf("failed to parse stored vector: %v", err)
+	}
+
+	// With NONORMALIZE, values should be the original [3, 4, 0]
+	data := storedVec.Data()
+	if len(data) != 3 {
+		t.Fatalf("expected 3 dimensions, got %d", len(data))
+	}
+
+	// Check values are NOT normalized (should be [3, 4, 0], not [0.6, 0.8, 0])
+	if data[0] < 2.9 || data[0] > 3.1 {
+		t.Errorf("expected x ~3.0 (not normalized), got %f", data[0])
+	}
+	if data[1] < 3.9 || data[1] > 4.1 {
+		t.Errorf("expected y ~4.0 (not normalized), got %f", data[1])
+	}
+}
+
+// TestVectorInsert_NormalizeByDefault tests that vectors are normalized by default
+func TestVectorInsert_NormalizeByDefault(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create a table with a VECTOR column WITHOUT NONORMALIZE
+	_, err := exec.Execute("CREATE TABLE embeddings (id INTEGER PRIMARY KEY, embedding VECTOR(3))")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	// Insert an unnormalized vector [3, 4, 0] - L2 norm is 5
+	vec := vectorToHex([]float32{3.0, 4.0, 0.0})
+	_, err = exec.Execute(fmt.Sprintf("INSERT INTO embeddings (id, embedding) VALUES (1, x'%s')", vec))
+	if err != nil {
+		t.Fatalf("failed to insert row: %v", err)
+	}
+
+	// Retrieve the vector and check it WAS normalized
+	result, err := exec.Execute("SELECT embedding FROM embeddings WHERE id = 1")
+	if err != nil {
+		t.Fatalf("failed to select: %v", err)
+	}
+
+	if len(result.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(result.Rows))
+	}
+
+	// Parse the stored vector
+	blob := result.Rows[0][0].Blob()
+	storedVec, err := types.VectorFromBytes(blob)
+	if err != nil {
+		t.Fatalf("failed to parse stored vector: %v", err)
+	}
+
+	// With default normalization, values should be [0.6, 0.8, 0]
+	data := storedVec.Data()
+	if len(data) != 3 {
+		t.Fatalf("expected 3 dimensions, got %d", len(data))
+	}
+
+	// Check values ARE normalized
+	if data[0] < 0.55 || data[0] > 0.65 {
+		t.Errorf("expected x ~0.6 (normalized), got %f", data[0])
+	}
+	if data[1] < 0.75 || data[1] > 0.85 {
+		t.Errorf("expected y ~0.8 (normalized), got %f", data[1])
+	}
+}
