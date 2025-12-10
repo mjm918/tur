@@ -5,6 +5,7 @@ package vdbe
 import (
 	"fmt"
 	"math"
+	"math/rand"
 	"strings"
 	"time"
 	"unicode"
@@ -396,6 +397,34 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Name:     "LOCALTIMESTAMP",
 		NumArgs:  0,
 		Function: builtinLocaltimestamp,
+	})
+
+	// Register SIGN function
+	r.Register(&ScalarFunction{
+		Name:     "SIGN",
+		NumArgs:  1,
+		Function: builtinSign,
+	})
+
+	// Register GREATEST function (variadic)
+	r.Register(&ScalarFunction{
+		Name:     "GREATEST",
+		NumArgs:  -1,
+		Function: builtinGreatest,
+	})
+
+	// Register LEAST function (variadic)
+	r.Register(&ScalarFunction{
+		Name:     "LEAST",
+		NumArgs:  -1,
+		Function: builtinLeast,
+	})
+
+	// Register RANDOM function
+	r.Register(&ScalarFunction{
+		Name:     "RANDOM",
+		NumArgs:  0,
+		Function: builtinRandom,
 	})
 
 	return r
@@ -1523,4 +1552,105 @@ func builtinLocaltimestamp(args []types.Value) types.Value {
 	// Even though NewTimestamp stores in UTC, the time components represent local time
 	local := now.Local()
 	return types.NewTimestamp(local.Year(), int(local.Month()), local.Day(), local.Hour(), local.Minute(), local.Second(), local.Nanosecond()/1000)
+}
+
+// builtinSign implements SIGN(x)
+// Returns the sign of a number:
+// -1 if x < 0
+//  0 if x = 0
+//  1 if x > 0
+// If argument is NULL, returns NULL.
+func builtinSign(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+
+	var x float64
+
+	switch args[0].Type() {
+	case types.TypeInt:
+		x = float64(args[0].Int())
+	case types.TypeFloat:
+		x = args[0].Float()
+	default:
+		return types.NewNull()
+	}
+
+	if x < 0 {
+		return types.NewInt(-1)
+	} else if x > 0 {
+		return types.NewInt(1)
+	}
+	return types.NewInt(0)
+}
+
+// builtinGreatest implements GREATEST(val1, val2, ...)
+// Returns the greatest (maximum) value from the arguments.
+// NULL values are skipped. If all arguments are NULL, returns NULL.
+// Uses types.Compare for comparison.
+func builtinGreatest(args []types.Value) types.Value {
+	if len(args) == 0 {
+		return types.NewNull()
+	}
+
+	var greatest types.Value
+	found := false
+
+	for _, arg := range args {
+		if arg.IsNull() {
+			continue
+		}
+		if !found {
+			greatest = arg
+			found = true
+		} else {
+			if types.Compare(arg, greatest) > 0 {
+				greatest = arg
+			}
+		}
+	}
+
+	if !found {
+		return types.NewNull()
+	}
+	return greatest
+}
+
+// builtinLeast implements LEAST(val1, val2, ...)
+// Returns the least (minimum) value from the arguments.
+// NULL values are skipped. If all arguments are NULL, returns NULL.
+// Uses types.Compare for comparison.
+func builtinLeast(args []types.Value) types.Value {
+	if len(args) == 0 {
+		return types.NewNull()
+	}
+
+	var least types.Value
+	found := false
+
+	for _, arg := range args {
+		if arg.IsNull() {
+			continue
+		}
+		if !found {
+			least = arg
+			found = true
+		} else {
+			if types.Compare(arg, least) < 0 {
+				least = arg
+			}
+		}
+	}
+
+	if !found {
+		return types.NewNull()
+	}
+	return least
+}
+
+// builtinRandom implements RANDOM()
+// Returns a random floating-point number in the range [0, 1).
+// Uses math/rand for random number generation.
+func builtinRandom(args []types.Value) types.Value {
+	return types.NewFloat(rand.Float64())
 }

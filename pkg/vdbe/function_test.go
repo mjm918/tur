@@ -1808,3 +1808,81 @@ func TestLocaltimestamp(t *testing.T) {
 		t.Errorf("LOCALTIMESTAMP() returned %v, expected local time components to match %v", ts, now)
 	}
 }
+
+func TestSign(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	sign := registry.Lookup("SIGN")
+	if sign == nil {
+		t.Fatal("SIGN function not found")
+	}
+
+	tests := []struct {
+		input  float64
+		expect int64
+	}{
+		{5, 1},
+		{-5, -1},
+		{0, 0},
+		{0.1, 1},
+		{-0.1, -1},
+	}
+
+	for i, tc := range tests {
+		result := sign.Call([]types.Value{types.NewFloat(tc.input)})
+		if result.Int() != tc.expect {
+			t.Errorf("test %d: SIGN(%f) expected %d, got %d", i, tc.input, tc.expect, result.Int())
+		}
+	}
+}
+
+func TestGreatest(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	greatest := registry.Lookup("GREATEST")
+	if greatest == nil {
+		t.Fatal("GREATEST function not found")
+	}
+
+	result := greatest.Call([]types.Value{types.NewInt(1), types.NewInt(3), types.NewInt(2)})
+	if result.Int() != 3 {
+		t.Errorf("GREATEST(1,3,2) expected 3, got %d", result.Int())
+	}
+
+	result = greatest.Call([]types.Value{types.NewInt(-1), types.NewInt(-2), types.NewInt(-3)})
+	if result.Int() != -1 {
+		t.Errorf("GREATEST(-1,-2,-3) expected -1, got %d", result.Int())
+	}
+}
+
+func TestLeast(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	least := registry.Lookup("LEAST")
+	if least == nil {
+		t.Fatal("LEAST function not found")
+	}
+
+	result := least.Call([]types.Value{types.NewInt(1), types.NewInt(3), types.NewInt(2)})
+	if result.Int() != 1 {
+		t.Errorf("LEAST(1,3,2) expected 1, got %d", result.Int())
+	}
+
+	result = least.Call([]types.Value{types.NewInt(-1), types.NewInt(-2), types.NewInt(-3)})
+	if result.Int() != -3 {
+		t.Errorf("LEAST(-1,-2,-3) expected -3, got %d", result.Int())
+	}
+}
+
+func TestRandom(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	random := registry.Lookup("RANDOM")
+	if random == nil {
+		t.Fatal("RANDOM function not found")
+	}
+
+	for i := 0; i < 100; i++ {
+		result := random.Call([]types.Value{})
+		val := result.Float()
+		if val < 0 || val >= 1 {
+			t.Errorf("RANDOM() returned %f, expected 0 <= x < 1", val)
+		}
+	}
+}
