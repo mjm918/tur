@@ -2,6 +2,7 @@ package executor
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"tur/pkg/dbfile"
@@ -332,4 +333,89 @@ END`)
 	if trigger.TableName != "users" {
 		t.Errorf("Expected trigger table 'users', got %s", trigger.TableName)
 	}
+}
+
+func TestDropTable_BlockedByDependentView(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test_drop_blocked_view.db")
+
+	p, err := pager.Open(path, pager.Options{})
+	if err != nil {
+		t.Fatalf("Failed to open pager: %v", err)
+	}
+	defer p.Close()
+
+	exec := New(p)
+
+	// Create table
+	_, err = exec.Execute("CREATE TABLE users (id INT, name TEXT, age INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE failed: %v", err)
+	}
+
+	// Create view that depends on table
+	_, err = exec.Execute("CREATE VIEW adult_users AS SELECT id, name FROM users WHERE age >= 18")
+	if err != nil {
+		t.Fatalf("CREATE VIEW failed: %v", err)
+	}
+
+	// Try to drop table - should fail because view depends on it
+	_, err = exec.Execute("DROP TABLE users")
+	if err == nil {
+		t.Fatal("DROP TABLE should fail when a view depends on it")
+	}
+
+	// Error message should mention the dependent view
+	if !contains(err.Error(), "view") && !contains(err.Error(), "adult_users") {
+		t.Errorf("Error should mention dependent view, got: %v", err)
+	}
+}
+
+func TestDropTable_BlockedByDependentTrigger(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test_drop_blocked_trigger.db")
+
+	p, err := pager.Open(path, pager.Options{})
+	if err != nil {
+		t.Fatalf("Failed to open pager: %v", err)
+	}
+	defer p.Close()
+
+	exec := New(p)
+
+	// Create audit log table
+	_, err = exec.Execute("CREATE TABLE audit_log (id INT, event_type TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE audit_log failed: %v", err)
+	}
+
+	// Create users table
+	_, err = exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE users failed: %v", err)
+	}
+
+	// Create trigger on users table
+	_, err = exec.Execute(`CREATE TRIGGER log_insert AFTER INSERT ON users
+BEGIN
+	INSERT INTO audit_log (event_type) VALUES ('insert');
+END`)
+	if err != nil {
+		t.Fatalf("CREATE TRIGGER failed: %v", err)
+	}
+
+	// Try to drop users table - should fail because trigger depends on it
+	_, err = exec.Execute("DROP TABLE users")
+	if err == nil {
+		t.Fatal("DROP TABLE should fail when a trigger depends on it")
+	}
+
+	// Error message should mention the dependent trigger
+	if !contains(err.Error(), "trigger") && !contains(err.Error(), "log_insert") {
+		t.Errorf("Error should mention dependent trigger, got: %v", err)
+	}
+}
+
+func contains(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
