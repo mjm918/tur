@@ -5,6 +5,7 @@ import (
 	"container/list"
 	"errors"
 	"sync"
+	"time"
 )
 
 var (
@@ -14,6 +15,20 @@ var (
 	// ErrInvalidMaxConns is returned when maxConns is less than 1
 	ErrInvalidMaxConns = errors.New("maxConns must be at least 1")
 )
+
+// PoolOptions configures pool behavior beyond database options
+type PoolOptions struct {
+	// DBOptions holds database options for creating connections
+	DBOptions Options
+
+	// MaxIdleTime is the maximum time a connection can remain idle before being closed.
+	// Zero means no idle timeout (connections stay idle indefinitely).
+	MaxIdleTime time.Duration
+
+	// MaxLifetime is the maximum total lifetime of a connection from creation.
+	// Zero means no lifetime limit.
+	MaxLifetime time.Duration
+}
 
 // Pool manages a pool of database connections for concurrent access.
 // It maintains a queue of idle connections and creates new ones as needed,
@@ -27,11 +42,17 @@ type Pool struct {
 	// opts holds database options for creating connections
 	opts Options
 
+	// poolOpts holds pool-specific options
+	poolOpts PoolOptions
+
 	// maxConns is the maximum number of connections allowed
 	maxConns int
 
 	// idle holds available connections ready for checkout
 	idle *list.List
+
+	// connMeta tracks metadata for all open connections by DB pointer
+	connMeta map[*DB]*poolConn
 
 	// numOpen is the total number of open connections (idle + in-use)
 	numOpen int
@@ -47,17 +68,24 @@ func OpenPool(path string, maxConns int) (*Pool, error) {
 	return OpenPoolWithOptions(path, maxConns, Options{})
 }
 
-// OpenPoolWithOptions creates a new connection pool with custom options.
+// OpenPoolWithOptions creates a new connection pool with custom database options.
 func OpenPoolWithOptions(path string, maxConns int, opts Options) (*Pool, error) {
+	return OpenPoolWithPoolOptions(path, maxConns, PoolOptions{DBOptions: opts})
+}
+
+// OpenPoolWithPoolOptions creates a new connection pool with full pool configuration.
+func OpenPoolWithPoolOptions(path string, maxConns int, poolOpts PoolOptions) (*Pool, error) {
 	if maxConns < 1 {
 		return nil, ErrInvalidMaxConns
 	}
 
 	pool := &Pool{
 		path:     path,
-		opts:     opts,
+		opts:     poolOpts.DBOptions,
+		poolOpts: poolOpts,
 		maxConns: maxConns,
 		idle:     list.New(),
+		connMeta: make(map[*DB]*poolConn),
 		numOpen:  0,
 		closed:   false,
 	}
@@ -106,8 +134,10 @@ func (p *Pool) Close() error {
 
 // poolConn wraps a DB connection for pool management
 type poolConn struct {
-	db   *DB
-	pool *Pool
+	db        *DB
+	pool      *Pool
+	createdAt time.Time // when the connection was created
+	idleSince time.Time // when the connection became idle (updated on Put)
 }
 
 // Get retrieves a connection from the pool.
@@ -136,6 +166,13 @@ func (p *Pool) Get() (*DB, error) {
 		if err != nil {
 			return nil, err
 		}
+		now := time.Now()
+		pc := &poolConn{
+			db:        db,
+			pool:      p,
+			createdAt: now,
+		}
+		p.connMeta[db] = pc
 		p.numOpen++
 		return db, nil
 	}
@@ -146,8 +183,8 @@ func (p *Pool) Get() (*DB, error) {
 }
 
 // Put returns a connection to the pool.
-// If the pool is closed, the connection is closed instead.
-// The connection should not be used after calling Put.
+// If the pool is closed or the connection's lifetime has exceeded MaxLifetime,
+// the connection is closed instead. The connection should not be used after calling Put.
 func (p *Pool) Put(conn *DB) {
 	if conn == nil {
 		return
@@ -162,8 +199,27 @@ func (p *Pool) Put(conn *DB) {
 		return
 	}
 
-	// Return connection to idle list
-	pc := &poolConn{db: conn, pool: p}
+	// Get connection metadata
+	pc, ok := p.connMeta[conn]
+	if !ok {
+		// Connection not from this pool or was already closed, just close it
+		conn.Close()
+		return
+	}
+
+	now := time.Now()
+
+	// Check if connection has exceeded its lifetime
+	if p.poolOpts.MaxLifetime > 0 && now.Sub(pc.createdAt) >= p.poolOpts.MaxLifetime {
+		// Close the connection and remove from tracking
+		conn.Close()
+		delete(p.connMeta, conn)
+		p.numOpen--
+		return
+	}
+
+	// Update idle timestamp and return to pool
+	pc.idleSince = now
 	p.idle.PushBack(pc)
 }
 
@@ -172,4 +228,42 @@ func (p *Pool) NumOpen() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.numOpen
+}
+
+// NumIdle returns the number of idle connections in the pool.
+func (p *Pool) NumIdle() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.idle.Len()
+}
+
+// CleanupExpired closes idle connections that have exceeded MaxIdleTime.
+// This method can be called periodically to remove stale connections.
+func (p *Pool) CleanupExpired() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.closed || p.poolOpts.MaxIdleTime <= 0 {
+		return
+	}
+
+	now := time.Now()
+	var toRemove []*list.Element
+
+	// Find expired connections
+	for e := p.idle.Front(); e != nil; e = e.Next() {
+		pc := e.Value.(*poolConn)
+		if now.Sub(pc.idleSince) >= p.poolOpts.MaxIdleTime {
+			toRemove = append(toRemove, e)
+		}
+	}
+
+	// Remove and close expired connections
+	for _, e := range toRemove {
+		pc := e.Value.(*poolConn)
+		p.idle.Remove(e)
+		pc.db.Close()
+		delete(p.connMeta, pc.db)
+		p.numOpen--
+	}
 }

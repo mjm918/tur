@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestPool_Basic(t *testing.T) {
@@ -220,5 +221,132 @@ func TestPool_Put_OnClosedPool_ClosesConnection(t *testing.T) {
 	// Connection should be closed
 	if !conn.IsClosed() {
 		t.Error("expected connection to be closed after Put on closed pool")
+	}
+}
+
+func TestPoolOptions_MaxIdleTime(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "turdb_pool_test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	// Create pool with short max idle time
+	opts := PoolOptions{
+		MaxIdleTime: 100 * time.Millisecond,
+	}
+	pool, err := OpenPoolWithPoolOptions(dbPath, 1, opts)
+	if err != nil {
+		t.Fatalf("OpenPoolWithPoolOptions failed: %v", err)
+	}
+	defer pool.Close()
+
+	// Get and return a connection
+	conn, err := pool.Get()
+	if err != nil {
+		t.Fatalf("Get failed: %v", err)
+	}
+	pool.Put(conn)
+
+	// Verify connection is idle
+	if pool.NumIdle() != 1 {
+		t.Fatalf("expected NumIdle=1, got %d", pool.NumIdle())
+	}
+
+	// Wait for connection to expire
+	time.Sleep(200 * time.Millisecond)
+
+	// Trigger cleanup
+	pool.CleanupExpired()
+
+	// Connection should have been closed
+	if pool.NumIdle() != 0 {
+		t.Errorf("expected NumIdle=0 after expiry, got %d", pool.NumIdle())
+	}
+	if pool.NumOpen() != 0 {
+		t.Errorf("expected NumOpen=0 after expiry, got %d", pool.NumOpen())
+	}
+}
+
+func TestPoolOptions_MaxLifetime(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "turdb_pool_test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	// Create pool with short max lifetime
+	opts := PoolOptions{
+		MaxLifetime: 100 * time.Millisecond,
+	}
+	pool, err := OpenPoolWithPoolOptions(dbPath, 1, opts)
+	if err != nil {
+		t.Fatalf("OpenPoolWithPoolOptions failed: %v", err)
+	}
+	defer pool.Close()
+
+	// Get a connection
+	conn, err := pool.Get()
+	if err != nil {
+		t.Fatalf("Get failed: %v", err)
+	}
+
+	// Wait for connection to exceed lifetime
+	time.Sleep(150 * time.Millisecond)
+
+	// Return connection - should be closed due to lifetime exceeded
+	pool.Put(conn)
+
+	// Connection should have been closed instead of returned to pool
+	if pool.NumIdle() != 0 {
+		t.Errorf("expected NumIdle=0 after lifetime exceeded, got %d", pool.NumIdle())
+	}
+	if pool.NumOpen() != 0 {
+		t.Errorf("expected NumOpen=0 after lifetime exceeded, got %d", pool.NumOpen())
+	}
+}
+
+func TestPool_Close_ClosesAllConnections(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "turdb_pool_test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	pool, err := OpenPool(dbPath, 1)
+	if err != nil {
+		t.Fatalf("OpenPool failed: %v", err)
+	}
+
+	// Get and return a connection to create one
+	conn, err := pool.Get()
+	if err != nil {
+		t.Fatalf("Get failed: %v", err)
+	}
+	pool.Put(conn)
+
+	// Verify there's an idle connection
+	if pool.NumIdle() != 1 {
+		t.Fatalf("expected NumIdle=1, got %d", pool.NumIdle())
+	}
+
+	// Close pool
+	err = pool.Close()
+	if err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// All connections should be closed
+	if pool.NumIdle() != 0 {
+		t.Errorf("expected NumIdle=0 after Close, got %d", pool.NumIdle())
+	}
+	if pool.NumOpen() != 0 {
+		t.Errorf("expected NumOpen=0 after Close, got %d", pool.NumOpen())
 	}
 }
