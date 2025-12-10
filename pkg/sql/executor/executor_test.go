@@ -3061,3 +3061,124 @@ func TestExecutor_ScalarFunctions_WithTable(t *testing.T) {
 		t.Errorf("Function in WHERE: expected 'banana', got %v", result.Rows)
 	}
 }
+
+// ==================== IF Statement Execution Tests ====================
+
+func TestExecutor_IfStmt_ThenBranch(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create a test table
+	_, err := exec.Execute("CREATE TABLE test_if (id INT, value INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Execute IF with TRUE condition - should execute THEN branch
+	_, err = exec.Execute("IF 1 = 1 THEN INSERT INTO test_if VALUES (1, 100) END IF")
+	if err != nil {
+		t.Fatalf("IF execution: %v", err)
+	}
+
+	// Verify the INSERT happened
+	result, err := exec.Execute("SELECT * FROM test_if")
+	if err != nil {
+		t.Fatalf("SELECT: %v", err)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result.Rows))
+	}
+	if result.Rows[0][0].Int() != 1 || result.Rows[0][1].Int() != 100 {
+		t.Errorf("Expected (1, 100), got (%v, %v)", result.Rows[0][0], result.Rows[0][1])
+	}
+}
+
+func TestExecutor_IfStmt_ElseBranch(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create a test table
+	_, err := exec.Execute("CREATE TABLE test_if (id INT, value INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Execute IF with FALSE condition - should execute ELSE branch
+	_, err = exec.Execute("IF 1 = 2 THEN INSERT INTO test_if VALUES (1, 100) ELSE INSERT INTO test_if VALUES (2, 200) END IF")
+	if err != nil {
+		t.Fatalf("IF execution: %v", err)
+	}
+
+	// Verify the ELSE INSERT happened
+	result, err := exec.Execute("SELECT * FROM test_if")
+	if err != nil {
+		t.Fatalf("SELECT: %v", err)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result.Rows))
+	}
+	if result.Rows[0][0].Int() != 2 || result.Rows[0][1].Int() != 200 {
+		t.Errorf("Expected (2, 200), got (%v, %v)", result.Rows[0][0], result.Rows[0][1])
+	}
+}
+
+func TestExecutor_IfStmt_ElsIfBranch(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create a test table
+	_, err := exec.Execute("CREATE TABLE test_if (id INT, value INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Execute IF with ELSIF - second condition should match
+	_, err = exec.Execute(`IF 1 = 2 THEN
+		INSERT INTO test_if VALUES (1, 100)
+	ELSIF 2 = 2 THEN
+		INSERT INTO test_if VALUES (2, 200)
+	ELSE
+		INSERT INTO test_if VALUES (3, 300)
+	END IF`)
+	if err != nil {
+		t.Fatalf("IF execution: %v", err)
+	}
+
+	// Verify the ELSIF INSERT happened
+	result, err := exec.Execute("SELECT * FROM test_if")
+	if err != nil {
+		t.Fatalf("SELECT: %v", err)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result.Rows))
+	}
+	if result.Rows[0][0].Int() != 2 || result.Rows[0][1].Int() != 200 {
+		t.Errorf("Expected (2, 200), got (%v, %v)", result.Rows[0][0], result.Rows[0][1])
+	}
+}
+
+func TestExecutor_IfStmt_FalseNoElse(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create a test table
+	_, err := exec.Execute("CREATE TABLE test_if (id INT, value INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Execute IF with FALSE condition and no ELSE - nothing should happen
+	_, err = exec.Execute("IF 1 = 2 THEN INSERT INTO test_if VALUES (1, 100) END IF")
+	if err != nil {
+		t.Fatalf("IF execution: %v", err)
+	}
+
+	// Verify no INSERT happened
+	result, err := exec.Execute("SELECT * FROM test_if")
+	if err != nil {
+		t.Fatalf("SELECT: %v", err)
+	}
+	if len(result.Rows) != 0 {
+		t.Errorf("Expected 0 rows, got %d", len(result.Rows))
+	}
+}

@@ -554,3 +554,19 @@ type ReleaseStmt struct {
 }
 
 func (s *ReleaseStmt) statementNode() {}
+
+// ElsIfClause represents an ELSIF/ELSEIF clause in an IF statement
+type ElsIfClause struct {
+	Condition Expression  // The ELSIF condition
+	Body      []Statement // Statements to execute if condition is true
+}
+
+// IfStmt represents an IF...THEN...ELSIF...ELSE...END IF statement
+type IfStmt struct {
+	Condition    Expression     // The IF condition
+	ThenBranch   []Statement    // Statements to execute if condition is true
+	ElsIfClauses []*ElsIfClause // Optional ELSIF clauses
+	ElseBranch   []Statement    // Optional ELSE branch (nil if no ELSE)
+}
+
+func (s *IfStmt) statementNode() {}

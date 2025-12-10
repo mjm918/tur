@@ -181,6 +181,10 @@ const (
 
 	// Truncate keywords
 	TRUNCATE
+
+	// Procedural SQL keywords
+	ELSIF
+	ELSEIF
 )
 
 // Token represents a lexical token
@@ -441,6 +445,10 @@ func (t TokenType) String() string {
 		return "ELSE"
 	case TRUNCATE:
 		return "TRUNCATE"
+	case ELSIF:
+		return "ELSIF"
+	case ELSEIF:
+		return "ELSEIF"
 	default:
 		return "UNKNOWN"
 	}
@@ -550,6 +558,8 @@ var keywords = map[string]TokenType{
 	"THEN":        THEN,
 	"ELSE":        ELSE_KW,
 	"TRUNCATE":    TRUNCATE,
+	"ELSIF":       ELSIF,
+	"ELSEIF":      ELSEIF,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT

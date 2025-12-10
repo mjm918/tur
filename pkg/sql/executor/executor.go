@@ -32,13 +32,13 @@ type Result struct {
 type Executor struct {
 	pager       *pager.Pager
 	catalog     *schema.Catalog
-	trees       map[string]*btree.BTree    // table name -> btree
-	rowid       map[string]uint64          // table name -> next rowid
-	maxRowid    map[string]int64           // table name -> max INTEGER PRIMARY KEY value (for AUTOINCREMENT)
+	trees       map[string]*btree.BTree // table name -> btree
+	rowid       map[string]uint64       // table name -> next rowid
+	maxRowid    map[string]int64        // table name -> max INTEGER PRIMARY KEY value (for AUTOINCREMENT)
 	txManager   *mvcc.TransactionManager
-	currentTx   *mvcc.Transaction          // current active transaction (nil if none)
-	hnswIndexes map[string]*hnsw.Index     // HNSW index name -> index
-	queryCache  *cache.QueryCache          // optional query result cache
+	currentTx   *mvcc.Transaction      // current active transaction (nil if none)
+	hnswIndexes map[string]*hnsw.Index // HNSW index name -> index
+	queryCache  *cache.QueryCache      // optional query result cache
 	// valuesContext holds the would-be-inserted values for VALUES() function
 	// during ON DUPLICATE KEY UPDATE evaluation
 	valuesContext map[string]types.Value
@@ -152,6 +152,8 @@ func (e *Executor) Execute(sql string) (*Result, error) {
 		return e.executeCreateTrigger(s)
 	case *parser.DropTriggerStmt:
 		return e.executeDropTrigger(s)
+	case *parser.IfStmt:
+		return e.executeIfStmt(s)
 	default:
 		return nil, fmt.Errorf("unsupported statement type: %T", stmt)
 	}
@@ -429,10 +431,10 @@ func (e *Executor) executeDropTrigger(stmt *parser.DropTriggerStmt) (*Result, er
 
 // TriggerContext holds the OLD and NEW row values for trigger execution
 type TriggerContext struct {
-	OldRow   []types.Value       // OLD row values (nil for INSERT)
-	NewRow   []types.Value       // NEW row values (nil for DELETE)
-	ColMap   map[string]int      // Column name to index mapping
-	Table    *schema.TableDef    // Table definition
+	OldRow []types.Value    // OLD row values (nil for INSERT)
+	NewRow []types.Value    // NEW row values (nil for DELETE)
+	ColMap map[string]int   // Column name to index mapping
+	Table  *schema.TableDef // Table definition
 }
 
 // fireTriggers executes all triggers for a table/timing/event combination
@@ -4315,4 +4317,91 @@ func (e *Executor) createUniqueConstraintIndexes(table *schema.TableDef) error {
 	}
 
 	return nil
+}
+
+// executeIfStmt executes an IF...THEN...ELSIF...ELSE...END IF statement
+func (e *Executor) executeIfStmt(stmt *parser.IfStmt) (*Result, error) {
+	// Evaluate the IF condition
+	condValue, err := e.evaluateExpr(stmt.Condition, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("evaluating IF condition: %w", err)
+	}
+
+	// Check if condition is truthy
+	if e.isTruthy(condValue) {
+		// Execute THEN branch
+		return e.executeStatementBlock(stmt.ThenBranch)
+	}
+
+	// Check ELSIF clauses
+	for _, elsif := range stmt.ElsIfClauses {
+		condValue, err := e.evaluateExpr(elsif.Condition, nil, nil)
+		if err != nil {
+			return nil, fmt.Errorf("evaluating ELSIF condition: %w", err)
+		}
+
+		if e.isTruthy(condValue) {
+			return e.executeStatementBlock(elsif.Body)
+		}
+	}
+
+	// Execute ELSE branch if present
+	if stmt.ElseBranch != nil {
+		return e.executeStatementBlock(stmt.ElseBranch)
+	}
+
+	// No branch executed, return empty result
+	return &Result{}, nil
+}
+
+// isTruthy checks if a value is considered true for conditional execution
+func (e *Executor) isTruthy(v types.Value) bool {
+	if v.IsNull() {
+		return false
+	}
+	switch v.Type() {
+	case types.TypeInt:
+		return v.Int() != 0
+	case types.TypeFloat:
+		return v.Float() != 0
+	case types.TypeText:
+		return v.Text() != ""
+	default:
+		// For other types, consider non-null as truthy
+		return true
+	}
+}
+
+// executeStatementBlock executes a sequence of statements and returns the last result
+func (e *Executor) executeStatementBlock(stmts []parser.Statement) (*Result, error) {
+	var lastResult *Result
+	for _, stmt := range stmts {
+		result, err := e.executeBlockStatement(stmt)
+		if err != nil {
+			return nil, err
+		}
+		lastResult = result
+	}
+	if lastResult == nil {
+		return &Result{}, nil
+	}
+	return lastResult, nil
+}
+
+// executeBlockStatement executes a single statement within a block (IF body, etc.)
+func (e *Executor) executeBlockStatement(stmt parser.Statement) (*Result, error) {
+	switch s := stmt.(type) {
+	case *parser.SelectStmt:
+		return e.executeSelect(s)
+	case *parser.InsertStmt:
+		return e.executeInsert(s)
+	case *parser.UpdateStmt:
+		return e.executeUpdate(s)
+	case *parser.DeleteStmt:
+		return e.executeDelete(s)
+	case *parser.IfStmt:
+		return e.executeIfStmt(s)
+	default:
+		return nil, fmt.Errorf("unsupported statement type in block: %T", stmt)
+	}
 }
