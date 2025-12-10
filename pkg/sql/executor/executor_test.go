@@ -3513,3 +3513,75 @@ func TestPragmaResultStreaming(t *testing.T) {
 		t.Fatalf("PRAGMA result_streaming = 0: %v", err)
 	}
 }
+
+// TestPragmaOptimizeMemory tests PRAGMA optimize_memory helper
+func TestPragmaOptimizeMemory(t *testing.T) {
+	// Create executor with memory budget
+	dir, err := os.MkdirTemp("", "executor_test")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	dbPath := filepath.Join(dir, "test.db")
+	budget := cache.NewMemoryBudget(256 * 1024 * 1024) // 256 MB
+	p, err := pager.OpenWithBudget(dbPath, pager.Options{}, budget)
+	if err != nil {
+		t.Fatalf("pager.OpenWithBudget: %v", err)
+	}
+
+	exec := New(p)
+	defer exec.Close()
+
+	// Set up query cache
+	qc := cache.NewQueryCache(100)
+	exec.SetQueryCache(qc)
+
+	// Execute optimize_memory pragma
+	result, err := exec.Execute("PRAGMA optimize_memory")
+	if err != nil {
+		t.Fatalf("PRAGMA optimize_memory: %v", err)
+	}
+
+	if len(result.Rows) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result.Rows))
+	}
+
+	// Verify all settings were changed to minimal values
+	tests := []struct {
+		pragma   string
+		expected int64
+	}{
+		{"page_cache_size", 10},
+		{"query_cache_size", 0},
+		{"vdbe_max_registers", 4},
+		{"vdbe_max_cursors", 2},
+		{"memory_budget", 1}, // 1 MB
+	}
+
+	for _, tc := range tests {
+		result, err := exec.Execute("PRAGMA " + tc.pragma)
+		if err != nil {
+			t.Errorf("PRAGMA %s query: %v", tc.pragma, err)
+			continue
+		}
+
+		if len(result.Rows) != 1 {
+			t.Errorf("Expected 1 row for %s, got %d", tc.pragma, len(result.Rows))
+			continue
+		}
+
+		val := result.Rows[0][0].Int()
+		if val != tc.expected {
+			t.Errorf("Expected %s = %d, got %d", tc.pragma, tc.expected, val)
+		}
+	}
+
+	// Check result_streaming separately (it's a string)
+	result, err = exec.Execute("PRAGMA result_streaming")
+	if err != nil {
+		t.Errorf("PRAGMA result_streaming query: %v", err)
+	} else if result.Rows[0][0].Text() != "ON" {
+		t.Errorf("Expected result_streaming = ON, got %s", result.Rows[0][0].Text())
+	}
+}

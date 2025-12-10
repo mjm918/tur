@@ -5025,6 +5025,40 @@ func (e *Executor) executePragma(stmt *parser.PragmaStmt) (*Result, error) {
 			},
 		}, nil
 
+	case "optimize_memory":
+		// This is a convenience pragma that sets all memory-related settings
+		// to their minimal values for ~1MB idle memory usage
+
+		// Page cache: 10 pages (~40 KB)
+		if err := e.pager.SetCacheSize(10); err != nil {
+			return nil, fmt.Errorf("failed to set page_cache_size: %w", err)
+		}
+
+		// Query cache: disabled
+		if e.queryCache != nil {
+			e.queryCache.SetCapacity(0)
+		}
+
+		// VDBE: minimal registers and cursors
+		e.vdbeMaxRegisters = 4
+		e.vdbeMaxCursors = 2
+
+		// Memory budget: 1 MB
+		memBudget := e.pager.MemoryBudget()
+		if memBudget != nil {
+			memBudget.SetLimit(1 * 1024 * 1024)
+		}
+
+		// Result streaming: enabled
+		e.resultStreaming = true
+
+		return &Result{
+			Columns: []string{"optimize_memory"},
+			Rows: [][]types.Value{
+				{types.NewText("Memory optimization applied")},
+			},
+		}, nil
+
 	default:
 		return nil, fmt.Errorf("unknown PRAGMA: %s", stmt.Name)
 	}
