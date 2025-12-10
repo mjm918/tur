@@ -285,6 +285,34 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Function: builtinSqrt,
 	})
 
+	// Register EXP function
+	r.Register(&ScalarFunction{
+		Name:     "EXP",
+		NumArgs:  1,
+		Function: builtinExp,
+	})
+
+	// Register LN function
+	r.Register(&ScalarFunction{
+		Name:     "LN",
+		NumArgs:  1,
+		Function: builtinLn,
+	})
+
+	// Register LOG10 function
+	r.Register(&ScalarFunction{
+		Name:     "LOG10",
+		NumArgs:  1,
+		Function: builtinLog10,
+	})
+
+	// Register LOG function (1 or 2 arguments)
+	r.Register(&ScalarFunction{
+		Name:     "LOG",
+		NumArgs:  -1, // Variadic: 1 or 2 arguments
+		Function: builtinLog,
+	})
+
 	// Register CEIL function
 	r.Register(&ScalarFunction{
 		Name:     "CEIL",
