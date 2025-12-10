@@ -4950,6 +4950,39 @@ func (e *Executor) executePragma(stmt *parser.PragmaStmt) (*Result, error) {
 			},
 		}, nil
 
+	case "memory_budget":
+		memBudget := e.pager.MemoryBudget()
+		if stmt.Value != nil {
+			// SET memory_budget = value (in MB)
+			val, err := e.evaluateExpr(stmt.Value, nil, nil)
+			if err != nil {
+				return nil, fmt.Errorf("invalid memory_budget value: %w", err)
+			}
+
+			budgetMB := val.Int()
+			if budgetMB < 1 {
+				return nil, fmt.Errorf("memory_budget must be at least 1 MB, got %d", budgetMB)
+			}
+
+			budgetBytes := budgetMB * 1024 * 1024
+			if memBudget != nil {
+				memBudget.SetLimit(budgetBytes)
+			}
+
+			return &Result{RowsAffected: 0}, nil
+		}
+		// GET memory_budget (return in MB)
+		limitMB := int64(0)
+		if memBudget != nil {
+			limitMB = memBudget.Limit() / (1024 * 1024)
+		}
+		return &Result{
+			Columns: []string{"memory_budget"},
+			Rows: [][]types.Value{
+				{types.NewInt(limitMB)},
+			},
+		}, nil
+
 	default:
 		return nil, fmt.Errorf("unknown PRAGMA: %s", stmt.Name)
 	}

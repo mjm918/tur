@@ -3367,3 +3367,60 @@ func TestPragmaVdbeMaxCursors(t *testing.T) {
 		t.Error("Expected error for vdbe_max_cursors = -1, got nil")
 	}
 }
+
+// TestPragmaMemoryBudget tests PRAGMA memory_budget setting and querying
+func TestPragmaMemoryBudget(t *testing.T) {
+	// Create executor with memory budget
+	dir, err := os.MkdirTemp("", "executor_test")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	dbPath := filepath.Join(dir, "test.db")
+	budget := cache.NewMemoryBudget(256 * 1024 * 1024) // 256 MB
+	p, err := pager.OpenWithBudget(dbPath, pager.Options{}, budget)
+	if err != nil {
+		t.Fatalf("pager.OpenWithBudget: %v", err)
+	}
+
+	exec := New(p)
+	defer exec.Close()
+
+	// Test setting memory budget (in MB)
+	_, err = exec.Execute("PRAGMA memory_budget = 10")
+	if err != nil {
+		t.Fatalf("PRAGMA memory_budget = 10: %v", err)
+	}
+
+	// Verify the setting
+	result, err := exec.Execute("PRAGMA memory_budget")
+	if err != nil {
+		t.Fatalf("PRAGMA memory_budget query: %v", err)
+	}
+
+	if len(result.Columns) != 1 || result.Columns[0] != "memory_budget" {
+		t.Errorf("Expected column 'memory_budget', got %v", result.Columns)
+	}
+
+	if len(result.Rows) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result.Rows))
+	}
+
+	budgetMB := result.Rows[0][0].Int()
+	if budgetMB != 10 {
+		t.Errorf("Expected memory_budget = 10 (MB), got %d", budgetMB)
+	}
+
+	// Test invalid value (zero)
+	_, err = exec.Execute("PRAGMA memory_budget = 0")
+	if err == nil {
+		t.Error("Expected error for memory_budget = 0, got nil")
+	}
+
+	// Test invalid value (negative)
+	_, err = exec.Execute("PRAGMA memory_budget = -5")
+	if err == nil {
+		t.Error("Expected error for memory_budget = -5, got nil")
+	}
+}
