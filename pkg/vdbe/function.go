@@ -519,6 +519,27 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Function: builtinAge,
 	})
 
+	// Register DATE_TRUNC function
+	r.Register(&ScalarFunction{
+		Name:     "DATE_TRUNC",
+		NumArgs:  2,
+		Function: builtinDateTrunc,
+	})
+
+	// Register EXTRACT function
+	r.Register(&ScalarFunction{
+		Name:     "EXTRACT",
+		NumArgs:  2,
+		Function: builtinExtract,
+	})
+
+	// Register DATE_PART function (alias for EXTRACT)
+	r.Register(&ScalarFunction{
+		Name:     "DATE_PART",
+		NumArgs:  2,
+		Function: builtinDatePart,
+	})
+
 	return r
 }
 
