@@ -140,6 +140,132 @@ func reconstructCreateViewSQL(stmt *parser.CreateViewStmt, selectSQL string) str
 	return sb.String()
 }
 
+// reconstructCreateTriggerSQL rebuilds CREATE TRIGGER SQL from parsed statement
+func reconstructCreateTriggerSQL(stmt *parser.CreateTriggerStmt) string {
+	var sb strings.Builder
+	sb.WriteString("CREATE TRIGGER ")
+	sb.WriteString(stmt.TriggerName)
+	sb.WriteString(" ")
+
+	// Timing
+	switch stmt.Timing {
+	case parser.TriggerBefore:
+		sb.WriteString("BEFORE ")
+	case parser.TriggerAfter:
+		sb.WriteString("AFTER ")
+	}
+
+	// Event
+	switch stmt.Event {
+	case parser.TriggerEventInsert:
+		sb.WriteString("INSERT ")
+	case parser.TriggerEventUpdate:
+		sb.WriteString("UPDATE ")
+	case parser.TriggerEventDelete:
+		sb.WriteString("DELETE ")
+	}
+
+	sb.WriteString("ON ")
+	sb.WriteString(stmt.TableName)
+	sb.WriteString(" BEGIN ")
+
+	// Reconstruct action statements
+	for i, action := range stmt.Actions {
+		if i > 0 {
+			sb.WriteString(" ")
+		}
+		sb.WriteString(statementToSQL(action))
+		sb.WriteString(";")
+	}
+
+	sb.WriteString(" END")
+	return sb.String()
+}
+
+// statementToSQL converts a parsed statement back to SQL
+func statementToSQL(stmt parser.Statement) string {
+	switch s := stmt.(type) {
+	case *parser.InsertStmt:
+		return insertStmtToSQL(s)
+	case *parser.UpdateStmt:
+		return updateStmtToSQL(s)
+	case *parser.DeleteStmt:
+		return deleteStmtToSQL(s)
+	case *parser.SelectStmt:
+		return selectStmtToSQL(s)
+	default:
+		return ""
+	}
+}
+
+// insertStmtToSQL converts an INSERT statement to SQL
+func insertStmtToSQL(stmt *parser.InsertStmt) string {
+	var sb strings.Builder
+	sb.WriteString("INSERT INTO ")
+	sb.WriteString(stmt.TableName)
+
+	if len(stmt.Columns) > 0 {
+		sb.WriteString(" (")
+		sb.WriteString(strings.Join(stmt.Columns, ", "))
+		sb.WriteString(")")
+	}
+
+	sb.WriteString(" VALUES ")
+	for i, row := range stmt.Values {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString("(")
+		for j, val := range row {
+			if j > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(exprToString(val))
+		}
+		sb.WriteString(")")
+	}
+
+	return sb.String()
+}
+
+// updateStmtToSQL converts an UPDATE statement to SQL
+func updateStmtToSQL(stmt *parser.UpdateStmt) string {
+	var sb strings.Builder
+	sb.WriteString("UPDATE ")
+	sb.WriteString(stmt.TableName)
+	sb.WriteString(" SET ")
+
+	for i, set := range stmt.Assignments {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(set.Column)
+		sb.WriteString(" = ")
+		sb.WriteString(exprToString(set.Value))
+	}
+
+	if stmt.Where != nil {
+		sb.WriteString(" WHERE ")
+		sb.WriteString(exprToString(stmt.Where))
+	}
+
+	return sb.String()
+}
+
+// deleteStmtToSQL converts a DELETE statement to SQL
+func deleteStmtToSQL(stmt *parser.DeleteStmt) string {
+	var sb strings.Builder
+	sb.WriteString("DELETE FROM ")
+	sb.WriteString(stmt.TableName)
+
+	if stmt.Where != nil {
+		sb.WriteString(" WHERE ")
+		sb.WriteString(exprToString(stmt.Where))
+	}
+
+	return sb.String()
+}
+
 // loadSchemaFromBTree reads all schema entries from page 1 and populates the catalog
 func (e *Executor) loadSchemaFromBTree() error {
 	// Use cursor to iterate over all entries in the schema B-tree
@@ -311,6 +437,51 @@ func (e *Executor) loadViewSchema(entry *dbfile.SchemaEntry) error {
 
 // loadTriggerSchema reconstructs a trigger from its stored SQL
 func (e *Executor) loadTriggerSchema(entry *dbfile.SchemaEntry) error {
-	// TODO: Implement trigger loading
-	return nil
+	// Parse the CREATE TRIGGER SQL
+	p := parser.New(entry.SQL)
+	stmt, err := p.Parse()
+	if err != nil {
+		return fmt.Errorf("failed to parse trigger SQL: %w", err)
+	}
+
+	createStmt, ok := stmt.(*parser.CreateTriggerStmt)
+	if !ok {
+		return fmt.Errorf("expected CREATE TRIGGER statement")
+	}
+
+	// Convert parser types to schema types
+	var timing schema.TriggerTiming
+	switch createStmt.Timing {
+	case parser.TriggerBefore:
+		timing = schema.TriggerBefore
+	case parser.TriggerAfter:
+		timing = schema.TriggerAfter
+	}
+
+	var event schema.TriggerEvent
+	switch createStmt.Event {
+	case parser.TriggerEventInsert:
+		event = schema.TriggerInsert
+	case parser.TriggerEventUpdate:
+		event = schema.TriggerUpdate
+	case parser.TriggerEventDelete:
+		event = schema.TriggerDelete
+	}
+
+	// Store parsed action statements
+	actions := make([]interface{}, len(createStmt.Actions))
+	for i, action := range createStmt.Actions {
+		actions[i] = action
+	}
+
+	trigger := &schema.TriggerDef{
+		Name:      entry.Name,
+		TableName: entry.TableName,
+		Timing:    timing,
+		Event:     event,
+		SQL:       entry.SQL,
+		Actions:   actions,
+	}
+
+	return e.catalog.CreateTrigger(trigger)
 }

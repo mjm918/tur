@@ -442,17 +442,32 @@ func (e *Executor) executeCreateTrigger(stmt *parser.CreateTriggerStmt) (*Result
 		actions[i] = action
 	}
 
+	// Reconstruct SQL for persistence
+	sql := reconstructCreateTriggerSQL(stmt)
+
 	trigger := &schema.TriggerDef{
 		Name:      stmt.TriggerName,
 		TableName: stmt.TableName,
 		Timing:    timing,
 		Event:     event,
-		SQL:       "", // TODO: Store original SQL for persistence
+		SQL:       sql,
 		Actions:   actions,
 	}
 
 	if err := e.catalog.CreateTrigger(trigger); err != nil {
 		return nil, err
+	}
+
+	// Persist trigger schema to B-tree
+	entry := &dbfile.SchemaEntry{
+		Type:      dbfile.SchemaEntryTrigger,
+		Name:      stmt.TriggerName,
+		TableName: stmt.TableName,
+		RootPage:  0, // Triggers don't have a root page
+		SQL:       sql,
+	}
+	if err := e.persistSchemaEntry(entry); err != nil {
+		return nil, fmt.Errorf("failed to persist trigger schema: %w", err)
 	}
 
 	return &Result{}, nil
@@ -470,6 +485,11 @@ func (e *Executor) executeDropTrigger(stmt *parser.DropTriggerStmt) (*Result, er
 
 	if err := e.catalog.DropTrigger(stmt.TriggerName); err != nil {
 		return nil, err
+	}
+
+	// Delete schema entry from B-tree
+	if err := e.deleteSchemaEntry(stmt.TriggerName); err != nil {
+		// Log but don't fail - catalog already updated
 	}
 
 	return &Result{}, nil
