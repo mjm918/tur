@@ -2011,7 +2011,7 @@
         },
         {
           "task": "Check context cancellation in VDBE execution loop",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement query timeout using context deadline",

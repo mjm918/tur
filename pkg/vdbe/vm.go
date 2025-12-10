@@ -2,6 +2,7 @@
 package vdbe
 
 import (
+	"context"
 	"fmt"
 
 	"tur/pkg/btree"
@@ -156,10 +157,28 @@ func (vm *VM) GetAggregateContext(idx int) AggregateFunc {
 
 // Run executes the program until halt
 func (vm *VM) Run() error {
+	return vm.RunContext(context.Background())
+}
+
+// RunContext executes the program until halt with context support.
+// The context can be used for cancellation and timeout control.
+// Context is checked every contextCheckInterval steps to balance
+// responsiveness with performance.
+func (vm *VM) RunContext(ctx context.Context) error {
 	vm.halted = false
 	maxSteps := 1000000 // Safety limit
 
+	// Check context every N steps to balance responsiveness with performance
+	const contextCheckInterval = 100
+
 	for steps := 0; !vm.halted && steps < maxSteps; steps++ {
+		// Check context periodically (every contextCheckInterval steps)
+		if steps%contextCheckInterval == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+
 		if vm.pc < 0 || vm.pc >= vm.program.Len() {
 			return fmt.Errorf("program counter out of bounds: %d", vm.pc)
 		}
