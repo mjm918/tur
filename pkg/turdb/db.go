@@ -4,8 +4,10 @@ package turdb
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"tur/pkg/btree"
 	"tur/pkg/hnsw"
@@ -348,6 +350,38 @@ func valueToGo(v types.Value) interface{} {
 		return v.Blob()
 	case types.TypeVector:
 		return v.Vector()
+	case types.TypeDate:
+		year, month, day := v.DateValue()
+		return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	case types.TypeTime:
+		hour, min, sec, usec := v.TimeValue()
+		return fmt.Sprintf("%02d:%02d:%02d.%06d", hour, min, sec, usec)
+	case types.TypeTimeTZ:
+		hour, min, sec, usec, offset := v.TimeTZValue()
+		sign := "+"
+		if offset < 0 {
+			sign = "-"
+			offset = -offset
+		}
+		offsetHours := offset / 3600
+		offsetMins := (offset % 3600) / 60
+		return fmt.Sprintf("%02d:%02d:%02d.%06d%s%02d:%02d", hour, min, sec, usec, sign, offsetHours, offsetMins)
+	case types.TypeTimestamp:
+		return v.TimestampValue()
+	case types.TypeTimestampTZ:
+		return v.TimestampTZValue()
+	case types.TypeInterval:
+		months, usec := v.IntervalValue()
+		years := months / 12
+		remainingMonths := months % 12
+		days := usec / (24 * 3600 * 1000000)
+		remainingUsec := usec % (24 * 3600 * 1000000)
+		hours := remainingUsec / (3600 * 1000000)
+		remainingUsec = remainingUsec % (3600 * 1000000)
+		mins := remainingUsec / (60 * 1000000)
+		remainingUsec = remainingUsec % (60 * 1000000)
+		secs := remainingUsec / 1000000
+		return fmt.Sprintf("%d years %d months %d days %02d:%02d:%02d", years, remainingMonths, days, hours, mins, secs)
 	default:
 		return nil
 	}

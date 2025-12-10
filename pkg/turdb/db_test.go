@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"tur/pkg/types"
 )
 
 func TestDB_HasRequiredFields(t *testing.T) {
@@ -173,5 +176,32 @@ func TestDB_ReopenAfterClose(t *testing.T) {
 
 	if db2.IsClosed() {
 		t.Error("reopened connection should not be closed")
+	}
+}
+
+func TestValueToGo_DateTimeTypes(t *testing.T) {
+	// Test that valueToGo correctly converts date/time types
+	// These types should NOT return nil
+	
+	tests := []struct {
+		name     string
+		value    types.Value
+		expected string // Type name we expect (not nil)
+	}{
+		{"Date", types.NewDate(2025, 12, 10), "time.Time"},
+		{"Time", types.NewTime(14, 30, 45, 0), "string"},
+		{"TimeTZ", types.NewTimeTZ(14, 30, 45, 0, 0), "string"},
+		{"Timestamp", types.NewTimestamp(2025, 12, 10, 14, 30, 45, 0), "time.Time"},
+		{"TimestampTZ", types.NewTimestampTZ(time.Date(2025, 12, 10, 14, 30, 45, 0, time.UTC)), "time.Time"},
+		{"Interval", types.NewInterval(12, 3600*1000000), "string"},
+	}
+	
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := valueToGo(tc.value)
+			if result == nil {
+				t.Errorf("valueToGo(%s) returned nil, expected non-nil %s", tc.name, tc.expected)
+			}
+		})
 	}
 }
