@@ -427,3 +427,190 @@ func TestInsertOnDuplicateKeyUpdateNoChange(t *testing.T) {
 		t.Errorf("expected 0 rows affected (no change), got %d", result.RowsAffected)
 	}
 }
+
+func TestBulkInsertOnDuplicateKeyUpdate(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "test_bulk_ondup_*.db")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	tmpFile.Close()
+	defer os.Remove(tmpFile.Name())
+
+	p, err := pager.Open(tmpFile.Name(), pager.Options{})
+	if err != nil {
+		t.Fatalf("failed to open pager: %v", err)
+	}
+
+	exec := New(p)
+	defer exec.Close()
+
+	_, err = exec.Execute("CREATE TABLE inventory (product_id INTEGER PRIMARY KEY, qty INTEGER, name TEXT)")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	// Insert initial data
+	_, err = exec.Execute("INSERT INTO inventory (product_id, qty, name) VALUES (1, 10, 'Widget'), (2, 20, 'Gadget')")
+	if err != nil {
+		t.Fatalf("failed to insert initial data: %v", err)
+	}
+
+	// Bulk upsert: update existing (1, 2) and insert new (3)
+	result, err := exec.Execute(`
+		INSERT INTO inventory (product_id, qty, name)
+		VALUES (1, 5, 'Widget Updated'), (2, 10, 'Gadget'), (3, 30, 'Gizmo')
+		ON DUPLICATE KEY UPDATE qty = qty + VALUES(qty), name = VALUES(name)
+	`)
+	if err != nil {
+		t.Fatalf("failed to bulk upsert: %v", err)
+	}
+
+	// Expected: 2 updates with changes + 1 insert = 2*2 + 1 = 5
+	if result.RowsAffected != 5 {
+		t.Errorf("expected 5 rows affected, got %d", result.RowsAffected)
+	}
+
+	// Verify results
+	selectResult, err := exec.Execute("SELECT product_id, qty, name FROM inventory ORDER BY product_id")
+	if err != nil {
+		t.Fatalf("select error: %v", err)
+	}
+
+	expected := []struct {
+		id   int64
+		qty  int64
+		name string
+	}{
+		{1, 15, "Widget Updated"}, // 10 + 5
+		{2, 30, "Gadget"},         // 20 + 10
+		{3, 30, "Gizmo"},          // new
+	}
+
+	if len(selectResult.Rows) != len(expected) {
+		t.Fatalf("expected %d rows, got %d", len(expected), len(selectResult.Rows))
+	}
+
+	for i, exp := range expected {
+		row := selectResult.Rows[i]
+		if row[0].Int() != exp.id {
+			t.Errorf("row %d: expected id=%d, got %d", i, exp.id, row[0].Int())
+		}
+		if row[1].Int() != exp.qty {
+			t.Errorf("row %d: expected qty=%d, got %d", i, exp.qty, row[1].Int())
+		}
+		if row[2].Text() != exp.name {
+			t.Errorf("row %d: expected name=%q, got %q", i, exp.name, row[2].Text())
+		}
+	}
+}
+
+func TestOnDuplicateKeyUpdateWithUniqueIndex(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "test_ondup_unique_*.db")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	tmpFile.Close()
+	defer os.Remove(tmpFile.Name())
+
+	p, err := pager.Open(tmpFile.Name(), pager.Options{})
+	if err != nil {
+		t.Fatalf("failed to open pager: %v", err)
+	}
+
+	exec := New(p)
+	defer exec.Close()
+
+	// Create table with both PRIMARY KEY and UNIQUE constraint
+	_, err = exec.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT UNIQUE, name TEXT)")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	// Insert initial user
+	_, err = exec.Execute("INSERT INTO users (id, email, name) VALUES (1, 'alice@example.com', 'Alice')")
+	if err != nil {
+		t.Fatalf("failed to insert: %v", err)
+	}
+
+	// Try to insert with same email (different id) - should trigger update
+	result, err := exec.Execute(`
+		INSERT INTO users (id, email, name) VALUES (2, 'alice@example.com', 'Alice Smith')
+		ON DUPLICATE KEY UPDATE name = VALUES(name)
+	`)
+	if err != nil {
+		t.Fatalf("failed to upsert: %v", err)
+	}
+	if result.RowsAffected != 2 {
+		t.Errorf("expected 2 rows affected (update), got %d", result.RowsAffected)
+	}
+
+	// Verify: should still be id=1 with updated name
+	selectResult, err := exec.Execute("SELECT id, email, name FROM users")
+	if err != nil {
+		t.Fatalf("select error: %v", err)
+	}
+
+	if len(selectResult.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(selectResult.Rows))
+	}
+
+	row := selectResult.Rows[0]
+	if row[0].Int() != 1 {
+		t.Errorf("expected id=1, got %d", row[0].Int())
+	}
+	if row[2].Text() != "Alice Smith" {
+		t.Errorf("expected name='Alice Smith', got %q", row[2].Text())
+	}
+}
+
+func TestOnDuplicateKeyUpdateExpressions(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "test_ondup_expr_*.db")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	tmpFile.Close()
+	defer os.Remove(tmpFile.Name())
+
+	p, err := pager.Open(tmpFile.Name(), pager.Options{})
+	if err != nil {
+		t.Fatalf("failed to open pager: %v", err)
+	}
+
+	exec := New(p)
+	defer exec.Close()
+
+	_, err = exec.Execute("CREATE TABLE stats (id INTEGER PRIMARY KEY, count INTEGER, total REAL)")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	// Insert initial
+	_, err = exec.Execute("INSERT INTO stats (id, count, total) VALUES (1, 1, 100.0)")
+	if err != nil {
+		t.Fatalf("failed to insert: %v", err)
+	}
+
+	// Test various expressions
+	_, err = exec.Execute(`
+		INSERT INTO stats (id, count, total) VALUES (1, 1, 50.5)
+		ON DUPLICATE KEY UPDATE
+			count = count + 1,
+			total = total + VALUES(total)
+	`)
+	if err != nil {
+		t.Fatalf("failed to upsert: %v", err)
+	}
+
+	selectResult, err := exec.Execute("SELECT count, total FROM stats WHERE id = 1")
+	if err != nil {
+		t.Fatalf("select error: %v", err)
+	}
+
+	row := selectResult.Rows[0]
+	if row[0].Int() != 2 {
+		t.Errorf("expected count=2, got %d", row[0].Int())
+	}
+	if row[1].Float() != 150.5 {
+		t.Errorf("expected total=150.5, got %f", row[1].Float())
+	}
+}
