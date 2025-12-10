@@ -566,3 +566,31 @@ func TestLexer_RaiseKeywords(t *testing.T) {
 		}
 	}
 }
+
+func TestLexerDuplicateKeyword(t *testing.T) {
+	input := "ON DUPLICATE KEY UPDATE"
+	l := New(input)
+
+	expected := []struct {
+		expectedType    TokenType
+		expectedLiteral string
+	}{
+		{ON, "ON"},
+		{DUPLICATE, "DUPLICATE"},
+		{KEY, "KEY"},
+		{UPDATE, "UPDATE"},
+		{EOF, ""},
+	}
+
+	for i, tt := range expected {
+		tok := l.NextToken()
+		if tok.Type != tt.expectedType {
+			t.Fatalf("tests[%d] - tokentype wrong. expected=%q, got=%q",
+				i, tt.expectedType, tok.Type)
+		}
+		if tok.Literal != tt.expectedLiteral {
+			t.Fatalf("tests[%d] - literal wrong. expected=%q, got=%q",
+				i, tt.expectedLiteral, tok.Literal)
+		}
+	}
+}
