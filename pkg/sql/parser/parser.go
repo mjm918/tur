@@ -4,6 +4,7 @@ package parser
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"tur/pkg/sql/lexer"
 	"tur/pkg/types"
@@ -633,6 +634,61 @@ func (p *Parser) parseInsert() (*InsertStmt, error) {
 		stmt.SelectStmt = selectStmt
 	} else {
 		return nil, fmt.Errorf("expected VALUES or SELECT, got %s", p.cur.Literal)
+	}
+
+	// Check for ON DUPLICATE KEY UPDATE clause
+	if p.peekIs(lexer.ON) {
+		p.nextToken() // consume ON
+
+		// Expect DUPLICATE
+		if !p.expectPeek(lexer.DUPLICATE) {
+			return nil, fmt.Errorf("expected DUPLICATE after ON, got %s", p.peek.Literal)
+		}
+
+		// Expect KEY
+		if !p.expectPeek(lexer.KEY) {
+			return nil, fmt.Errorf("expected KEY after DUPLICATE, got %s", p.peek.Literal)
+		}
+
+		// Expect UPDATE
+		if !p.expectPeek(lexer.UPDATE) {
+			return nil, fmt.Errorf("expected UPDATE after KEY, got %s", p.peek.Literal)
+		}
+
+		// Parse assignments: col1 = val1, col2 = val2, ...
+		var assignments []Assignment
+		for {
+			// Column name
+			if !p.expectPeek(lexer.IDENT) {
+				return nil, fmt.Errorf("expected column name in ON DUPLICATE KEY UPDATE, got %s", p.peek.Literal)
+			}
+			colName := p.cur.Literal
+
+			// =
+			if !p.expectPeek(lexer.EQ) {
+				return nil, fmt.Errorf("expected '=' after column name, got %s", p.peek.Literal)
+			}
+
+			// Expression
+			p.nextToken()
+			expr, err := p.parseExpression(LOWEST)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse expression in ON DUPLICATE KEY UPDATE: %w", err)
+			}
+
+			assignments = append(assignments, Assignment{
+				Column: colName,
+				Value:  expr,
+			})
+
+			// Check for more assignments
+			if !p.peekIs(lexer.COMMA) {
+				break
+			}
+			p.nextToken() // consume comma
+		}
+
+		stmt.OnDuplicateKey = assignments
 	}
 
 	return stmt, nil
@@ -1528,6 +1584,12 @@ func (p *Parser) parsePrefixExpression() (Expression, error) {
 			return nil, err
 		}
 		return &UnaryExpr{Op: op, Right: right}, nil
+	case lexer.VALUES:
+		// Handle VALUES(column) function
+		if p.peekIs(lexer.LPAREN) {
+			return p.parseFunctionCall()
+		}
+		return nil, fmt.Errorf("VALUES must be followed by '('")
 	case lexer.IDENT:
 		// Check if this is a function call (IDENT followed by LPAREN)
 		if p.peekIs(lexer.LPAREN) {
@@ -1597,15 +1659,6 @@ func (p *Parser) parseFunctionCall() (Expression, error) {
 	if p.peekIs(lexer.RPAREN) {
 		p.nextToken()
 		return p.maybeParseWindowFunction(funcCall)
-		// Check for OVER clause (window function)
-		if p.peekIs(lexer.OVER) {
-			return p.parseWindowFunction(funcCall)
-		}
-		// Check for OVER clause
-		if p.peekIs(lexer.OVER) {
-			return p.parseWindowFunction(funcCall)
-		}
-		return funcCall, nil
 	}
 
 	// Handle COUNT(*) special case
@@ -1616,15 +1669,6 @@ func (p *Parser) parseFunctionCall() (Expression, error) {
 		if !p.expectPeek(lexer.RPAREN) {
 			return nil, fmt.Errorf("expected ')' after '*'")
 		}
-		// Check for OVER clause
-		if p.peekIs(lexer.OVER) {
-			return p.parseWindowFunction(funcCall)
-		}
-		// Check for OVER clause (window function)
-		if p.peekIs(lexer.OVER) {
-			return p.parseWindowFunction(funcCall)
-		}
-		return funcCall, nil
 		return p.maybeParseWindowFunction(funcCall)
 	}
 
@@ -1646,6 +1690,18 @@ func (p *Parser) parseFunctionCall() (Expression, error) {
 
 	if !p.expectPeek(lexer.RPAREN) {
 		return nil, fmt.Errorf("expected ')' or ',' in function call")
+	}
+
+	// Special handling for VALUES(column) function
+	if strings.ToUpper(funcCall.Name) == "VALUES" {
+		if len(funcCall.Args) != 1 {
+			return nil, fmt.Errorf("VALUES() function requires exactly one argument")
+		}
+		colRef, ok := funcCall.Args[0].(*ColumnRef)
+		if !ok {
+			return nil, fmt.Errorf("VALUES() argument must be a column name")
+		}
+		return &ValuesFunc{ColumnName: colRef.Name}, nil
 	}
 
 	return p.maybeParseWindowFunction(funcCall)
