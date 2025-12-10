@@ -239,3 +239,44 @@ func TestDropIndex_RemovesSchema(t *testing.T) {
 		t.Error("Table was incorrectly removed when dropping index")
 	}
 }
+
+func TestCreateView_PersistsSchema(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test_create_view_persist.db")
+
+	// Phase 1: Create table and view, then close
+	p, err := pager.Open(path, pager.Options{})
+	if err != nil {
+		t.Fatalf("Failed to open pager: %v", err)
+	}
+
+	exec := New(p)
+	_, err = exec.Execute("CREATE TABLE users (id INT, name TEXT, age INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE failed: %v", err)
+	}
+
+	_, err = exec.Execute("CREATE VIEW adult_users AS SELECT id, name FROM users WHERE age >= 18")
+	if err != nil {
+		t.Fatalf("CREATE VIEW failed: %v", err)
+	}
+
+	p.Close()
+
+	// Phase 2: Reopen and verify view persisted
+	p2, err := pager.Open(path, pager.Options{})
+	if err != nil {
+		t.Fatalf("Failed to reopen pager: %v", err)
+	}
+	defer p2.Close()
+
+	exec2 := New(p2)
+	view := exec2.catalog.GetView("adult_users")
+	if view == nil {
+		t.Fatal("View 'adult_users' not found after reopen - schema not persisted")
+	}
+
+	if view.Name != "adult_users" {
+		t.Errorf("Expected view name 'adult_users', got %s", view.Name)
+	}
+}
