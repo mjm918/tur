@@ -2003,7 +2003,7 @@
     {
       "title": "API - Context Support",
       "description": "Integration with context.Context for cancellation and timeouts",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Add context.Context parameter to API methods",
@@ -2019,7 +2019,7 @@
         },
         {
           "task": "Clean up resources on context cancellation",
-          "done": false
+          "done": true
         }
       ]
     },

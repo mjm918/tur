@@ -111,3 +111,60 @@ func TestVM_Run_StillWorks(t *testing.T) {
 		t.Fatalf("Run failed: %v", err)
 	}
 }
+
+func TestVM_Cleanup_ClosesAllCursors(t *testing.T) {
+	// Test that Cleanup properly closes all open cursors
+	program := NewProgram()
+	program.AddOp(OpInit, 0, 1, 0)
+	program.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(program, nil)
+
+	// Manually create some cursor slots to simulate open cursors
+	// In real usage, these would be created by OpOpenRead/OpOpenWrite
+	vm.cursors = make([]*VDBECursor, 3)
+	vm.cursors[0] = &VDBECursor{isOpen: true}
+	vm.cursors[1] = &VDBECursor{isOpen: true}
+	vm.cursors[2] = nil // Nil cursor should be handled gracefully
+
+	// Call cleanup
+	vm.Cleanup()
+
+	// Verify all cursors are closed
+	for i, cursor := range vm.cursors {
+		if cursor != nil && cursor.isOpen {
+			t.Errorf("cursor %d should be closed after Cleanup", i)
+		}
+	}
+}
+
+func TestVM_RunContext_CleansUpOnCancellation(t *testing.T) {
+	// Verify that context cancellation triggers resource cleanup
+	program := NewProgram()
+	program.AddOp(OpInit, 0, 1, 0)  // Jump to address 1
+	program.AddOp(OpGoto, 0, 1, 0)  // Loop back to address 1 (infinite loop)
+
+	vm := NewVM(program, nil)
+
+	// Manually set up cursors to verify they get cleaned up
+	vm.cursors = make([]*VDBECursor, 2)
+	vm.cursors[0] = &VDBECursor{isOpen: true}
+	vm.cursors[1] = &VDBECursor{isOpen: true}
+
+	// Create an already-canceled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// Run should return context error
+	err := vm.RunContext(ctx)
+	if err != context.Canceled {
+		t.Errorf("expected context.Canceled, got: %v", err)
+	}
+
+	// Verify cursors were cleaned up
+	for i, cursor := range vm.cursors {
+		if cursor != nil && cursor.isOpen {
+			t.Errorf("cursor %d should be closed after context cancellation", i)
+		}
+	}
+}

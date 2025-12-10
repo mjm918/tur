@@ -160,10 +160,35 @@ func (vm *VM) Run() error {
 	return vm.RunContext(context.Background())
 }
 
+// Cleanup releases all resources held by the VM.
+// This includes closing all open cursors and clearing aggregate contexts.
+// Cleanup is called automatically when RunContext returns due to context cancellation.
+func (vm *VM) Cleanup() {
+	// Close all open cursors
+	for i, cursor := range vm.cursors {
+		if cursor != nil && cursor.isOpen {
+			if cursor.cursor != nil {
+				cursor.cursor.Close()
+			}
+			cursor.isOpen = false
+		}
+		vm.cursors[i] = nil
+	}
+
+	// Clear aggregate contexts
+	for i := range vm.aggregates {
+		vm.aggregates[i] = nil
+	}
+
+	// Clear results to free memory
+	vm.results = nil
+}
+
 // RunContext executes the program until halt with context support.
 // The context can be used for cancellation and timeout control.
 // Context is checked every contextCheckInterval steps to balance
 // responsiveness with performance.
+// When the context is cancelled, Cleanup is called to release resources.
 func (vm *VM) RunContext(ctx context.Context) error {
 	vm.halted = false
 	maxSteps := 1000000 // Safety limit
@@ -175,6 +200,8 @@ func (vm *VM) RunContext(ctx context.Context) error {
 		// Check context periodically (every contextCheckInterval steps)
 		if steps%contextCheckInterval == 0 {
 			if err := ctx.Err(); err != nil {
+				// Clean up resources on context cancellation
+				vm.Cleanup()
 				return err
 			}
 		}
