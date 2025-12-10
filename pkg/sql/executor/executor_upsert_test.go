@@ -147,3 +147,52 @@ func TestFindConflictingRowNullAllowed(t *testing.T) {
 		t.Errorf("expected no conflict for NULL values, got rowID=%d", rowID)
 	}
 }
+
+func TestGetRowByID(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "test_getrow_*.db")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	tmpFile.Close()
+	defer os.Remove(tmpFile.Name())
+
+	p, err := pager.Open(tmpFile.Name(), pager.Options{})
+	if err != nil {
+		t.Fatalf("failed to open pager: %v", err)
+	}
+
+	exec := New(p)
+	defer exec.Close()
+
+	_, err = exec.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	_, err = exec.Execute("INSERT INTO users (id, name, age) VALUES (1, 'Alice', 30)")
+	if err != nil {
+		t.Fatalf("failed to insert: %v", err)
+	}
+
+	table := exec.catalog.GetTable("users")
+
+	// The first inserted row should have rowID 1 (CREATE TABLE initializes rowid to 1)
+	values, err := exec.getRowByID(table, 1)
+	if err != nil {
+		t.Fatalf("getRowByID error: %v", err)
+	}
+
+	if len(values) != 3 {
+		t.Fatalf("expected 3 values, got %d", len(values))
+	}
+
+	if values[0].Int() != 1 {
+		t.Errorf("expected id=1, got %v", values[0])
+	}
+	if values[1].Text() != "Alice" {
+		t.Errorf("expected name='Alice', got %v", values[1])
+	}
+	if values[2].Int() != 30 {
+		t.Errorf("expected age=30, got %v", values[2])
+	}
+}

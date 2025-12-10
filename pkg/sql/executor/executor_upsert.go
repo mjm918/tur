@@ -2,6 +2,7 @@ package executor
 
 import (
 	"encoding/binary"
+	"fmt"
 
 	"tur/pkg/btree"
 	"tur/pkg/record"
@@ -64,4 +65,25 @@ func (e *Executor) findConflictingRow(table *schema.TableDef, values []types.Val
 	}
 
 	return -1, nil
+}
+
+// getRowByID retrieves a row from the table by its internal rowID
+func (e *Executor) getRowByID(table *schema.TableDef, rowID int64) ([]types.Value, error) {
+	tree := e.trees[table.Name]
+	if tree == nil {
+		tree = btree.Open(e.pager, table.RootPage)
+		e.trees[table.Name] = tree
+	}
+
+	key := make([]byte, 8)
+	binary.BigEndian.PutUint64(key, uint64(rowID))
+
+	data, err := tree.Get(key)
+	if err != nil {
+		return nil, fmt.Errorf("row not found: %w", err)
+	}
+
+	values := record.Decode(data)
+
+	return values, nil
 }
