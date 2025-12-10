@@ -2,6 +2,7 @@
 package turdb
 
 import (
+	"context"
 	"errors"
 	"os"
 	"sync"
@@ -200,8 +201,25 @@ func (db *DB) Catalog() *schema.Catalog {
 // Exec executes a SQL statement and returns the result.
 // It is a convenience method that prepares, executes, and closes a statement.
 func (db *DB) Exec(sql string) (*QueryResult, error) {
+	return db.ExecContext(context.Background(), sql)
+}
+
+// ExecContext executes a SQL statement with context support.
+// The context can be used for cancellation and timeout control.
+// If the context is canceled or times out, the operation returns the context's error.
+func (db *DB) ExecContext(ctx context.Context, sql string) (*QueryResult, error) {
+	// Check context before acquiring lock
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	db.mu.Lock()
 	defer db.mu.Unlock()
+
+	// Check context again after acquiring lock
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	if db.closed {
 		return nil, ErrDatabaseClosed

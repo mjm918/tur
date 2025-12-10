@@ -2,6 +2,7 @@
 package turdb
 
 import (
+	"context"
 	"errors"
 	"sync"
 
@@ -43,8 +44,25 @@ type Tx struct {
 //
 //	return tx.Commit()
 func (db *DB) Begin() (*Tx, error) {
+	return db.BeginContext(context.Background())
+}
+
+// BeginContext starts a new database transaction with context support.
+// The context can be used for cancellation and timeout control.
+// If the context is canceled or times out, the operation returns the context's error.
+func (db *DB) BeginContext(ctx context.Context) (*Tx, error) {
+	// Check context before acquiring lock
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	db.mu.Lock()
 	defer db.mu.Unlock()
+
+	// Check context again after acquiring lock
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	if db.closed {
 		return nil, ErrDatabaseClosed
@@ -136,8 +154,25 @@ func (tx *Tx) Rollback() error {
 //
 //	return tx.Commit()
 func (tx *Tx) Exec(sql string) (*QueryResult, error) {
+	return tx.ExecContext(context.Background(), sql)
+}
+
+// ExecContext executes a SQL statement within the transaction with context support.
+// The context can be used for cancellation and timeout control.
+// If the context is canceled or times out, the operation returns the context's error.
+func (tx *Tx) ExecContext(ctx context.Context, sql string) (*QueryResult, error) {
+	// Check context before acquiring lock
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	tx.mu.Lock()
 	defer tx.mu.Unlock()
+
+	// Check context again after acquiring lock
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	if tx.done {
 		return nil, ErrTxDone
@@ -145,6 +180,12 @@ func (tx *Tx) Exec(sql string) (*QueryResult, error) {
 
 	// Execute using the database's executor with our transaction context
 	tx.db.mu.Lock()
+
+	// Check context after acquiring database lock
+	if err := ctx.Err(); err != nil {
+		tx.db.mu.Unlock()
+		return nil, err
+	}
 
 	// Save current transaction and set ours
 	prevTx := tx.db.executor.GetTransaction()
