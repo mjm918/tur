@@ -9,6 +9,7 @@ import (
 
 	"tur/pkg/btree"
 	"tur/pkg/cache"
+	"tur/pkg/dbfile"
 	"tur/pkg/hnsw"
 	"tur/pkg/mvcc"
 	"tur/pkg/pager"
@@ -310,6 +311,24 @@ func (e *Executor) executeCreateTable(stmt *parser.CreateTableStmt) (*Result, er
 	// Store tree reference
 	e.trees[stmt.TableName] = tree
 	e.rowid[stmt.TableName] = 1
+
+	// Persist schema to disk
+	sql := reconstructCreateTableSQL(stmt)
+	schemaEntry := &dbfile.SchemaEntry{
+		Type:      dbfile.SchemaEntryTable,
+		Name:      stmt.TableName,
+		TableName: stmt.TableName,
+		RootPage:  tree.RootPage(),
+		SQL:       sql,
+	}
+
+	if err := e.persistSchemaEntry(schemaEntry); err != nil {
+		// Rollback catalog change on persistence failure
+		e.catalog.DropTable(stmt.TableName)
+		delete(e.trees, stmt.TableName)
+		delete(e.rowid, stmt.TableName)
+		return nil, fmt.Errorf("failed to persist schema: %w", err)
+	}
 
 	// Auto-create unique index for PRIMARY KEY columns
 	if err := e.createPrimaryKeyIndex(table); err != nil {
