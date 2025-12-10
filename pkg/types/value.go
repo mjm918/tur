@@ -94,7 +94,7 @@ func NewDate(year, month, day int) Value {
 	// PostgreSQL epoch: 2000-01-01
 	epoch := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 	date := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
-	days := int32(date.Sub(epoch).Hours() / 24)
+	days := int32(date.Sub(epoch) / (24 * time.Hour))
 	return Value{typ: TypeDate, dateVal: days}
 }
 

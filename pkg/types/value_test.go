@@ -128,3 +128,59 @@ func TestIntervalType(t *testing.T) {
 		t.Errorf("expected 14 months, got %d", months)
 	}
 }
+
+func TestDateBeforeEpoch(t *testing.T) {
+	// Date before PostgreSQL epoch (2000-01-01)
+	d := NewDate(1999, 12, 31)
+	year, month, day := d.DateValue()
+	if year != 1999 || month != 12 || day != 31 {
+		t.Errorf("expected 1999-12-31, got %d-%d-%d", year, month, day)
+	}
+}
+
+func TestDateBoundary(t *testing.T) {
+	// Test leap year
+	d := NewDate(2000, 2, 29)
+	year, month, day := d.DateValue()
+	if year != 2000 || month != 2 || day != 29 {
+		t.Errorf("expected 2000-02-29, got %d-%d-%d", year, month, day)
+	}
+
+	// Far future date
+	d = NewDate(2100, 6, 15)
+	year, month, day = d.DateValue()
+	if year != 2100 || month != 6 || day != 15 {
+		t.Errorf("expected 2100-06-15, got %d-%d-%d", year, month, day)
+	}
+}
+
+func TestTimestampTZFromNonUTC(t *testing.T) {
+	// Create timestamp in non-UTC timezone
+	loc, _ := time.LoadLocation("America/New_York")
+	localTime := time.Date(2025, 12, 10, 14, 30, 0, 0, loc)
+
+	ts := NewTimestampTZ(localTime)
+	stored := ts.TimestampTZValue()
+
+	// Should be stored as UTC
+	if stored.Location() != time.UTC {
+		t.Error("timestamptz should be stored in UTC")
+	}
+
+	// UTC time should be different from local time (EST is UTC-5)
+	if stored.Hour() == 14 {
+		t.Error("expected hour to be converted to UTC")
+	}
+}
+
+func TestIntervalNegative(t *testing.T) {
+	// Negative interval
+	iv := NewInterval(-2, -3600*1000000) // -2 months, -1 hour
+	months, usec := iv.IntervalValue()
+	if months != -2 {
+		t.Errorf("expected -2 months, got %d", months)
+	}
+	if usec != -3600*1000000 {
+		t.Errorf("expected -3600000000 usec, got %d", usec)
+	}
+}
