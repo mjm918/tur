@@ -50,7 +50,17 @@ func (l *Lexer) NextToken() Token {
 	case '+':
 		tok = l.newToken(PLUS, "+")
 	case '-':
-		tok = l.newToken(MINUS, "-")
+		if l.peekChar() == '>' {
+			l.readChar()
+			if l.peekChar() == '>' {
+				l.readChar()
+				tok = Token{Type: DOUBLE_ARROW, Literal: "->>", Pos: tok.Pos}
+			} else {
+				tok = Token{Type: ARROW, Literal: "->", Pos: tok.Pos}
+			}
+		} else {
+			tok = l.newToken(MINUS, "-")
+		}
 	case '*':
 		tok = l.newToken(STAR, "*")
 	case '/':
@@ -93,6 +103,10 @@ func (l *Lexer) NextToken() Token {
 		tok = l.newToken(RPAREN, ")")
 	case '@':
 		tok = l.newToken(AT, "@")
+	case '[':
+		tok = l.newToken(LBRACKET, "[")
+	case ']':
+		tok = l.newToken(RBRACKET, "]")
 	case '.':
 		if isDigit(l.peekChar()) {
 			tok.Literal = l.readNumber()

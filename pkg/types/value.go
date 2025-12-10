@@ -19,6 +19,7 @@ const (
 	TypeTimestamp   // Date and time without timezone
 	TypeTimestampTZ // Date and time in UTC
 	TypeInterval    // Duration for date arithmetic
+	TypeJSON        // JSON data type
 )
 
 // IntervalValue represents a duration for date arithmetic
@@ -40,6 +41,7 @@ type Value struct {
 	tzOffsetVal  int32         // Timezone offset in seconds for TIMETZ
 	timestampVal time.Time     // For TIMESTAMP and TIMESTAMPTZ
 	intervalVal  IntervalValue // For INTERVAL
+	jsonVal      string        // For JSON
 }
 
 func NewNull() Value {
@@ -180,6 +182,16 @@ func (v Value) IntervalValue() (months, microseconds int64) {
 	return v.intervalVal.Months, v.intervalVal.Microseconds
 }
 
+// NewJSON creates a new JSON value from a JSON string
+func NewJSON(s string) Value {
+	return Value{typ: TypeJSON, jsonVal: s}
+}
+
+// JSON returns the JSON string value
+func (v Value) JSON() string {
+	return v.jsonVal
+}
+
 // String returns the string representation of ValueType
 func (t ValueType) String() string {
 	switch t {
@@ -207,6 +219,8 @@ func (t ValueType) String() string {
 		return "TIMESTAMPTZ"
 	case TypeInterval:
 		return "INTERVAL"
+	case TypeJSON:
+		return "JSON"
 	default:
 		return "UNKNOWN"
 	}
@@ -320,6 +334,15 @@ func Compare(a, b Value) int {
 		if a.intervalVal.Microseconds < b.intervalVal.Microseconds {
 			return -1
 		} else if a.intervalVal.Microseconds > b.intervalVal.Microseconds {
+			return 1
+		}
+		return 0
+
+	case TypeJSON:
+		// Compare JSON values lexicographically by their string representation
+		if a.jsonVal < b.jsonVal {
+			return -1
+		} else if a.jsonVal > b.jsonVal {
 			return 1
 		}
 		return 0

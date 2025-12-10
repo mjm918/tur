@@ -551,6 +551,8 @@ func (p *Parser) parseColumnType() (types.ValueType, int, error) {
 		return types.TypeFloat, 0, nil
 	case lexer.BLOB_TYPE:
 		return types.TypeBlob, 0, nil
+	case lexer.JSON_TYPE_KW:
+		return types.TypeJSON, 0, nil
 	case lexer.VECTOR:
 		// Expect (dimension)
 		if !p.expectPeek(lexer.LPAREN) {
@@ -1548,9 +1550,11 @@ var precedences = map[lexer.TokenType]int{
 	lexer.GTE:   EQUALS,
 	lexer.PLUS:  SUM,
 	lexer.MINUS: SUM,
-	lexer.STAR:  PRODUCT,
-	lexer.SLASH: PRODUCT,
-	lexer.DOT:   CALL,
+	lexer.STAR:         PRODUCT,
+	lexer.SLASH:        PRODUCT,
+	lexer.DOT:          CALL,
+	lexer.ARROW:        CALL, // -> for JSON extract
+	lexer.DOUBLE_ARROW: CALL, // ->> for JSON extract unquote
 }
 
 // parseExpression parses an expression using Pratt parsing
@@ -2073,6 +2077,38 @@ func (p *Parser) parseInfixExpression(left Expression) (Expression, error) {
 	if p.cur.Type == lexer.NOT && p.peekIs(lexer.IN_KW) {
 		p.nextToken() // consume NOT, now on IN
 		return p.parseInExpression(left, true)
+	}
+
+	// Handle JSON operators -> and ->>
+	// Convert them to function calls: JSON_EXTRACT and JSON_UNQUOTE(JSON_EXTRACT(...))
+	if p.cur.Type == lexer.ARROW {
+		p.nextToken() // consume ->
+		right, err := p.parseExpression(CALL)
+		if err != nil {
+			return nil, err
+		}
+		// Convert to JSON_EXTRACT function call
+		return &FunctionCall{
+			Name: "JSON_EXTRACT",
+			Args: []Expression{left, right},
+		}, nil
+	}
+
+	if p.cur.Type == lexer.DOUBLE_ARROW {
+		p.nextToken() // consume ->>
+		right, err := p.parseExpression(CALL)
+		if err != nil {
+			return nil, err
+		}
+		// Convert to JSON_UNQUOTE(JSON_EXTRACT(left, right))
+		extractCall := &FunctionCall{
+			Name: "JSON_EXTRACT",
+			Args: []Expression{left, right},
+		}
+		return &FunctionCall{
+			Name: "JSON_UNQUOTE",
+			Args: []Expression{extractCall},
+		}, nil
 	}
 
 	expr := &BinaryExpr{

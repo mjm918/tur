@@ -208,6 +208,13 @@ const (
 	SQLWARNING
 	SQLSTATE
 	AT // @ for session variables
+
+	// JSON tokens
+	JSON_TYPE_KW  // JSON type keyword
+	ARROW         // -> for JSON extract
+	DOUBLE_ARROW  // ->> for JSON extract unquote
+	LBRACKET      // [ for array access
+	RBRACKET      // ] for array access
 )
 
 // Token represents a lexical token
@@ -514,6 +521,16 @@ func (t TokenType) String() string {
 		return "SQLSTATE"
 	case AT:
 		return "@"
+	case JSON_TYPE_KW:
+		return "JSON"
+	case ARROW:
+		return "->"
+	case DOUBLE_ARROW:
+		return "->>"
+	case LBRACKET:
+		return "["
+	case RBRACKET:
+		return "]"
 	default:
 		return "UNKNOWN"
 	}
@@ -644,6 +661,7 @@ var keywords = map[string]TokenType{
 	"SQLEXCEPTION": SQLEXCEPTION,
 	"SQLWARNING":   SQLWARNING,
 	"SQLSTATE":     SQLSTATE,
+	"JSON":         JSON_TYPE_KW,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT

@@ -540,6 +540,9 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Function: builtinDatePart,
 	})
 
+	// Register JSON functions
+	RegisterJSONFunctions(r)
+
 	return r
 }
 

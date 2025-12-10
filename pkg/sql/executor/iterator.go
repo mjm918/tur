@@ -6,6 +6,7 @@ import (
 
 	"tur/pkg/btree"
 	"tur/pkg/record"
+	"tur/pkg/schema"
 	"tur/pkg/sql/parser"
 	"tur/pkg/types"
 )
@@ -28,77 +29,41 @@ type RowIterator interface {
 // TableScanIterator iterates over a table using a B-tree cursor
 type TableScanIterator struct {
 	cursor *btree.Cursor
+	table  *schema.TableDef // Optional: for type conversion (JSON columns)
 	val    []types.Value
 }
 
 func NewTableScanIterator(tree *btree.BTree) *TableScanIterator {
 	cursor := tree.Cursor()
 	cursor.First()
-	// Cursor starts *before* the first element or at first?
-	// btree.Cursor logic: First() positions at first.
-	// But usually Next() is called to advance.
-	// Scan logic in executor.go: for cursor.First(); cursor.Valid(); cursor.Next()
-	// My Iterator interface usually assumes Next() moves to next.
-	// Does Next() return true if valid?
-	// Standard SQL iterator: Next() moves to next valid row and returns true.
-	// If First() puts it on first row, then iterator state should track "started".
-
 	return &TableScanIterator{
 		cursor: cursor,
 	}
 }
 
+// NewTableScanIteratorWithSchema creates a TableScanIterator with schema for type conversion
+func NewTableScanIteratorWithSchema(tree *btree.BTree, table *schema.TableDef) *TableScanIterator {
+	cursor := tree.Cursor()
+	cursor.First()
+	return &TableScanIterator{
+		cursor: cursor,
+		table:  table,
+	}
+}
+
 // Next advances to the next row
 func (it *TableScanIterator) Next() bool {
-	// If value is nil (first call), we might already rely on cursor being at First??
-	// Executor loop: cursor.First(); cursor.Valid(); cursor.Next()
-	// My iterator:
-	// First call to Next() -> check if current isValid?
-	// Or First call -> do nothing?
-	// Usually Iterator starts "before" first row.
-	// But btree cursor First() positions on first row.
-	// So first Next() should just start?
-	// Let's implement simpler:
-	// Store state "started".
-	// If !started: check Valid(). If valid, set started=true, decode value. Return true.
-	// If started: call cursor.Next(). Check Valid(). If valid, decode. Return true.
-
-	// But wait, constructing TableScanIterator calls cursor.First().
-	// So it's ALREADY on first row.
-	// So first call to Next() should return THIS row.
-	// Subsequent calls should call cursor.Next().
-
-	// This implies we need a flag `first`
-	// Or we initialize cursor before first row? BTree doesn't support that easily?
-	// Let's use `started` flag.
-
-	if it.val == nil { // Not started or cached? No, val is current row.
+	if it.val == nil { // First call
 		if !it.cursor.Valid() {
 			return false
 		}
-		// First row
 		valFunc := it.cursor.Value()
 		if valFunc == nil {
-			return false // specific logic for deleted?
+			return false
 		}
 		it.val = record.Decode(valFunc)
-		// We need to advance cursor for NEXT call?
-		// No, Next() puts us ON the row.
-		// So consecutive Next() calls:
-		// 1. Next() -> (started=false). Check Valid(). OK. Set started=true. Return true.
-		// 2. Next() -> (started=true). Call cursor.Next(). Check Valid(). OK. Return true.
-
-		// To handle this, we need a struct field `started bool`.
-		// But I defined `val []types.Value`. If `val` is set, we are on a row.
-		// But distinguishing "Before First" and "On First" using `val`?
-		// If `val` is nil, it might be Before First.
-		// But in Next(), if we are Before First, we stay on First.
-		// If we are On First, move to Second.
-		// Wait, this logic logic is messy.
-
-		// Better: NewTableScanIterator does NOT call First().
-		// Next() calls First() if first time, else Next().
-		return it.cursor.Valid() // placeholder logic, will fix in implementation below
+		it.applyTypeConversions()
+		return it.cursor.Valid()
 	}
 
 	it.cursor.Next()
@@ -113,7 +78,20 @@ func (it *TableScanIterator) Next() bool {
 		return false
 	}
 	it.val = record.Decode(valBytes)
+	it.applyTypeConversions()
 	return true
+}
+
+// applyTypeConversions converts TEXT back to JSON for JSON columns
+func (it *TableScanIterator) applyTypeConversions() {
+	if it.table == nil || it.val == nil {
+		return
+	}
+	for i, col := range it.table.Columns {
+		if i < len(it.val) && col.Type == types.TypeJSON && it.val[i].Type() == types.TypeText {
+			it.val[i] = types.NewJSON(it.val[i].Text())
+		}
+	}
 }
 
 func (it *TableScanIterator) Value() []types.Value {

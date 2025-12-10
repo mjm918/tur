@@ -1107,9 +1107,19 @@ func (e *Executor) executeInsertInternal(stmt *parser.InsertStmt, fireTriggers b
 			return nil, err
 		}
 
-		// Validate types and Normalize Vectors
+		// Validate types, convert JSON, and Normalize Vectors
 		for idx, val := range values {
 			colDef := table.Columns[idx]
+
+			// Convert TEXT to JSON for JSON columns
+			if colDef.Type == types.TypeJSON && !val.IsNull() {
+				if val.Type() == types.TypeText {
+					values[idx] = types.NewJSON(val.Text())
+				} else if val.Type() != types.TypeJSON {
+					return nil, fmt.Errorf("column %s expects JSON, got %v", colDef.Name, val.Type())
+				}
+			}
+
 			if colDef.Type == types.TypeVector && !val.IsNull() {
 				if val.Type() != types.TypeBlob {
 					return nil, fmt.Errorf("column %s expects VECTOR (blob), got %v", colDef.Name, val.Type())
@@ -2212,7 +2222,7 @@ func (e *Executor) executePlanWithCTEs(plan optimizer.PlanNode, cteData map[stri
 			e.trees[node.Table.Name] = tree
 		}
 
-		iterator := NewTableScanIterator(tree)
+		iterator := NewTableScanIteratorWithSchema(tree, node.Table)
 
 		// Build column names (with alias prefix if alias exists)
 		var cols []string
@@ -3247,6 +3257,8 @@ func (e *Executor) scanAllRows(tableName string, table *schema.TableDef) ([][]ty
 				// Copy to avoid any potential buffer reuse issues
 				rowCopy := make([]types.Value, len(row))
 				copy(rowCopy, row)
+				// Convert TEXT back to JSON for JSON columns
+				rowCopy = convertRowTypesForSchema(rowCopy, table)
 				rows = append(rows, rowCopy)
 			}
 		}
@@ -3255,6 +3267,17 @@ func (e *Executor) scanAllRows(tableName string, table *schema.TableDef) ([][]ty
 
 	cursor.Close()
 	return rows, nil
+}
+
+// convertRowTypesForSchema converts row values to match the schema types.
+// This is needed because record.Decode returns TEXT for JSON columns (since JSON is stored as TEXT).
+func convertRowTypesForSchema(row []types.Value, table *schema.TableDef) []types.Value {
+	for i, col := range table.Columns {
+		if i < len(row) && col.Type == types.TypeJSON && row[i].Type() == types.TypeText {
+			row[i] = types.NewJSON(row[i].Text())
+		}
+	}
+	return row
 }
 
 // executeAlterTable handles ALTER TABLE statements

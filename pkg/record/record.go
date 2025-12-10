@@ -36,6 +36,9 @@ func SerialTypeFor(v types.Value) uint64 {
 		return SerialTypeFloat
 	case types.TypeText:
 		return SerialTypeText0 + uint64(len(v.Text()))*2
+	case types.TypeJSON:
+		// JSON is stored as TEXT in the record format
+		return SerialTypeText0 + uint64(len(v.JSON()))*2
 	case types.TypeBlob:
 		return SerialTypeBlob0 + uint64(len(v.Blob()))*2
 	default:
@@ -186,8 +189,12 @@ func encodeValue(buf []byte, v types.Value, st uint64) int {
 		size := SerialTypeSize(st)
 		if st&1 == 0 { // even = blob
 			copy(buf, v.Blob())
-		} else { // odd = text
-			copy(buf, v.Text())
+		} else { // odd = text or JSON (both stored as text)
+			if v.Type() == types.TypeJSON {
+				copy(buf, v.JSON())
+			} else {
+				copy(buf, v.Text())
+			}
 		}
 		return size
 	}
