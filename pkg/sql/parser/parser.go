@@ -2804,8 +2804,8 @@ func (p *Parser) parseIfStmt() (*IfStmt, error) {
 
 	// After parseIfBodyStatements, we're positioned on ELSIF, ELSE, or END
 
-	// Parse ELSIF clauses
-	for p.curIs(lexer.ELSIF) || (p.curIs(lexer.IDENT) && (p.cur.Literal == "ELSIF" || p.cur.Literal == "ELSEIF")) {
+	// Parse ELSIF clauses (both ELSIF and ELSEIF are accepted)
+	for p.curIs(lexer.ELSIF) || p.curIs(lexer.ELSEIF) {
 		elsifClause, err := p.parseElsIfClause()
 		if err != nil {
 			return nil, err
@@ -2869,18 +2869,13 @@ func (p *Parser) parseElsIfClause() (*ElsIfClause, error) {
 
 // parseIfBodyStatements parses statements inside an IF/ELSIF/ELSE block
 // Expects to be called with cur positioned on the first statement (or a terminator)
-// Stops when it sees ELSIF, ELSE, or END (leaves cur on the terminator)
+// Stops when it sees ELSIF, ELSEIF, ELSE, or END (leaves cur on the terminator)
 func (p *Parser) parseIfBodyStatements() ([]Statement, error) {
 	var stmts []Statement
 
 	for {
-		// Check if current token is a terminator (ELSIF, ELSE, END)
+		// Check if current token is a terminator (ELSIF, ELSEIF, ELSE, END)
 		if p.curIs(lexer.ELSIF) || p.curIs(lexer.ELSEIF) || p.curIs(lexer.ELSE_KW) || p.curIs(lexer.END) || p.curIs(lexer.EOF) {
-			break
-		}
-
-		// Check for ELSEIF as identifier (in case it's not a keyword)
-		if p.curIs(lexer.IDENT) && (p.cur.Literal == "ELSIF" || p.cur.Literal == "ELSEIF") {
 			break
 		}
 

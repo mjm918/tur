@@ -3473,3 +3473,98 @@ func TestParser_IfStmt_WithElse(t *testing.T) {
 		t.Errorf("ElsIfClauses count = %d, want 0", len(ifStmt.ElsIfClauses))
 	}
 }
+
+func TestParser_IfStmt_WithElsIf(t *testing.T) {
+	// IF with ELSIF and ELSE clauses
+	input := "IF x > 10 THEN SELECT 1 ELSIF x > 5 THEN SELECT 2 ELSIF x > 0 THEN SELECT 3 ELSE SELECT 4 END IF"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	ifStmt, ok := stmt.(*IfStmt)
+	if !ok {
+		t.Fatalf("Expected *IfStmt, got %T", stmt)
+	}
+
+	// Check main condition (x > 10)
+	binExpr, ok := ifStmt.Condition.(*BinaryExpr)
+	if !ok {
+		t.Fatalf("Expected *BinaryExpr for condition, got %T", ifStmt.Condition)
+	}
+	if binExpr.Op != lexer.GT {
+		t.Errorf("Condition operator = %v, want GT", binExpr.Op)
+	}
+
+	// Check THEN branch
+	if len(ifStmt.ThenBranch) != 1 {
+		t.Fatalf("ThenBranch count = %d, want 1", len(ifStmt.ThenBranch))
+	}
+
+	// Check we have 2 ELSIF clauses
+	if len(ifStmt.ElsIfClauses) != 2 {
+		t.Fatalf("ElsIfClauses count = %d, want 2", len(ifStmt.ElsIfClauses))
+	}
+
+	// Check first ELSIF (x > 5)
+	elsif1 := ifStmt.ElsIfClauses[0]
+	binExpr1, ok := elsif1.Condition.(*BinaryExpr)
+	if !ok {
+		t.Fatalf("Expected *BinaryExpr for ELSIF[0] condition, got %T", elsif1.Condition)
+	}
+	rightLit1, ok := binExpr1.Right.(*Literal)
+	if !ok || rightLit1.Value.Int() != 5 {
+		t.Errorf("ELSIF[0] condition right operand = %v, want 5", binExpr1.Right)
+	}
+	if len(elsif1.Body) != 1 {
+		t.Errorf("ELSIF[0] body count = %d, want 1", len(elsif1.Body))
+	}
+
+	// Check second ELSIF (x > 0)
+	elsif2 := ifStmt.ElsIfClauses[1]
+	binExpr2, ok := elsif2.Condition.(*BinaryExpr)
+	if !ok {
+		t.Fatalf("Expected *BinaryExpr for ELSIF[1] condition, got %T", elsif2.Condition)
+	}
+	rightLit2, ok := binExpr2.Right.(*Literal)
+	if !ok || rightLit2.Value.Int() != 0 {
+		t.Errorf("ELSIF[1] condition right operand = %v, want 0", binExpr2.Right)
+	}
+	if len(elsif2.Body) != 1 {
+		t.Errorf("ELSIF[1] body count = %d, want 1", len(elsif2.Body))
+	}
+
+	// Check ELSE branch exists
+	if ifStmt.ElseBranch == nil {
+		t.Fatal("ElseBranch should not be nil")
+	}
+	if len(ifStmt.ElseBranch) != 1 {
+		t.Errorf("ElseBranch count = %d, want 1", len(ifStmt.ElseBranch))
+	}
+}
+
+func TestParser_IfStmt_ElseIfVariant(t *testing.T) {
+	// Test ELSEIF as alternative to ELSIF
+	input := "IF x = 1 THEN SELECT 1 ELSEIF x = 2 THEN SELECT 2 END IF"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	ifStmt, ok := stmt.(*IfStmt)
+	if !ok {
+		t.Fatalf("Expected *IfStmt, got %T", stmt)
+	}
+
+	// Should have 1 ELSIF clause (ELSEIF is treated same as ELSIF)
+	if len(ifStmt.ElsIfClauses) != 1 {
+		t.Fatalf("ElsIfClauses count = %d, want 1", len(ifStmt.ElsIfClauses))
+	}
+
+	// No ELSE branch
+	if ifStmt.ElseBranch != nil {
+		t.Error("ElseBranch should be nil")
+	}
+}
