@@ -48,6 +48,11 @@ func (idx *Index) Config() Config {
 	return idx.config
 }
 
+// distance computes the distance between two vectors using the configured metric
+func (idx *Index) distance(a, b *types.Vector) float32 {
+	return a.Distance(b, idx.config.DistanceMetric)
+}
+
 // randomLevel generates a random level for a new node
 func (idx *Index) randomLevel() int {
 	level := 0
@@ -140,7 +145,7 @@ func (idx *Index) searchLayerClosest(query *types.Vector, ep uint64, level int) 
 	if currentNode == nil {
 		return ep
 	}
-	currentDist := query.CosineDistance(currentNode.Vector())
+	currentDist := idx.distance(query, currentNode.Vector())
 
 	for {
 		improved := false
@@ -153,7 +158,7 @@ func (idx *Index) searchLayerClosest(query *types.Vector, ep uint64, level int) 
 			if neighborNode == nil {
 				continue
 			}
-			dist := query.CosineDistance(neighborNode.Vector())
+			dist := idx.distance(query, neighborNode.Vector())
 			if dist < currentDist {
 				current = neighborID
 				currentDist = dist
@@ -181,7 +186,7 @@ func (idx *Index) searchLayer(query *types.Vector, ep uint64, ef int, level int)
 
 	// candidates: nodes to explore (sorted by distance, closest first)
 	// results: current best results (sorted by distance, furthest first for easy removal)
-	candidates := []distNode{{id: ep, dist: query.CosineDistance(epNode.Vector())}}
+	candidates := []distNode{{id: ep, dist: idx.distance(query, epNode.Vector())}}
 	results := []distNode{{id: ep, dist: candidates[0].dist}}
 
 	for len(candidates) > 0 {
@@ -213,7 +218,7 @@ func (idx *Index) searchLayer(query *types.Vector, ep uint64, ef int, level int)
 				continue
 			}
 
-			dist := query.CosineDistance(neighborNode.Vector())
+			dist := idx.distance(query, neighborNode.Vector())
 
 			// Add to results if better than worst result or not enough results yet
 			if len(results) < ef || dist < results[len(results)-1].dist {
@@ -289,7 +294,7 @@ func (idx *Index) selectNeighborsHeuristic(query *types.Vector, candidates []uin
 		if node == nil {
 			continue
 		}
-		dist := query.CosineDistance(node.Vector())
+		dist := idx.distance(query, node.Vector())
 		workQueue = append(workQueue, candDist{id: id, dist: dist})
 	}
 
@@ -323,7 +328,7 @@ func (idx *Index) selectNeighborsHeuristic(query *types.Vector, candidates []uin
 				continue
 			}
 			// Distance from candidate to selected neighbor
-			distToNeighbor := candNode.Vector().CosineDistance(selNode.Vector())
+			distToNeighbor := idx.distance(candNode.Vector(), selNode.Vector())
 
 			// If candidate is closer to an already selected neighbor than to query,
 			// skip it to maintain diversity
@@ -380,7 +385,7 @@ func (idx *Index) pruneConnections(node *HNSWNode, level int, maxConnections int
 		if neighborNode == nil {
 			continue
 		}
-		nds = append(nds, nd{id: nid, dist: node.Vector().CosineDistance(neighborNode.Vector())})
+		nds = append(nds, nd{id: nid, dist: idx.distance(node.Vector(), neighborNode.Vector())})
 	}
 
 	// Sort by distance
@@ -560,7 +565,7 @@ func (idx *Index) repairNeighborConnections(node *HNSWNode, level int) {
 		if cnode == nil || cnode.level < level {
 			continue
 		}
-		dist := node.vector.CosineDistance(cnode.vector)
+		dist := idx.distance(node.vector, cnode.vector)
 		candidates = append(candidates, distNode{id: cid, dist: dist})
 	}
 

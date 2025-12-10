@@ -109,6 +109,11 @@ func (idx *PersistentIndex) MetaPage() uint32 {
 	return idx.metaPage
 }
 
+// distance computes the distance between two vectors using the configured metric
+func (idx *PersistentIndex) distance(a, b *types.Vector) float32 {
+	return a.Distance(b, idx.config.DistanceMetric)
+}
+
 // writeMeta writes the metadata to the meta page
 func (idx *PersistentIndex) writeMeta() error {
 	page, err := idx.pager.Get(idx.metaPage)
@@ -486,7 +491,7 @@ func (idx *PersistentIndex) searchLayerClosest(query *types.Vector, ep uint64, l
 	if currentNode == nil {
 		return ep
 	}
-	currentDist := query.CosineDistance(currentNode.Vector())
+	currentDist := idx.distance(query, currentNode.Vector())
 
 	for {
 		improved := false
@@ -499,7 +504,7 @@ func (idx *PersistentIndex) searchLayerClosest(query *types.Vector, ep uint64, l
 			if neighborNode == nil {
 				continue
 			}
-			dist := query.CosineDistance(neighborNode.Vector())
+			dist := idx.distance(query, neighborNode.Vector())
 			if dist < currentDist {
 				current = neighborID
 				currentDist = dist
@@ -524,7 +529,7 @@ func (idx *PersistentIndex) searchLayer(query *types.Vector, ep uint64, ef int, 
 	visited := make(map[uint64]bool)
 	visited[ep] = true
 
-	candidates := []distNode{{id: ep, dist: query.CosineDistance(epNode.Vector())}}
+	candidates := []distNode{{id: ep, dist: idx.distance(query, epNode.Vector())}}
 	results := []distNode{{id: ep, dist: candidates[0].dist}}
 
 	for len(candidates) > 0 {
@@ -551,7 +556,7 @@ func (idx *PersistentIndex) searchLayer(query *types.Vector, ep uint64, ef int, 
 				continue
 			}
 
-			dist := query.CosineDistance(neighborNode.Vector())
+			dist := idx.distance(query, neighborNode.Vector())
 
 			if len(results) < ef || dist < results[len(results)-1].dist {
 				results = insertSorted(results, distNode{id: neighborID, dist: dist})
@@ -616,7 +621,7 @@ func (idx *PersistentIndex) selectNeighborsHeuristic(query *types.Vector, candid
 		if node == nil {
 			continue
 		}
-		dist := query.CosineDistance(node.Vector())
+		dist := idx.distance(query, node.Vector())
 		workQueue = append(workQueue, candDist{id: id, dist: dist})
 	}
 
@@ -647,7 +652,7 @@ func (idx *PersistentIndex) selectNeighborsHeuristic(query *types.Vector, candid
 			if selNode == nil {
 				continue
 			}
-			distToNeighbor := candNode.Vector().CosineDistance(selNode.Vector())
+			distToNeighbor := idx.distance(candNode.Vector(), selNode.Vector())
 			if distToNeighbor < cand.dist {
 				isGood = false
 				break
@@ -697,7 +702,7 @@ func (idx *PersistentIndex) pruneConnections(node *HNSWNode, level int, maxConne
 		if neighborNode == nil {
 			continue
 		}
-		nds = append(nds, nd{id: nid, dist: node.Vector().CosineDistance(neighborNode.Vector())})
+		nds = append(nds, nd{id: nid, dist: idx.distance(node.Vector(), neighborNode.Vector())})
 	}
 
 	for i := 0; i < len(nds)-1; i++ {
@@ -757,7 +762,7 @@ func (idx *PersistentIndex) SearchKNNWithEf(query *types.Vector, k int, ef int) 
 		}
 		results = append(results, SearchResult{
 			RowID:    node.RowID(),
-			Distance: query.CosineDistance(node.Vector()),
+			Distance: idx.distance(query, node.Vector()),
 		})
 	}
 

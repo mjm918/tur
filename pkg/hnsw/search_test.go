@@ -105,3 +105,107 @@ func TestSearchEmpty(t *testing.T) {
 		t.Errorf("expected 0 results on empty index, got %d", len(results))
 	}
 }
+
+func TestSearchKNN_WithEuclideanDistance(t *testing.T) {
+	config := DefaultConfig(3)
+	config.DistanceMetric = types.DistanceMetricEuclidean
+	idx := NewIndex(config)
+
+	// Insert vectors (not normalized - Euclidean doesn't require normalization)
+	vectors := [][]float32{
+		{1.0, 0.0, 0.0}, // rowID 1
+		{2.0, 0.0, 0.0}, // rowID 2 - 1 unit away from first
+		{4.0, 0.0, 0.0}, // rowID 3 - 3 units away from first
+		{0.0, 1.0, 0.0}, // rowID 4 - sqrt(2) away from first
+	}
+
+	for i, v := range vectors {
+		vec := types.NewVector(v)
+		idx.Insert(int64(i+1), vec)
+	}
+
+	// Search for vectors close to [1, 0, 0]
+	query := types.NewVector([]float32{1.0, 0.0, 0.0})
+	results, err := idx.SearchKNN(query, 3)
+	if err != nil {
+		t.Fatalf("search failed: %v", err)
+	}
+
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results, got %d", len(results))
+	}
+
+	// First result should be rowID 1 (exact match, distance = 0)
+	if results[0].RowID != 1 {
+		t.Errorf("expected rowID 1 as first result, got %d", results[0].RowID)
+	}
+	if results[0].Distance > 0.01 {
+		t.Errorf("expected distance ~0, got %f", results[0].Distance)
+	}
+
+	// Second result should be rowID 2 (distance = 1)
+	if results[1].RowID != 2 {
+		t.Errorf("expected rowID 2 as second result, got %d", results[1].RowID)
+	}
+	if math.Abs(float64(results[1].Distance-1.0)) > 0.01 {
+		t.Errorf("expected distance ~1.0, got %f", results[1].Distance)
+	}
+}
+
+func TestSearchKNN_WithManhattanDistance(t *testing.T) {
+	config := DefaultConfig(3)
+	config.DistanceMetric = types.DistanceMetricManhattan
+	idx := NewIndex(config)
+
+	// Insert vectors
+	vectors := [][]float32{
+		{1.0, 1.0, 1.0}, // rowID 1
+		{2.0, 1.0, 1.0}, // rowID 2 - Manhattan distance 1 from first
+		{2.0, 2.0, 1.0}, // rowID 3 - Manhattan distance 2 from first
+		{2.0, 2.0, 2.0}, // rowID 4 - Manhattan distance 3 from first
+	}
+
+	for i, v := range vectors {
+		vec := types.NewVector(v)
+		idx.Insert(int64(i+1), vec)
+	}
+
+	// Search for vectors close to [1, 1, 1]
+	query := types.NewVector([]float32{1.0, 1.0, 1.0})
+	results, err := idx.SearchKNN(query, 3)
+	if err != nil {
+		t.Fatalf("search failed: %v", err)
+	}
+
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results, got %d", len(results))
+	}
+
+	// First result should be rowID 1 (exact match, distance = 0)
+	if results[0].RowID != 1 {
+		t.Errorf("expected rowID 1 as first result, got %d", results[0].RowID)
+	}
+
+	// Second result should be rowID 2 (Manhattan distance = 1)
+	if results[1].RowID != 2 {
+		t.Errorf("expected rowID 2 as second result, got %d", results[1].RowID)
+	}
+	if math.Abs(float64(results[1].Distance-1.0)) > 0.01 {
+		t.Errorf("expected Manhattan distance ~1.0, got %f", results[1].Distance)
+	}
+
+	// Third result should be rowID 3 (Manhattan distance = 2)
+	if results[2].RowID != 3 {
+		t.Errorf("expected rowID 3 as third result, got %d", results[2].RowID)
+	}
+	if math.Abs(float64(results[2].Distance-2.0)) > 0.01 {
+		t.Errorf("expected Manhattan distance ~2.0, got %f", results[2].Distance)
+	}
+}
+
+func TestConfig_DistanceMetricDefault(t *testing.T) {
+	config := DefaultConfig(128)
+	if config.DistanceMetric != types.DistanceMetricCosine {
+		t.Errorf("default DistanceMetric should be Cosine, got %v", config.DistanceMetric)
+	}
+}

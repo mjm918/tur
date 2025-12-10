@@ -1,7 +1,11 @@
 // pkg/hnsw/config.go
 package hnsw
 
-import "math"
+import (
+	"math"
+
+	"tur/pkg/types"
+)
 
 // Config holds HNSW index parameters
 type Config struct {
@@ -30,6 +34,9 @@ type Config struct {
 	// ExtendCandidates enables extending candidates with their neighbors
 	// during heuristic selection (recommended when UseHeuristic is true)
 	ExtendCandidates bool
+
+	// DistanceMetric is the distance function to use (default: Cosine)
+	DistanceMetric types.DistanceMetric
 }
 
 // DefaultConfig returns a Config with sensible defaults
@@ -42,5 +49,6 @@ func DefaultConfig(dimension int) Config {
 		EfSearch:       50,
 		Dimension:      dimension,
 		ML:             1.0 / math.Log(float64(m)),
+		DistanceMetric: types.DistanceMetricCosine,
 	}
 }

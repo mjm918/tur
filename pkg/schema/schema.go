@@ -146,10 +146,37 @@ func (it IndexType) String() string {
 	}
 }
 
+// DistanceMetric represents the type of distance calculation for vector similarity
+type DistanceMetric int
+
+const (
+	// DistanceMetricCosine uses cosine distance (1 - cosine similarity)
+	DistanceMetricCosine DistanceMetric = iota
+	// DistanceMetricEuclidean uses Euclidean distance (L2 norm)
+	DistanceMetricEuclidean
+	// DistanceMetricManhattan uses Manhattan distance (L1 norm)
+	DistanceMetricManhattan
+)
+
+// String returns the string representation of the distance metric
+func (m DistanceMetric) String() string {
+	switch m {
+	case DistanceMetricCosine:
+		return "cosine"
+	case DistanceMetricEuclidean:
+		return "euclidean"
+	case DistanceMetricManhattan:
+		return "manhattan"
+	default:
+		return "unknown"
+	}
+}
+
 // HNSWParams holds HNSW-specific index parameters
 type HNSWParams struct {
-	M              int // Maximum number of connections per node (default: 16)
-	EfConstruction int // Size of the dynamic candidate list during construction (default: 200)
+	M              int            // Maximum number of connections per node (default: 16)
+	EfConstruction int            // Size of the dynamic candidate list during construction (default: 200)
+	DistanceMetric DistanceMetric // Distance metric to use (default: Cosine)
 }
 
 // DefaultHNSWParams returns HNSW parameters with SQLite vec extension defaults
@@ -157,6 +184,7 @@ func DefaultHNSWParams() *HNSWParams {
 	return &HNSWParams{
 		M:              16,
 		EfConstruction: 200,
+		DistanceMetric: DistanceMetricCosine,
 	}
 }
 

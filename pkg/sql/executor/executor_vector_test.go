@@ -216,6 +216,112 @@ func TestVectorQuantizeScan_Basic(t *testing.T) {
 	}
 }
 
+// TestVectorQuantize_WithDistanceMetric tests vector_quantize with distance metric parameter
+func TestVectorQuantize_WithDistanceMetric(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create a table with a VECTOR column
+	_, err := exec.Execute("CREATE TABLE embeddings (id INTEGER PRIMARY KEY, embedding VECTOR(3))")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	// Insert normalized vectors to test different metrics work
+	// Normalized [1,0,0] remains [1,0,0]
+	// Normalized [0.9,0.1,0] becomes [0.994, 0.110, 0]
+	vec1 := vectorToHex([]float32{1.0, 0.0, 0.0})
+	vec2 := vectorToHex([]float32{0.9, 0.1, 0.0})
+	vec3 := vectorToHex([]float32{0.0, 1.0, 0.0})
+
+	_, err = exec.Execute(fmt.Sprintf("INSERT INTO embeddings (id, embedding) VALUES (1, x'%s')", vec1))
+	if err != nil {
+		t.Fatalf("failed to insert row 1: %v", err)
+	}
+	_, err = exec.Execute(fmt.Sprintf("INSERT INTO embeddings (id, embedding) VALUES (2, x'%s')", vec2))
+	if err != nil {
+		t.Fatalf("failed to insert row 2: %v", err)
+	}
+	_, err = exec.Execute(fmt.Sprintf("INSERT INTO embeddings (id, embedding) VALUES (3, x'%s')", vec3))
+	if err != nil {
+		t.Fatalf("failed to insert row 3: %v", err)
+	}
+
+	// Build HNSW index with Euclidean distance metric (default is Cosine)
+	result, err := exec.Execute("SELECT vector_quantize('embeddings', 'embedding', 'euclidean')")
+	if err != nil {
+		t.Fatalf("vector_quantize with euclidean failed: %v", err)
+	}
+
+	// Should return the number of vectors indexed
+	if len(result.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(result.Rows))
+	}
+	count := result.Rows[0][0].Int()
+	if count != 3 {
+		t.Errorf("expected 3 vectors indexed, got %d", count)
+	}
+
+	// Query for vectors similar to [1,0,0] using Euclidean
+	queryVec := vectorToHex([]float32{1.0, 0.0, 0.0})
+	result, err = exec.Execute(fmt.Sprintf("SELECT * FROM vector_quantize_scan('embeddings', 'embedding', x'%s', 3)", queryVec))
+	if err != nil {
+		t.Fatalf("vector_quantize_scan failed: %v", err)
+	}
+
+	if len(result.Rows) != 3 {
+		t.Fatalf("expected 3 rows, got %d", len(result.Rows))
+	}
+
+	// Log the raw results for debugging
+	for i, row := range result.Rows {
+		t.Logf("Row %d: rowid=%d, distance=%f", i, row[0].Int(), row[1].Float())
+	}
+
+	// First result should be rowid=1 (exact match, distance=0)
+	if result.Rows[0][0].Int() != 1 {
+		t.Errorf("expected first result to be rowid=1, got %d", result.Rows[0][0].Int())
+	}
+
+	// Euclidean distance from [1,0,0] to [1,0,0] = 0
+	// Euclidean distance from [1,0,0] to [0.9,0.1,0] = sqrt(0.01+0.01) = 0.1414
+	// Euclidean distance from [1,0,0] to [0,1,0] = sqrt(1+1) = 1.414
+
+	dist1 := result.Rows[0][1].Float()
+	dist2 := result.Rows[1][1].Float()
+	dist3 := result.Rows[2][1].Float()
+
+	if dist1 > 0.01 {
+		t.Errorf("expected first distance ~0, got %f", dist1)
+	}
+
+	// Verify results are sorted by distance
+	if dist2 < dist1 || dist3 < dist2 {
+		t.Errorf("results not sorted by distance: %f, %f, %f", dist1, dist2, dist3)
+	}
+}
+
+// TestVectorQuantize_InvalidMetric tests vector_quantize with invalid distance metric
+func TestVectorQuantize_InvalidMetric(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create a table with a VECTOR column
+	_, err := exec.Execute("CREATE TABLE embeddings (id INTEGER PRIMARY KEY, embedding VECTOR(3))")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	// Try invalid metric
+	_, err = exec.Execute("SELECT vector_quantize('embeddings', 'embedding', 'invalid')")
+	if err == nil {
+		t.Fatal("expected error for invalid distance metric, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown distance metric") {
+		t.Errorf("expected 'unknown distance metric' error, got: %v", err)
+	}
+}
+
 // TestVectorQuantizeScan_NoIndex tests vector_quantize_scan without an index
 func TestVectorQuantizeScan_NoIndex(t *testing.T) {
 	exec, cleanup := setupTestExecutor(t)

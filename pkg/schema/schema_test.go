@@ -679,6 +679,35 @@ func TestHNSWParams_DefaultValues(t *testing.T) {
 	if params.EfConstruction != 200 {
 		t.Errorf("EfConstruction: got %d, want 200", params.EfConstruction)
 	}
+	// Default distance metric should be Cosine
+	if params.DistanceMetric != DistanceMetricCosine {
+		t.Errorf("DistanceMetric: got %v, want DistanceMetricCosine", params.DistanceMetric)
+	}
+}
+
+func TestHNSWParams_DistanceMetric(t *testing.T) {
+	// Test setting different distance metrics
+	tests := []struct {
+		name   string
+		metric DistanceMetric
+		want   string
+	}{
+		{"Cosine", DistanceMetricCosine, "cosine"},
+		{"Euclidean", DistanceMetricEuclidean, "euclidean"},
+		{"Manhattan", DistanceMetricManhattan, "manhattan"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := &HNSWParams{
+				M:              16,
+				EfConstruction: 200,
+				DistanceMetric: tt.metric,
+			}
+			if params.DistanceMetric.String() != tt.want {
+				t.Errorf("DistanceMetric.String() = %q, want %q", params.DistanceMetric.String(), tt.want)
+			}
+		})
+	}
 }
 
 // ========== Expression Index Tests ==========
