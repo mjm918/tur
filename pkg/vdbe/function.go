@@ -130,6 +130,27 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Function: builtinConcatWS,
 	})
 
+	// Register TRIM function (1 or 2 arguments)
+	r.Register(&ScalarFunction{
+		Name:     "TRIM",
+		NumArgs:  -1,
+		Function: builtinTrim,
+	})
+
+	// Register LTRIM function (1 or 2 arguments)
+	r.Register(&ScalarFunction{
+		Name:     "LTRIM",
+		NumArgs:  -1,
+		Function: builtinLTrim,
+	})
+
+	// Register RTRIM function (1 or 2 arguments)
+	r.Register(&ScalarFunction{
+		Name:     "RTRIM",
+		NumArgs:  -1,
+		Function: builtinRTrim,
+	})
+
 	return r
 }
 
@@ -479,4 +500,49 @@ func builtinConcatWS(args []types.Value) types.Value {
 		parts = append(parts, valueToString(arg))
 	}
 	return types.NewText(strings.Join(parts, sep))
+}
+
+// builtinTrim implements TRIM(string[, chars])
+// Removes leading and trailing characters from a string.
+// If chars is not specified, removes whitespace (space, tab, newline, carriage return).
+// If chars is specified, removes those characters.
+func builtinTrim(args []types.Value) types.Value {
+	if len(args) < 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	str := args[0].Text()
+	if len(args) >= 2 && !args[1].IsNull() {
+		return types.NewText(strings.Trim(str, args[1].Text()))
+	}
+	return types.NewText(strings.TrimSpace(str))
+}
+
+// builtinLTrim implements LTRIM(string[, chars])
+// Removes leading characters from a string.
+// If chars is not specified, removes whitespace (space, tab, newline, carriage return).
+// If chars is specified, removes those characters.
+func builtinLTrim(args []types.Value) types.Value {
+	if len(args) < 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	str := args[0].Text()
+	if len(args) >= 2 && !args[1].IsNull() {
+		return types.NewText(strings.TrimLeft(str, args[1].Text()))
+	}
+	return types.NewText(strings.TrimLeft(str, " \t\n\r"))
+}
+
+// builtinRTrim implements RTRIM(string[, chars])
+// Removes trailing characters from a string.
+// If chars is not specified, removes whitespace (space, tab, newline, carriage return).
+// If chars is specified, removes those characters.
+func builtinRTrim(args []types.Value) types.Value {
+	if len(args) < 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	str := args[0].Text()
+	if len(args) >= 2 && !args[1].IsNull() {
+		return types.NewText(strings.TrimRight(str, args[1].Text()))
+	}
+	return types.NewText(strings.TrimRight(str, " \t\n\r"))
 }

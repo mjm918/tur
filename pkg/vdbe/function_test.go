@@ -943,3 +943,228 @@ func TestConcatWS(t *testing.T) {
 		}
 	}
 }
+
+func TestTrim(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	trim := registry.Lookup("TRIM")
+	if trim == nil {
+		t.Fatal("TRIM function not found")
+	}
+
+	tests := []struct {
+		args   []types.Value
+		expect string
+	}{
+		{[]types.Value{types.NewText("  hello  ")}, "hello"},
+		{[]types.Value{types.NewText("\t\nhello\n\t")}, "hello"},
+		{[]types.Value{types.NewText("xxxhelloxxx"), types.NewText("x")}, "hello"},
+		{[]types.Value{types.NewText("hello")}, "hello"},
+		{[]types.Value{types.NewText("")}, ""},
+	}
+
+	for i, tc := range tests {
+		result := trim.Call(tc.args)
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestLTrim(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	ltrim := registry.Lookup("LTRIM")
+	if ltrim == nil {
+		t.Fatal("LTRIM function not found")
+	}
+
+	tests := []struct {
+		args   []types.Value
+		expect string
+	}{
+		{[]types.Value{types.NewText("  hello  ")}, "hello  "},
+		{[]types.Value{types.NewText("xxxhello"), types.NewText("x")}, "hello"},
+	}
+
+	for i, tc := range tests {
+		result := ltrim.Call(tc.args)
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestRTrim(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	rtrim := registry.Lookup("RTRIM")
+	if rtrim == nil {
+		t.Fatal("RTRIM function not found")
+	}
+
+	tests := []struct {
+		args   []types.Value
+		expect string
+	}{
+		{[]types.Value{types.NewText("  hello  ")}, "  hello"},
+		{[]types.Value{types.NewText("helloxxx"), types.NewText("x")}, "hello"},
+	}
+
+	for i, tc := range tests {
+		result := rtrim.Call(tc.args)
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestLeft(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	left := registry.Lookup("LEFT")
+	if left == nil {
+		t.Fatal("LEFT function not found")
+	}
+
+	tests := []struct {
+		str    string
+		n      int64
+		expect string
+	}{
+		{"hello", 2, "he"},
+		{"hello", 10, "hello"},
+		{"hello", 0, ""},
+		{"日本語", 2, "日本"},
+	}
+
+	for i, tc := range tests {
+		result := left.Call([]types.Value{types.NewText(tc.str), types.NewInt(tc.n)})
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestRight(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	right := registry.Lookup("RIGHT")
+	if right == nil {
+		t.Fatal("RIGHT function not found")
+	}
+
+	tests := []struct {
+		str    string
+		n      int64
+		expect string
+	}{
+		{"hello", 2, "lo"},
+		{"hello", 10, "hello"},
+		{"hello", 0, ""},
+		{"日本語", 2, "本語"},
+	}
+
+	for i, tc := range tests {
+		result := right.Call([]types.Value{types.NewText(tc.str), types.NewInt(tc.n)})
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestRepeat(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	repeat := registry.Lookup("REPEAT")
+	if repeat == nil {
+		t.Fatal("REPEAT function not found")
+	}
+
+	tests := []struct {
+		str    string
+		n      int64
+		expect string
+	}{
+		{"ab", 3, "ababab"},
+		{"x", 5, "xxxxx"},
+		{"hello", 0, ""},
+		{"", 5, ""},
+	}
+
+	for i, tc := range tests {
+		result := repeat.Call([]types.Value{types.NewText(tc.str), types.NewInt(tc.n)})
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestSpace(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	space := registry.Lookup("SPACE")
+	if space == nil {
+		t.Fatal("SPACE function not found")
+	}
+
+	tests := []struct {
+		n      int64
+		expect string
+	}{
+		{5, "     "},
+		{0, ""},
+		{1, " "},
+	}
+
+	for i, tc := range tests {
+		result := space.Call([]types.Value{types.NewInt(tc.n)})
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q (len %d), got %q (len %d)", i, tc.expect, len(tc.expect), result.Text(), len(result.Text()))
+		}
+	}
+}
+
+func TestReplace(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	replace := registry.Lookup("REPLACE")
+	if replace == nil {
+		t.Fatal("REPLACE function not found")
+	}
+
+	tests := []struct {
+		str, from, to string
+		expect        string
+	}{
+		{"hello world", "world", "Go", "hello Go"},
+		{"aaa", "a", "b", "bbb"},
+		{"hello", "x", "y", "hello"},
+		{"", "a", "b", ""},
+	}
+
+	for i, tc := range tests {
+		args := []types.Value{types.NewText(tc.str), types.NewText(tc.from), types.NewText(tc.to)}
+		result := replace.Call(args)
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestReverse(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	reverse := registry.Lookup("REVERSE")
+	if reverse == nil {
+		t.Fatal("REVERSE function not found")
+	}
+
+	tests := []struct {
+		input  string
+		expect string
+	}{
+		{"hello", "olleh"},
+		{"", ""},
+		{"a", "a"},
+		{"日本語", "語本日"},
+	}
+
+	for i, tc := range tests {
+		result := reverse.Call([]types.Value{types.NewText(tc.input)})
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
