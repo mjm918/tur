@@ -73,6 +73,8 @@ func (p *Parser) Parse() (Statement, error) {
 		return p.parseCall()
 	case lexer.SET:
 		return p.parseSetStmt()
+	case lexer.PRAGMA:
+		return p.parsePragma()
 	default:
 		return nil, fmt.Errorf("unexpected token: %s", p.cur.Literal)
 	}
@@ -3546,6 +3548,33 @@ func (p *Parser) parseCloseStmt() (*CloseStmt, error) {
 		return nil, fmt.Errorf("expected cursor name after CLOSE, got %s", p.peek.Literal)
 	}
 	stmt.CursorName = p.cur.Literal
+
+	return stmt, nil
+}
+
+// parsePragma parses: PRAGMA name [= value]
+// Current token is PRAGMA
+func (p *Parser) parsePragma() (*PragmaStmt, error) {
+	stmt := &PragmaStmt{}
+
+	// Move to pragma name
+	if !p.expectPeek(lexer.IDENT) {
+		return nil, fmt.Errorf("expected pragma name after PRAGMA, got %s", p.peek.Literal)
+	}
+	stmt.Name = p.cur.Literal
+
+	// Check for optional value assignment
+	if p.peekIs(lexer.EQ) {
+		p.nextToken() // consume =
+		p.nextToken() // move to value
+
+		// Parse the value expression
+		value, err := p.parseExpression(LOWEST)
+		if err != nil {
+			return nil, fmt.Errorf("invalid pragma value: %w", err)
+		}
+		stmt.Value = value
+	}
 
 	return stmt, nil
 }

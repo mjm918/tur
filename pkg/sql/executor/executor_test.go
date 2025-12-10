@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"tur/pkg/cache"
 	"tur/pkg/pager"
 	"tur/pkg/schema"
 	"tur/pkg/types"
@@ -3180,5 +3181,407 @@ func TestExecutor_IfStmt_FalseNoElse(t *testing.T) {
 	}
 	if len(result.Rows) != 0 {
 		t.Errorf("Expected 0 rows, got %d", len(result.Rows))
+	}
+}
+
+// TestPragmaPageCacheSize tests PRAGMA page_cache_size setting and querying
+func TestPragmaPageCacheSize(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Test setting page cache size
+	_, err := exec.Execute("PRAGMA page_cache_size = 50")
+	if err != nil {
+		t.Fatalf("PRAGMA page_cache_size = 50: %v", err)
+	}
+
+	// Verify the setting by querying
+	result, err := exec.Execute("PRAGMA page_cache_size")
+	if err != nil {
+		t.Fatalf("PRAGMA page_cache_size query: %v", err)
+	}
+
+	if len(result.Columns) != 1 || result.Columns[0] != "page_cache_size" {
+		t.Errorf("Expected column 'page_cache_size', got %v", result.Columns)
+	}
+
+	if len(result.Rows) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result.Rows))
+	}
+
+	cacheSize := result.Rows[0][0].Int()
+	if cacheSize != 50 {
+		t.Errorf("Expected page_cache_size = 50, got %d", cacheSize)
+	}
+
+	// Test invalid value (zero)
+	_, err = exec.Execute("PRAGMA page_cache_size = 0")
+	if err == nil {
+		t.Error("Expected error for page_cache_size = 0, got nil")
+	}
+
+	// Test invalid value (negative)
+	_, err = exec.Execute("PRAGMA page_cache_size = -10")
+	if err == nil {
+		t.Error("Expected error for page_cache_size = -10, got nil")
+	}
+}
+
+// TestPragmaQueryCacheSize tests PRAGMA query_cache_size setting and querying
+func TestPragmaQueryCacheSize(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Set up a query cache (default setup doesn't include one)
+	qc := cache.NewQueryCache(100)
+	exec.SetQueryCache(qc)
+
+	// Test setting query cache size
+	_, err := exec.Execute("PRAGMA query_cache_size = 10")
+	if err != nil {
+		t.Fatalf("PRAGMA query_cache_size = 10: %v", err)
+	}
+
+	// Verify the setting
+	result, err := exec.Execute("PRAGMA query_cache_size")
+	if err != nil {
+		t.Fatalf("PRAGMA query_cache_size query: %v", err)
+	}
+
+	if len(result.Columns) != 1 || result.Columns[0] != "query_cache_size" {
+		t.Errorf("Expected column 'query_cache_size', got %v", result.Columns)
+	}
+
+	if len(result.Rows) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result.Rows))
+	}
+
+	cacheSize := result.Rows[0][0].Int()
+	if cacheSize != 10 {
+		t.Errorf("Expected query_cache_size = 10, got %d", cacheSize)
+	}
+
+	// Test disabling (size = 0) - this should be allowed for query cache
+	_, err = exec.Execute("PRAGMA query_cache_size = 0")
+	if err != nil {
+		t.Fatalf("PRAGMA query_cache_size = 0 should be allowed: %v", err)
+	}
+
+	result, err = exec.Execute("PRAGMA query_cache_size")
+	if err != nil {
+		t.Fatalf("PRAGMA query_cache_size query: %v", err)
+	}
+	if result.Rows[0][0].Int() != 0 {
+		t.Errorf("Expected query_cache_size = 0, got %d", result.Rows[0][0].Int())
+	}
+
+	// Test invalid value (negative)
+	_, err = exec.Execute("PRAGMA query_cache_size = -5")
+	if err == nil {
+		t.Error("Expected error for query_cache_size = -5, got nil")
+	}
+}
+
+// TestPragmaVdbeMaxRegisters tests PRAGMA vdbe_max_registers setting and querying
+func TestPragmaVdbeMaxRegisters(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Test setting VDBE register count
+	_, err := exec.Execute("PRAGMA vdbe_max_registers = 4")
+	if err != nil {
+		t.Fatalf("PRAGMA vdbe_max_registers = 4: %v", err)
+	}
+
+	// Verify the setting
+	result, err := exec.Execute("PRAGMA vdbe_max_registers")
+	if err != nil {
+		t.Fatalf("PRAGMA vdbe_max_registers query: %v", err)
+	}
+
+	if len(result.Columns) != 1 || result.Columns[0] != "vdbe_max_registers" {
+		t.Errorf("Expected column 'vdbe_max_registers', got %v", result.Columns)
+	}
+
+	if len(result.Rows) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result.Rows))
+	}
+
+	regCount := result.Rows[0][0].Int()
+	if regCount != 4 {
+		t.Errorf("Expected vdbe_max_registers = 4, got %d", regCount)
+	}
+
+	// Test invalid value (zero)
+	_, err = exec.Execute("PRAGMA vdbe_max_registers = 0")
+	if err == nil {
+		t.Error("Expected error for vdbe_max_registers = 0, got nil")
+	}
+
+	// Test invalid value (negative)
+	_, err = exec.Execute("PRAGMA vdbe_max_registers = -1")
+	if err == nil {
+		t.Error("Expected error for vdbe_max_registers = -1, got nil")
+	}
+}
+
+// TestPragmaVdbeMaxCursors tests PRAGMA vdbe_max_cursors setting and querying
+func TestPragmaVdbeMaxCursors(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Test setting VDBE cursor count
+	_, err := exec.Execute("PRAGMA vdbe_max_cursors = 2")
+	if err != nil {
+		t.Fatalf("PRAGMA vdbe_max_cursors = 2: %v", err)
+	}
+
+	// Verify the setting
+	result, err := exec.Execute("PRAGMA vdbe_max_cursors")
+	if err != nil {
+		t.Fatalf("PRAGMA vdbe_max_cursors query: %v", err)
+	}
+
+	if len(result.Columns) != 1 || result.Columns[0] != "vdbe_max_cursors" {
+		t.Errorf("Expected column 'vdbe_max_cursors', got %v", result.Columns)
+	}
+
+	if len(result.Rows) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result.Rows))
+	}
+
+	cursorCount := result.Rows[0][0].Int()
+	if cursorCount != 2 {
+		t.Errorf("Expected vdbe_max_cursors = 2, got %d", cursorCount)
+	}
+
+	// Test invalid value (zero)
+	_, err = exec.Execute("PRAGMA vdbe_max_cursors = 0")
+	if err == nil {
+		t.Error("Expected error for vdbe_max_cursors = 0, got nil")
+	}
+
+	// Test invalid value (negative)
+	_, err = exec.Execute("PRAGMA vdbe_max_cursors = -1")
+	if err == nil {
+		t.Error("Expected error for vdbe_max_cursors = -1, got nil")
+	}
+}
+
+// TestPragmaMemoryBudget tests PRAGMA memory_budget setting and querying
+func TestPragmaMemoryBudget(t *testing.T) {
+	// Create executor with memory budget
+	dir, err := os.MkdirTemp("", "executor_test")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	dbPath := filepath.Join(dir, "test.db")
+	budget := cache.NewMemoryBudget(256 * 1024 * 1024) // 256 MB
+	p, err := pager.OpenWithBudget(dbPath, pager.Options{}, budget)
+	if err != nil {
+		t.Fatalf("pager.OpenWithBudget: %v", err)
+	}
+
+	exec := New(p)
+	defer exec.Close()
+
+	// Test setting memory budget (in MB)
+	_, err = exec.Execute("PRAGMA memory_budget = 10")
+	if err != nil {
+		t.Fatalf("PRAGMA memory_budget = 10: %v", err)
+	}
+
+	// Verify the setting
+	result, err := exec.Execute("PRAGMA memory_budget")
+	if err != nil {
+		t.Fatalf("PRAGMA memory_budget query: %v", err)
+	}
+
+	if len(result.Columns) != 1 || result.Columns[0] != "memory_budget" {
+		t.Errorf("Expected column 'memory_budget', got %v", result.Columns)
+	}
+
+	if len(result.Rows) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result.Rows))
+	}
+
+	budgetMB := result.Rows[0][0].Int()
+	if budgetMB != 10 {
+		t.Errorf("Expected memory_budget = 10 (MB), got %d", budgetMB)
+	}
+
+	// Test invalid value (zero)
+	_, err = exec.Execute("PRAGMA memory_budget = 0")
+	if err == nil {
+		t.Error("Expected error for memory_budget = 0, got nil")
+	}
+
+	// Test invalid value (negative)
+	_, err = exec.Execute("PRAGMA memory_budget = -5")
+	if err == nil {
+		t.Error("Expected error for memory_budget = -5, got nil")
+	}
+}
+
+// TestPragmaResultStreaming tests PRAGMA result_streaming setting and querying
+func TestPragmaResultStreaming(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create test table
+	_, err := exec.Execute("CREATE TABLE test_stream (id INTEGER, name TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Insert test data
+	for i := 0; i < 10; i++ {
+		_, err = exec.Execute("INSERT INTO test_stream VALUES (" +
+			string(rune('0'+i)) + ", 'name')")
+		if err != nil {
+			t.Fatalf("INSERT: %v", err)
+		}
+	}
+
+	// Enable streaming mode (use string literal)
+	_, err = exec.Execute("PRAGMA result_streaming = 'ON'")
+	if err != nil {
+		t.Fatalf("PRAGMA result_streaming = 'ON': %v", err)
+	}
+
+	// Verify setting
+	result, err := exec.Execute("PRAGMA result_streaming")
+	if err != nil {
+		t.Fatalf("PRAGMA result_streaming query: %v", err)
+	}
+
+	if len(result.Rows) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result.Rows))
+	}
+
+	streaming := result.Rows[0][0].Text()
+	if streaming != "ON" {
+		t.Errorf("Expected result_streaming = ON, got %s", streaming)
+	}
+
+	// Test that query still works
+	result, err = exec.Execute("SELECT * FROM test_stream")
+	if err != nil {
+		t.Fatalf("SELECT: %v", err)
+	}
+
+	if len(result.Rows) != 10 {
+		t.Errorf("Expected 10 rows, got %d", len(result.Rows))
+	}
+
+	// Disable streaming
+	_, err = exec.Execute("PRAGMA result_streaming = 'OFF'")
+	if err != nil {
+		t.Fatalf("PRAGMA result_streaming = 'OFF': %v", err)
+	}
+
+	result, err = exec.Execute("PRAGMA result_streaming")
+	if err != nil {
+		t.Fatalf("PRAGMA result_streaming query: %v", err)
+	}
+
+	streaming = result.Rows[0][0].Text()
+	if streaming != "OFF" {
+		t.Errorf("Expected result_streaming = OFF, got %s", streaming)
+	}
+
+	// Test other valid values
+	_, err = exec.Execute("PRAGMA result_streaming = 'TRUE'")
+	if err != nil {
+		t.Fatalf("PRAGMA result_streaming = 'TRUE': %v", err)
+	}
+
+	_, err = exec.Execute("PRAGMA result_streaming = 'FALSE'")
+	if err != nil {
+		t.Fatalf("PRAGMA result_streaming = 'FALSE': %v", err)
+	}
+
+	_, err = exec.Execute("PRAGMA result_streaming = 1")
+	if err != nil {
+		t.Fatalf("PRAGMA result_streaming = 1: %v", err)
+	}
+
+	_, err = exec.Execute("PRAGMA result_streaming = 0")
+	if err != nil {
+		t.Fatalf("PRAGMA result_streaming = 0: %v", err)
+	}
+}
+
+// TestPragmaOptimizeMemory tests PRAGMA optimize_memory helper
+func TestPragmaOptimizeMemory(t *testing.T) {
+	// Create executor with memory budget
+	dir, err := os.MkdirTemp("", "executor_test")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	dbPath := filepath.Join(dir, "test.db")
+	budget := cache.NewMemoryBudget(256 * 1024 * 1024) // 256 MB
+	p, err := pager.OpenWithBudget(dbPath, pager.Options{}, budget)
+	if err != nil {
+		t.Fatalf("pager.OpenWithBudget: %v", err)
+	}
+
+	exec := New(p)
+	defer exec.Close()
+
+	// Set up query cache
+	qc := cache.NewQueryCache(100)
+	exec.SetQueryCache(qc)
+
+	// Execute optimize_memory pragma
+	result, err := exec.Execute("PRAGMA optimize_memory")
+	if err != nil {
+		t.Fatalf("PRAGMA optimize_memory: %v", err)
+	}
+
+	if len(result.Rows) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result.Rows))
+	}
+
+	// Verify all settings were changed to minimal values
+	tests := []struct {
+		pragma   string
+		expected int64
+	}{
+		{"page_cache_size", 10},
+		{"query_cache_size", 0},
+		{"vdbe_max_registers", 4},
+		{"vdbe_max_cursors", 2},
+		{"memory_budget", 1}, // 1 MB
+	}
+
+	for _, tc := range tests {
+		result, err := exec.Execute("PRAGMA " + tc.pragma)
+		if err != nil {
+			t.Errorf("PRAGMA %s query: %v", tc.pragma, err)
+			continue
+		}
+
+		if len(result.Rows) != 1 {
+			t.Errorf("Expected 1 row for %s, got %d", tc.pragma, len(result.Rows))
+			continue
+		}
+
+		val := result.Rows[0][0].Int()
+		if val != tc.expected {
+			t.Errorf("Expected %s = %d, got %d", tc.pragma, tc.expected, val)
+		}
+	}
+
+	// Check result_streaming separately (it's a string)
+	result, err = exec.Execute("PRAGMA result_streaming")
+	if err != nil {
+		t.Errorf("PRAGMA result_streaming query: %v", err)
+	} else if result.Rows[0][0].Text() != "ON" {
+		t.Errorf("Expected result_streaming = ON, got %s", result.Rows[0][0].Text())
 	}
 }

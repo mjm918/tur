@@ -744,3 +744,28 @@ func (p *Pager) recordCacheAccess(pageNo uint32) {
 	key := fmt.Sprintf("page_%d", pageNo)
 	p.memoryBudget.RecordAccess("page_cache", key)
 }
+
+// SetCacheSize changes the maximum number of pages in the cache.
+// This will evict pages if new size is smaller than current cache.
+func (p *Pager) SetCacheSize(newSize int) error {
+	if newSize <= 0 {
+		return fmt.Errorf("cache size must be positive, got %d", newSize)
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.cacheSize = newSize
+
+	// Evict excess pages if cache is now too large
+	p.evictIfNeeded()
+
+	return nil
+}
+
+// GetCacheSize returns the current cache size limit.
+func (p *Pager) GetCacheSize() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.cacheSize
+}
