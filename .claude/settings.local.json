@@ -42,10 +42,7 @@
       "Bash(for i in 1 2 3 4 5)",
       "Bash(do echo \"=== Run $i ===\")",
       "Bash(done)",
-      "Bash(go mod download:*)",
-      "Bash(git -C /Users/julfikar/Documents/PassionFruit.nosync/tur log --oneline -20)",
-      "Bash(go list:*)",
-      "SlashCommand(/superpowers:write-plan)"
+      "Bash(go mod download:*)"
     ],
     "deny": [],
     "ask": []

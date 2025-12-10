@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"encoding/binary"
 	"fmt"
 	"strings"
 
@@ -369,7 +370,21 @@ func (e *Executor) loadTableSchema(entry *dbfile.SchemaEntry) error {
 	// Open existing B-tree for this table
 	tree := btree.Open(e.pager, entry.RootPage)
 	e.trees[entry.Name] = tree
-	e.rowid[entry.Name] = 1 // Will be updated when scanning
+
+	// Scan B-tree to find the maximum rowid for proper ID continuation on inserts
+	maxRowid := uint64(0)
+	cursor := tree.Cursor()
+	for cursor.First(); cursor.Valid(); cursor.Next() {
+		key := cursor.Key()
+		if len(key) >= 8 {
+			rowid := binary.BigEndian.Uint64(key)
+			if rowid > maxRowid {
+				maxRowid = rowid
+			}
+		}
+	}
+	cursor.Close()
+	e.rowid[entry.Name] = maxRowid + 1
 
 	return nil
 }

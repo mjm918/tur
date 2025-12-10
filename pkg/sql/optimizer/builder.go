@@ -44,10 +44,11 @@ func BuildPlanWithCTEs(stmt *parser.SelectStmt, catalog *schema.Catalog, ctes ma
 	}
 
 	// 3. Apply GROUP BY with aggregations
-	if len(stmt.GroupBy) > 0 {
-		// Extract aggregate functions from SELECT columns
-		aggregates := extractAggregates(stmt.Columns)
+	// Also use AggregateNode when there are aggregate functions without GROUP BY (e.g., SELECT COUNT(*) FROM t)
+	aggregates := extractAggregates(stmt.Columns)
+	hasAggregates := len(aggregates) > 0
 
+	if len(stmt.GroupBy) > 0 || hasAggregates {
 		node = &AggregateNode{
 			Input:      node,
 			GroupBy:    stmt.GroupBy,
@@ -57,14 +58,14 @@ func BuildPlanWithCTEs(stmt *parser.SelectStmt, catalog *schema.Catalog, ctes ma
 	}
 
 	// 4. Apply Projection (Select columns) or Window Functions
-	// Skip projection when GROUP BY is present - AggregateNode handles column output
+	// Skip projection when GROUP BY or aggregates are present - AggregateNode handles column output
 	// Check if SELECT *
 	isStar := false
 	if len(stmt.Columns) == 1 && stmt.Columns[0].Star {
 		isStar = true
 	}
 
-	if !isStar && len(stmt.GroupBy) == 0 {
+	if !isStar && len(stmt.GroupBy) == 0 && !hasAggregates {
 		var exprs []parser.Expression
 		var aliases []string
 		var windowFuncs []*parser.WindowFunction

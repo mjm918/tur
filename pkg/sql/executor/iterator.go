@@ -848,6 +848,19 @@ func (it *HashGroupByIterator) prepare() {
 	}
 	it.child.Close()
 
+	// Handle aggregate without GROUP BY that has no matching rows
+	// SQL semantics: SELECT COUNT(*) FROM t WHERE 1=0 should return 1 row with COUNT=0
+	if len(groupMap) == 0 && len(it.groupBy) == 0 {
+		// Create an empty group for aggregates
+		emptyGroup := &groupEntry{
+			key:        "",
+			keyValues:  nil,
+			aggregates: make(map[string]*aggregateState),
+			rows:       nil, // No rows
+		}
+		groupMap[""] = emptyGroup
+	}
+
 	// Convert map to slice and compute final aggregates
 	for _, group := range groupMap {
 		it.computeAggregates(group)
