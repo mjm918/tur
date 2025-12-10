@@ -200,3 +200,64 @@ func TestExecutor_ExplainQueryPlan_Join(t *testing.T) {
 		t.Error("Expected plan to mention tables or join")
 	}
 }
+
+func TestExecutor_ExplainAnalyze_Select(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create a table and insert some data
+	_, err := exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	_, err = exec.Execute("INSERT INTO users VALUES (1, 'Alice')")
+	if err != nil {
+		t.Fatalf("INSERT: %v", err)
+	}
+
+	_, err = exec.Execute("INSERT INTO users VALUES (2, 'Bob')")
+	if err != nil {
+		t.Fatalf("INSERT: %v", err)
+	}
+
+	// Now EXPLAIN ANALYZE a SELECT
+	result, err := exec.Execute("EXPLAIN ANALYZE SELECT * FROM users")
+	if err != nil {
+		t.Fatalf("EXPLAIN ANALYZE: %v", err)
+	}
+
+	// EXPLAIN ANALYZE should return analysis with runtime statistics
+	// We expect columns like: operation, actual_rows, time, etc.
+	if len(result.Columns) < 1 {
+		t.Fatal("Expected at least 1 column in EXPLAIN ANALYZE output")
+	}
+
+	// Should have at least one row with analysis information
+	if len(result.Rows) < 1 {
+		t.Fatal("Expected at least 1 row in EXPLAIN ANALYZE output")
+	}
+
+	// The output should contain information about actual execution
+	// Check for timing or row count information in the output
+	foundExecutionInfo := false
+	for _, row := range result.Rows {
+		for i := range row {
+			text := row[i].Text()
+			// Look for indicators of actual execution like timing, row counts, or "actual"
+			if strings.Contains(strings.ToLower(text), "actual") ||
+				strings.Contains(strings.ToLower(text), "time") ||
+				strings.Contains(strings.ToLower(text), "rows") {
+				foundExecutionInfo = true
+				break
+			}
+		}
+		if foundExecutionInfo {
+			break
+		}
+	}
+
+	if !foundExecutionInfo {
+		t.Error("Expected EXPLAIN ANALYZE output to contain execution information (timing, row counts, etc.)")
+	}
+}

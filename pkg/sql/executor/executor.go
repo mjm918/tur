@@ -3622,8 +3622,11 @@ func (e *Executor) exceptAll(left, right [][]types.Value) [][]types.Value {
 	return result
 }
 
-// executeExplain handles EXPLAIN and EXPLAIN QUERY PLAN statements
+// executeExplain handles EXPLAIN, EXPLAIN QUERY PLAN, and EXPLAIN ANALYZE statements
 func (e *Executor) executeExplain(stmt *parser.ExplainStmt) (*Result, error) {
+	if stmt.Analyze {
+		return e.executeExplainAnalyze(stmt)
+	}
 	if stmt.QueryPlan {
 		return e.executeExplainQueryPlan(stmt)
 	}
@@ -3956,6 +3959,82 @@ func (e *Executor) explainGenericPlan(stmt parser.Statement, result *Result) (*R
 		types.NewText(detail),
 	}
 	result.Rows = append(result.Rows, row)
+
+	return result, nil
+}
+
+// executeExplainAnalyze executes the query with profiling and returns runtime statistics
+func (e *Executor) executeExplainAnalyze(stmt *parser.ExplainStmt) (*Result, error) {
+	// Compile the inner statement to VDBE bytecode
+	var program *vdbe.Program
+	var compileErr error
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				compileErr = fmt.Errorf("compiler panic: %v", r)
+			}
+		}()
+		compiler := vdbe.NewCompiler(e.catalog, e.pager)
+		program, compileErr = compiler.Compile(stmt.Statement)
+	}()
+
+	if compileErr != nil || program == nil {
+		return nil, fmt.Errorf("failed to compile statement for EXPLAIN ANALYZE: %w", compileErr)
+	}
+
+	// Create a profiler to collect runtime statistics
+	profiler := vdbe.NewProfiler()
+
+	// Create VM and attach profiler
+	vm := vdbe.NewVM(program, e.pager)
+	vm.SetProfiler(profiler)
+
+	// Execute the query to collect actual statistics
+	err := vm.Run()
+	if err != nil {
+		return nil, fmt.Errorf("execution failed during EXPLAIN ANALYZE: %w", err)
+	}
+
+	// Get profiling report
+	report := profiler.Report()
+
+	// Build result with execution statistics
+	// For now, use a simple format showing total time and opcode stats
+	result := &Result{
+		Columns: []string{"operation", "count", "total_time", "avg_time", "actual_rows"},
+		Rows:    make([][]types.Value, 0),
+	}
+
+	// Add total execution time with descriptive text
+	result.Rows = append(result.Rows, []types.Value{
+		types.NewText("Total Execution Time"),
+		types.NewInt(0),
+		types.NewText(fmt.Sprintf("time: %s", report.TotalTime.String())),
+		types.NewText("-"),
+		types.NewInt(int64(len(vm.Results()))),
+	})
+
+	// Add actual rows returned
+	result.Rows = append(result.Rows, []types.Value{
+		types.NewText("Actual Rows Returned"),
+		types.NewInt(1),
+		types.NewText("-"),
+		types.NewText("-"),
+		types.NewInt(int64(len(vm.Results()))),
+	})
+
+	// Add opcode statistics
+	for _, opStat := range report.OpcodeStats {
+		row := []types.Value{
+			types.NewText(opStat.Opcode.String()),
+			types.NewInt(opStat.Count),
+			types.NewText(fmt.Sprintf("time: %s", opStat.TotalTime.String())),
+			types.NewText(fmt.Sprintf("time: %s", opStat.AvgTime.String())),
+			types.NewInt(0), // Row count per opcode - will implement later
+		}
+		result.Rows = append(result.Rows, row)
+	}
 
 	return result, nil
 }
