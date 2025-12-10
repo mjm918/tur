@@ -159,3 +159,83 @@ func TestCreateIndex_PersistsSchema(t *testing.T) {
 		t.Errorf("Wrong columns: %v", idx.Columns)
 	}
 }
+
+func TestDropTable_RemovesSchema(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test_drop_table.db")
+
+	p, err := pager.Open(path, pager.Options{})
+	if err != nil {
+		t.Fatalf("Failed to open pager: %v", err)
+	}
+
+	exec := New(p)
+	_, err = exec.Execute("CREATE TABLE temp (id INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE failed: %v", err)
+	}
+
+	_, err = exec.Execute("DROP TABLE temp")
+	if err != nil {
+		t.Fatalf("DROP TABLE failed: %v", err)
+	}
+
+	p.Close()
+
+	// Reopen and verify table is gone
+	p2, err := pager.Open(path, pager.Options{})
+	if err != nil {
+		t.Fatalf("Failed to reopen: %v", err)
+	}
+	defer p2.Close()
+
+	exec2 := New(p2)
+	if exec2.catalog.GetTable("temp") != nil {
+		t.Error("Dropped table still exists after reopen")
+	}
+}
+
+func TestDropIndex_RemovesSchema(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test_drop_index.db")
+
+	p, err := pager.Open(path, pager.Options{})
+	if err != nil {
+		t.Fatalf("Failed to open pager: %v", err)
+	}
+
+	exec := New(p)
+	_, err = exec.Execute("CREATE TABLE users (id INT, email TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE failed: %v", err)
+	}
+
+	_, err = exec.Execute("CREATE INDEX idx_email ON users(email)")
+	if err != nil {
+		t.Fatalf("CREATE INDEX failed: %v", err)
+	}
+
+	_, err = exec.Execute("DROP INDEX idx_email")
+	if err != nil {
+		t.Fatalf("DROP INDEX failed: %v", err)
+	}
+
+	p.Close()
+
+	// Reopen and verify index is gone
+	p2, err := pager.Open(path, pager.Options{})
+	if err != nil {
+		t.Fatalf("Failed to reopen: %v", err)
+	}
+	defer p2.Close()
+
+	exec2 := New(p2)
+	if exec2.catalog.GetIndex("idx_email") != nil {
+		t.Error("Dropped index still exists after reopen")
+	}
+
+	// Table should still exist
+	if exec2.catalog.GetTable("users") == nil {
+		t.Error("Table was incorrectly removed when dropping index")
+	}
+}
