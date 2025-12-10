@@ -2806,3 +2806,258 @@ func TestExecutor_ForeignKey_SetNullOnUpdate(t *testing.T) {
 		t.Errorf("Expected NULL dept_id, got %v", result.Rows[0][2])
 	}
 }
+
+// =============================================================================
+// Scalar Function Integration Tests
+// =============================================================================
+
+func TestExecutor_ScalarFunctions_String(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Test CONCAT
+	result, err := exec.Execute("SELECT CONCAT('Hello', ' ', 'World')")
+	if err != nil {
+		t.Fatalf("CONCAT failed: %v", err)
+	}
+	if result.Rows[0][0].Text() != "Hello World" {
+		t.Errorf("CONCAT: expected 'Hello World', got %q", result.Rows[0][0].Text())
+	}
+
+	// Test UPPER
+	result, err = exec.Execute("SELECT UPPER('hello')")
+	if err != nil {
+		t.Fatalf("UPPER failed: %v", err)
+	}
+	if result.Rows[0][0].Text() != "HELLO" {
+		t.Errorf("UPPER: expected 'HELLO', got %q", result.Rows[0][0].Text())
+	}
+
+	// Test LOWER
+	result, err = exec.Execute("SELECT LOWER('WORLD')")
+	if err != nil {
+		t.Fatalf("LOWER failed: %v", err)
+	}
+	if result.Rows[0][0].Text() != "world" {
+		t.Errorf("LOWER: expected 'world', got %q", result.Rows[0][0].Text())
+	}
+
+	// Test TRIM
+	result, err = exec.Execute("SELECT TRIM('  hello  ')")
+	if err != nil {
+		t.Fatalf("TRIM failed: %v", err)
+	}
+	if result.Rows[0][0].Text() != "hello" {
+		t.Errorf("TRIM: expected 'hello', got %q", result.Rows[0][0].Text())
+	}
+
+	// Test REPLACE
+	result, err = exec.Execute("SELECT REPLACE('hello world', 'world', 'universe')")
+	if err != nil {
+		t.Fatalf("REPLACE failed: %v", err)
+	}
+	if result.Rows[0][0].Text() != "hello universe" {
+		t.Errorf("REPLACE: expected 'hello universe', got %q", result.Rows[0][0].Text())
+	}
+
+	// Test SUBSTR (LEFT function conflicts with SQL keyword LEFT JOIN)
+	result, err = exec.Execute("SELECT SUBSTR('hello', 1, 3)")
+	if err != nil {
+		t.Fatalf("SUBSTR failed: %v", err)
+	}
+	if result.Rows[0][0].Text() != "hel" {
+		t.Errorf("SUBSTR: expected 'hel', got %q", result.Rows[0][0].Text())
+	}
+
+	// Test REVERSE
+	result, err = exec.Execute("SELECT REVERSE('hello')")
+	if err != nil {
+		t.Fatalf("REVERSE failed: %v", err)
+	}
+	if result.Rows[0][0].Text() != "olleh" {
+		t.Errorf("REVERSE: expected 'olleh', got %q", result.Rows[0][0].Text())
+	}
+
+	// Test LPAD
+	result, err = exec.Execute("SELECT LPAD('hi', 5, '*')")
+	if err != nil {
+		t.Fatalf("LPAD failed: %v", err)
+	}
+	if result.Rows[0][0].Text() != "***hi" {
+		t.Errorf("LPAD: expected '***hi', got %q", result.Rows[0][0].Text())
+	}
+}
+
+func TestExecutor_ScalarFunctions_Number(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Test CEIL
+	result, err := exec.Execute("SELECT CEIL(4.2)")
+	if err != nil {
+		t.Fatalf("CEIL failed: %v", err)
+	}
+	if result.Rows[0][0].Float() != 5.0 {
+		t.Errorf("CEIL: expected 5.0, got %v", result.Rows[0][0].Float())
+	}
+
+	// Test FLOOR
+	result, err = exec.Execute("SELECT FLOOR(4.8)")
+	if err != nil {
+		t.Fatalf("FLOOR failed: %v", err)
+	}
+	if result.Rows[0][0].Float() != 4.0 {
+		t.Errorf("FLOOR: expected 4.0, got %v", result.Rows[0][0].Float())
+	}
+
+	// Test MOD (returns integer for integer inputs)
+	result, err = exec.Execute("SELECT MOD(17, 5)")
+	if err != nil {
+		t.Fatalf("MOD failed: %v", err)
+	}
+	if result.Rows[0][0].Int() != 2 {
+		t.Errorf("MOD: expected 2, got %v", result.Rows[0][0].Int())
+	}
+
+	// Test POWER
+	result, err = exec.Execute("SELECT POWER(2, 10)")
+	if err != nil {
+		t.Fatalf("POWER failed: %v", err)
+	}
+	if result.Rows[0][0].Float() != 1024.0 {
+		t.Errorf("POWER: expected 1024.0, got %v", result.Rows[0][0].Float())
+	}
+
+	// Test SQRT
+	result, err = exec.Execute("SELECT SQRT(16)")
+	if err != nil {
+		t.Fatalf("SQRT failed: %v", err)
+	}
+	if result.Rows[0][0].Float() != 4.0 {
+		t.Errorf("SQRT: expected 4.0, got %v", result.Rows[0][0].Float())
+	}
+
+	// Test SIGN
+	result, err = exec.Execute("SELECT SIGN(-42)")
+	if err != nil {
+		t.Fatalf("SIGN failed: %v", err)
+	}
+	if result.Rows[0][0].Int() != -1 {
+		t.Errorf("SIGN: expected -1, got %v", result.Rows[0][0].Int())
+	}
+}
+
+func TestExecutor_ScalarFunctions_DateTime(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Test NOW returns a TIMESTAMPTZ
+	result, err := exec.Execute("SELECT NOW()")
+	if err != nil {
+		t.Fatalf("NOW failed: %v", err)
+	}
+	if result.Rows[0][0].Type() != types.TypeTimestampTZ {
+		t.Errorf("NOW: expected TypeTimestampTZ, got %v", result.Rows[0][0].Type())
+	}
+
+	// Test CURRENT_DATE returns a DATE
+	result, err = exec.Execute("SELECT CURRENT_DATE()")
+	if err != nil {
+		t.Fatalf("CURRENT_DATE failed: %v", err)
+	}
+	if result.Rows[0][0].Type() != types.TypeDate {
+		t.Errorf("CURRENT_DATE: expected TypeDate, got %v", result.Rows[0][0].Type())
+	}
+
+	// Test YEAR extraction
+	result, err = exec.Execute("SELECT YEAR(TO_DATE('2025-12-10', 'YYYY-MM-DD'))")
+	if err != nil {
+		t.Fatalf("YEAR failed: %v", err)
+	}
+	if result.Rows[0][0].Int() != 2025 {
+		t.Errorf("YEAR: expected 2025, got %v", result.Rows[0][0].Int())
+	}
+
+	// Test MONTH extraction
+	result, err = exec.Execute("SELECT MONTH(TO_DATE('2025-12-10', 'YYYY-MM-DD'))")
+	if err != nil {
+		t.Fatalf("MONTH failed: %v", err)
+	}
+	if result.Rows[0][0].Int() != 12 {
+		t.Errorf("MONTH: expected 12, got %v", result.Rows[0][0].Int())
+	}
+
+	// Test DAY extraction
+	result, err = exec.Execute("SELECT DAY(TO_DATE('2025-12-10', 'YYYY-MM-DD'))")
+	if err != nil {
+		t.Fatalf("DAY failed: %v", err)
+	}
+	if result.Rows[0][0].Int() != 10 {
+		t.Errorf("DAY: expected 10, got %v", result.Rows[0][0].Int())
+	}
+}
+
+func TestExecutor_ScalarFunctions_ToChar(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Test TO_CHAR with date
+	result, err := exec.Execute("SELECT TO_CHAR(TO_DATE('2025-12-10', 'YYYY-MM-DD'), 'YYYY/MM/DD')")
+	if err != nil {
+		t.Fatalf("TO_CHAR failed: %v", err)
+	}
+	if result.Rows[0][0].Text() != "2025/12/10" {
+		t.Errorf("TO_CHAR: expected '2025/12/10', got %q", result.Rows[0][0].Text())
+	}
+}
+
+func TestExecutor_ScalarFunctions_WithTable(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create a table with data
+	_, err := exec.Execute("CREATE TABLE products (id INT PRIMARY KEY, name TEXT, price REAL)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE failed: %v", err)
+	}
+
+	_, err = exec.Execute("INSERT INTO products VALUES (1, 'apple', 1.50)")
+	if err != nil {
+		t.Fatalf("INSERT failed: %v", err)
+	}
+	_, err = exec.Execute("INSERT INTO products VALUES (2, 'banana', 0.75)")
+	if err != nil {
+		t.Fatalf("INSERT failed: %v", err)
+	}
+	_, err = exec.Execute("INSERT INTO products VALUES (3, 'cherry', 2.25)")
+	if err != nil {
+		t.Fatalf("INSERT failed: %v", err)
+	}
+
+	// Test UPPER on column
+	result, err := exec.Execute("SELECT UPPER(name) FROM products WHERE id = 1")
+	if err != nil {
+		t.Fatalf("UPPER on column failed: %v", err)
+	}
+	if result.Rows[0][0].Text() != "APPLE" {
+		t.Errorf("UPPER on column: expected 'APPLE', got %q", result.Rows[0][0].Text())
+	}
+
+	// Test CEIL on column
+	result, err = exec.Execute("SELECT CEIL(price) FROM products WHERE id = 1")
+	if err != nil {
+		t.Fatalf("CEIL on column failed: %v", err)
+	}
+	if result.Rows[0][0].Float() != 2.0 {
+		t.Errorf("CEIL on column: expected 2.0, got %v", result.Rows[0][0].Float())
+	}
+
+	// Test function in WHERE clause
+	result, err = exec.Execute("SELECT name FROM products WHERE CEIL(price) = 1")
+	if err != nil {
+		t.Fatalf("Function in WHERE failed: %v", err)
+	}
+	if len(result.Rows) != 1 || result.Rows[0][0].Text() != "banana" {
+		t.Errorf("Function in WHERE: expected 'banana', got %v", result.Rows)
+	}
+}
