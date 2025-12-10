@@ -427,6 +427,34 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Function: builtinRandom,
 	})
 
+	// Register TO_CHAR function
+	r.Register(&ScalarFunction{
+		Name:     "TO_CHAR",
+		NumArgs:  2,
+		Function: builtinToChar,
+	})
+
+	// Register DATE_ADD function
+	r.Register(&ScalarFunction{
+		Name:     "DATE_ADD",
+		NumArgs:  2,
+		Function: builtinDateAdd,
+	})
+
+	// Register DATE_SUB function
+	r.Register(&ScalarFunction{
+		Name:     "DATE_SUB",
+		NumArgs:  2,
+		Function: builtinDateSub,
+	})
+
+	// Register DATEDIFF function
+	r.Register(&ScalarFunction{
+		Name:     "DATEDIFF",
+		NumArgs:  2,
+		Function: builtinDateDiff,
+	})
+
 	return r
 }
 
@@ -1653,4 +1681,252 @@ func builtinLeast(args []types.Value) types.Value {
 // Uses math/rand for random number generation.
 func builtinRandom(args []types.Value) types.Value {
 	return types.NewFloat(rand.Float64())
+}
+
+// builtinToChar implements TO_CHAR(value, format)
+// Formats date/time values according to PostgreSQL-style format codes.
+// Supported format codes:
+// - YYYY: 4-digit year
+// - MM: 2-digit month (01-12)
+// - DD: 2-digit day of month (01-31)
+// - HH24: 24-hour format (00-23)
+// - HH12, HH: 12-hour format (01-12)
+// - MI: minutes (00-59)
+// - SS: seconds (00-59)
+// - Mon: abbreviated month name (Jan, Feb, etc.)
+// - Day: weekday name (Monday, Tuesday, etc.)
+// If any argument is NULL, returns NULL.
+func builtinToChar(args []types.Value) types.Value {
+	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+
+	format := args[1].Text()
+	val := args[0]
+
+	var t time.Time
+
+	// Extract time.Time from the value based on its type
+	switch val.Type() {
+	case types.TypeDate:
+		year, month, day := val.DateValue()
+		t = time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	case types.TypeTimestamp:
+		t = val.TimestampValue()
+	case types.TypeTimestampTZ:
+		t = val.TimestampTZValue()
+	case types.TypeTime:
+		hour, minute, second, microsecond := val.TimeValue()
+		// For TIME, use a reference date (2000-01-01)
+		t = time.Date(2000, 1, 1, hour, minute, second, microsecond*1000, time.UTC)
+	case types.TypeTimeTZ:
+		hour, minute, second, microsecond, _ := val.TimeTZValue()
+		// For TIMETZ, use a reference date (2000-01-01)
+		t = time.Date(2000, 1, 1, hour, minute, second, microsecond*1000, time.UTC)
+	default:
+		return types.NewNull()
+	}
+
+	// Format the value according to the format string
+	result := formatDateTime(t, format)
+	return types.NewText(result)
+}
+
+// formatDateTime formats a time.Time according to PostgreSQL-style format codes
+func formatDateTime(t time.Time, format string) string {
+	var result strings.Builder
+	i := 0
+	for i < len(format) {
+		// Check for format codes (longest match first)
+		matched := false
+
+		// 4-character patterns
+		if i+4 <= len(format) {
+			code := format[i : i+4]
+			switch code {
+			case "YYYY":
+				result.WriteString(fmt.Sprintf("%04d", t.Year()))
+				i += 4
+				matched = true
+			case "HH24":
+				result.WriteString(fmt.Sprintf("%02d", t.Hour()))
+				i += 4
+				matched = true
+			case "HH12":
+				hour := t.Hour() % 12
+				if hour == 0 {
+					hour = 12
+				}
+				result.WriteString(fmt.Sprintf("%02d", hour))
+				i += 4
+				matched = true
+			}
+		}
+
+		if !matched && i+3 <= len(format) {
+			code := format[i : i+3]
+			switch code {
+			case "Mon":
+				monthNames := []string{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}
+				result.WriteString(monthNames[t.Month()-1])
+				i += 3
+				matched = true
+			case "Day":
+				result.WriteString(t.Weekday().String())
+				i += 3
+				matched = true
+			}
+		}
+
+		if !matched && i+2 <= len(format) {
+			code := format[i : i+2]
+			switch code {
+			case "MM":
+				result.WriteString(fmt.Sprintf("%02d", t.Month()))
+				i += 2
+				matched = true
+			case "DD":
+				result.WriteString(fmt.Sprintf("%02d", t.Day()))
+				i += 2
+				matched = true
+			case "HH":
+				hour := t.Hour() % 12
+				if hour == 0 {
+					hour = 12
+				}
+				result.WriteString(fmt.Sprintf("%02d", hour))
+				i += 2
+				matched = true
+			case "MI":
+				result.WriteString(fmt.Sprintf("%02d", t.Minute()))
+				i += 2
+				matched = true
+			case "SS":
+				result.WriteString(fmt.Sprintf("%02d", t.Second()))
+				i += 2
+				matched = true
+			}
+		}
+
+		// If no pattern matched, copy the character as-is
+		if !matched {
+			result.WriteByte(format[i])
+			i++
+		}
+	}
+
+	return result.String()
+}
+
+// builtinDateAdd implements DATE_ADD(date, interval)
+// Adds an interval to a date value.
+// Returns a DATE value representing the result of date + interval.
+// If any argument is NULL, returns NULL.
+func builtinDateAdd(args []types.Value) types.Value {
+	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+
+	// First argument must be a DATE
+	if args[0].Type() != types.TypeDate {
+		return types.NewNull()
+	}
+
+	// Second argument must be an INTERVAL
+	if args[1].Type() != types.TypeInterval {
+		return types.NewNull()
+	}
+
+	// Get the date components
+	year, month, day := args[0].DateValue()
+
+	// Get the interval components
+	months, microseconds := args[1].IntervalValue()
+
+	// Create a time.Time for date arithmetic
+	t := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+
+	// Add months using AddDate
+	if months != 0 {
+		t = t.AddDate(0, int(months), 0)
+	}
+
+	// Add microseconds (days + time) using Add
+	if microseconds != 0 {
+		t = t.Add(time.Duration(microseconds) * time.Microsecond)
+	}
+
+	// Return the result as a DATE
+	return types.NewDate(t.Year(), int(t.Month()), t.Day())
+}
+
+// builtinDateSub implements DATE_SUB(date, interval)
+// Subtracts an interval from a date value.
+// Returns a DATE value representing the result of date - interval.
+// If any argument is NULL, returns NULL.
+func builtinDateSub(args []types.Value) types.Value {
+	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+
+	// First argument must be a DATE
+	if args[0].Type() != types.TypeDate {
+		return types.NewNull()
+	}
+
+	// Second argument must be an INTERVAL
+	if args[1].Type() != types.TypeInterval {
+		return types.NewNull()
+	}
+
+	// Get the date components
+	year, month, day := args[0].DateValue()
+
+	// Get the interval components
+	months, microseconds := args[1].IntervalValue()
+
+	// Create a time.Time for date arithmetic
+	t := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+
+	// Subtract months using AddDate with negative values
+	if months != 0 {
+		t = t.AddDate(0, -int(months), 0)
+	}
+
+	// Subtract microseconds (days + time) using Add with negative duration
+	if microseconds != 0 {
+		t = t.Add(-time.Duration(microseconds) * time.Microsecond)
+	}
+
+	// Return the result as a DATE
+	return types.NewDate(t.Year(), int(t.Month()), t.Day())
+}
+
+// builtinDateDiff implements DATEDIFF(date1, date2)
+// Returns the number of days between date1 and date2 (date1 - date2).
+// Returns a positive number if date1 > date2, negative if date1 < date2.
+// If any argument is NULL, returns NULL.
+func builtinDateDiff(args []types.Value) types.Value {
+	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+
+	// Both arguments must be DATE
+	if args[0].Type() != types.TypeDate || args[1].Type() != types.TypeDate {
+		return types.NewNull()
+	}
+
+	// Get the date components for both dates
+	year1, month1, day1 := args[0].DateValue()
+	year2, month2, day2 := args[1].DateValue()
+
+	// Create time.Time values for both dates
+	t1 := time.Date(year1, time.Month(month1), day1, 0, 0, 0, 0, time.UTC)
+	t2 := time.Date(year2, time.Month(month2), day2, 0, 0, 0, 0, time.UTC)
+
+	// Calculate the difference in days
+	diff := t1.Sub(t2)
+	days := int64(diff.Hours() / 24)
+
+	return types.NewInt(days)
 }

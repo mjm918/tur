@@ -1886,3 +1886,108 @@ func TestRandom(t *testing.T) {
 		}
 	}
 }
+
+func TestToCharDate(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	toChar := registry.Lookup("TO_CHAR")
+	if toChar == nil {
+		t.Fatal("TO_CHAR function not found")
+	}
+
+	tests := []struct {
+		value  types.Value
+		format string
+		expect string
+	}{
+		{types.NewDate(2025, 12, 10), "YYYY-MM-DD", "2025-12-10"},
+		{types.NewDate(2025, 1, 5), "YYYY-MM-DD", "2025-01-05"},
+		{types.NewTimestamp(2025, 12, 10, 14, 30, 45, 0), "YYYY-MM-DD HH24:MI:SS", "2025-12-10 14:30:45"},
+		{types.NewTimestamp(2025, 12, 10, 14, 30, 45, 0), "DD Mon YYYY", "10 Dec 2025"},
+		{types.NewTimestamp(2025, 6, 15, 3, 5, 9, 0), "YYYY-MM-DD HH12:MI:SS", "2025-06-15 03:05:09"},
+		{types.NewTimestamp(2025, 6, 15, 15, 5, 9, 0), "HH24:MI", "15:05"},
+		{types.NewTimestamp(2025, 6, 15, 15, 5, 9, 0), "HH:MI", "03:05"},
+		{types.NewDate(2024, 2, 29), "YYYY-MM-DD", "2024-02-29"}, // Leap year
+	}
+
+	for i, tc := range tests {
+		result := toChar.Call([]types.Value{tc.value, types.NewText(tc.format)})
+		if result.Text() != tc.expect {
+			t.Errorf("test %d: TO_CHAR expected %q, got %q", i, tc.expect, result.Text())
+		}
+	}
+}
+
+func TestToCharNull(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	toChar := registry.Lookup("TO_CHAR")
+	if toChar == nil {
+		t.Fatal("TO_CHAR function not found")
+	}
+
+	// NULL value
+	result := toChar.Call([]types.Value{types.NewNull(), types.NewText("YYYY-MM-DD")})
+	if !result.IsNull() {
+		t.Error("TO_CHAR(NULL, format) should return NULL")
+	}
+
+	// NULL format
+	result = toChar.Call([]types.Value{types.NewDate(2025, 12, 10), types.NewNull()})
+	if !result.IsNull() {
+		t.Error("TO_CHAR(date, NULL) should return NULL")
+	}
+}
+
+func TestDateAdd(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	dateAdd := registry.Lookup("DATE_ADD")
+	if dateAdd == nil {
+		t.Fatal("DATE_ADD function not found")
+	}
+
+	d := types.NewDate(2025, 12, 10)
+	interval := types.NewInterval(0, 3*24*3600*1000000) // 3 days
+
+	result := dateAdd.Call([]types.Value{d, interval})
+	year, month, day := result.DateValue()
+	if year != 2025 || month != 12 || day != 13 {
+		t.Errorf("expected 2025-12-13, got %d-%d-%d", year, month, day)
+	}
+}
+
+func TestDateSub(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	dateSub := registry.Lookup("DATE_SUB")
+	if dateSub == nil {
+		t.Fatal("DATE_SUB function not found")
+	}
+
+	d := types.NewDate(2025, 12, 10)
+	interval := types.NewInterval(0, 3*24*3600*1000000) // 3 days
+
+	result := dateSub.Call([]types.Value{d, interval})
+	year, month, day := result.DateValue()
+	if year != 2025 || month != 12 || day != 7 {
+		t.Errorf("expected 2025-12-07, got %d-%d-%d", year, month, day)
+	}
+}
+
+func TestDateDiff(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	dateDiff := registry.Lookup("DATEDIFF")
+	if dateDiff == nil {
+		t.Fatal("DATEDIFF function not found")
+	}
+
+	d1 := types.NewDate(2025, 12, 10)
+	d2 := types.NewDate(2025, 12, 5)
+
+	result := dateDiff.Call([]types.Value{d1, d2})
+	if result.Int() != 5 {
+		t.Errorf("DATEDIFF expected 5, got %d", result.Int())
+	}
+
+	result = dateDiff.Call([]types.Value{d2, d1})
+	if result.Int() != -5 {
+		t.Errorf("DATEDIFF expected -5, got %d", result.Int())
+	}
+}
