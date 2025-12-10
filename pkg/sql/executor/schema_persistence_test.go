@@ -280,3 +280,56 @@ func TestCreateView_PersistsSchema(t *testing.T) {
 		t.Errorf("Expected view name 'adult_users', got %s", view.Name)
 	}
 }
+
+func TestCreateTrigger_PersistsSchema(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test_create_trigger_persist.db")
+
+	// Phase 1: Create table and trigger, then close
+	p, err := pager.Open(path, pager.Options{})
+	if err != nil {
+		t.Fatalf("Failed to open pager: %v", err)
+	}
+
+	exec := New(p)
+	_, err = exec.Execute("CREATE TABLE audit_log (id INT, event_type TEXT, created_at TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE audit_log failed: %v", err)
+	}
+
+	_, err = exec.Execute("CREATE TABLE users (id INT PRIMARY KEY, name TEXT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE users failed: %v", err)
+	}
+
+	_, err = exec.Execute(`CREATE TRIGGER log_insert AFTER INSERT ON users
+BEGIN
+	INSERT INTO audit_log (event_type) VALUES ('insert');
+END`)
+	if err != nil {
+		t.Fatalf("CREATE TRIGGER failed: %v", err)
+	}
+
+	p.Close()
+
+	// Phase 2: Reopen and verify trigger persisted
+	p2, err := pager.Open(path, pager.Options{})
+	if err != nil {
+		t.Fatalf("Failed to reopen pager: %v", err)
+	}
+	defer p2.Close()
+
+	exec2 := New(p2)
+	trigger := exec2.catalog.GetTrigger("log_insert")
+	if trigger == nil {
+		t.Fatal("Trigger 'log_insert' not found after reopen - schema not persisted")
+	}
+
+	if trigger.Name != "log_insert" {
+		t.Errorf("Expected trigger name 'log_insert', got %s", trigger.Name)
+	}
+
+	if trigger.TableName != "users" {
+		t.Errorf("Expected trigger table 'users', got %s", trigger.TableName)
+	}
+}
