@@ -50,3 +50,6 @@ go.work.sum
 # ...even if they are in subdirectories
 !*/
 
+
+# Worktrees
+.worktrees/
