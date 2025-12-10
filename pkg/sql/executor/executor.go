@@ -2999,6 +2999,12 @@ func (e *Executor) evaluateFunctionCall(expr *parser.FunctionCall, rowValues []t
 	case "VECTOR_QUANTIZE":
 		return e.executeVectorQuantize(args)
 	default:
+		// Fall back to function registry for scalar functions
+		funcRegistry := vdbe.DefaultFunctionRegistry()
+		fn := funcRegistry.Lookup(expr.Name)
+		if fn != nil {
+			return fn.Call(args), nil
+		}
 		return types.NewNull(), fmt.Errorf("unknown function: %s", expr.Name)
 	}
 }
