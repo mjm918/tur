@@ -32,6 +32,7 @@ const (
 	// Delimiters
 	COMMA     // ,
 	SEMICOLON // ;
+	COLON     // :
 	LPAREN    // (
 	RPAREN    // )
 	DOT       // .
@@ -185,6 +186,28 @@ const (
 	// Procedural SQL keywords
 	ELSIF
 	ELSEIF
+
+	// Stored Procedure keywords
+	PROCEDURE
+	CALL
+	DECLARE
+	CURSOR
+	OPEN
+	FETCH
+	CLOSE
+	HANDLER
+	CONTINUE
+	EXIT
+	FOR_KW // FOR (distinct from FOR loop)
+	LOOP
+	LEAVE
+	FOUND
+	INOUT
+	OUT
+	SQLEXCEPTION
+	SQLWARNING
+	SQLSTATE
+	AT // @ for session variables
 )
 
 // Token represents a lexical token
@@ -235,6 +258,8 @@ func (t TokenType) String() string {
 		return ","
 	case SEMICOLON:
 		return ";"
+	case COLON:
+		return ":"
 	case LPAREN:
 		return "("
 	case RPAREN:
@@ -449,6 +474,46 @@ func (t TokenType) String() string {
 		return "ELSIF"
 	case ELSEIF:
 		return "ELSEIF"
+	case PROCEDURE:
+		return "PROCEDURE"
+	case CALL:
+		return "CALL"
+	case DECLARE:
+		return "DECLARE"
+	case CURSOR:
+		return "CURSOR"
+	case OPEN:
+		return "OPEN"
+	case FETCH:
+		return "FETCH"
+	case CLOSE:
+		return "CLOSE"
+	case HANDLER:
+		return "HANDLER"
+	case CONTINUE:
+		return "CONTINUE"
+	case EXIT:
+		return "EXIT"
+	case FOR_KW:
+		return "FOR"
+	case LOOP:
+		return "LOOP"
+	case LEAVE:
+		return "LEAVE"
+	case FOUND:
+		return "FOUND"
+	case INOUT:
+		return "INOUT"
+	case OUT:
+		return "OUT"
+	case SQLEXCEPTION:
+		return "SQLEXCEPTION"
+	case SQLWARNING:
+		return "SQLWARNING"
+	case SQLSTATE:
+		return "SQLSTATE"
+	case AT:
+		return "@"
 	default:
 		return "UNKNOWN"
 	}
@@ -558,8 +623,27 @@ var keywords = map[string]TokenType{
 	"THEN":        THEN,
 	"ELSE":        ELSE_KW,
 	"TRUNCATE":    TRUNCATE,
-	"ELSIF":       ELSIF,
-	"ELSEIF":      ELSEIF,
+	"ELSIF":        ELSIF,
+	"ELSEIF":       ELSEIF,
+	"PROCEDURE":    PROCEDURE,
+	"CALL":         CALL,
+	"DECLARE":      DECLARE,
+	"CURSOR":       CURSOR,
+	"OPEN":         OPEN,
+	"FETCH":        FETCH,
+	"CLOSE":        CLOSE,
+	"HANDLER":      HANDLER,
+	"CONTINUE":     CONTINUE,
+	"EXIT":         EXIT,
+	"FOR":          FOR_KW,
+	"LOOP":         LOOP,
+	"LEAVE":        LEAVE,
+	"FOUND":        FOUND,
+	"INOUT":        INOUT,
+	"OUT":          OUT,
+	"SQLEXCEPTION": SQLEXCEPTION,
+	"SQLWARNING":   SQLWARNING,
+	"SQLSTATE":     SQLSTATE,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT

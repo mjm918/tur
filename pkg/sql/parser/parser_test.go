@@ -3643,3 +3643,529 @@ func TestParser_IfStmt_MultipleStatements(t *testing.T) {
 		}
 	}
 }
+
+// ==================== Stored Procedure Tests ====================
+
+func TestParser_CreateProcedure_NoParams(t *testing.T) {
+	// Simple procedure with no parameters
+	input := "CREATE PROCEDURE my_proc() BEGIN SELECT 1 END"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	proc, ok := stmt.(*CreateProcedureStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateProcedureStmt, got %T", stmt)
+	}
+
+	if proc.Name != "my_proc" {
+		t.Errorf("Name = %q, want 'my_proc'", proc.Name)
+	}
+
+	if len(proc.Parameters) != 0 {
+		t.Errorf("Parameters count = %d, want 0", len(proc.Parameters))
+	}
+
+	if len(proc.Body) != 1 {
+		t.Fatalf("Body count = %d, want 1", len(proc.Body))
+	}
+
+	_, ok = proc.Body[0].(*SelectStmt)
+	if !ok {
+		t.Errorf("Body[0] = %T, want *SelectStmt", proc.Body[0])
+	}
+}
+
+func TestParser_CreateProcedure_WithINParam(t *testing.T) {
+	// Procedure with IN parameter
+	input := "CREATE PROCEDURE get_user(IN user_id INT) BEGIN SELECT * FROM users WHERE id = user_id END"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	proc, ok := stmt.(*CreateProcedureStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateProcedureStmt, got %T", stmt)
+	}
+
+	if proc.Name != "get_user" {
+		t.Errorf("Name = %q, want 'get_user'", proc.Name)
+	}
+
+	if len(proc.Parameters) != 1 {
+		t.Fatalf("Parameters count = %d, want 1", len(proc.Parameters))
+	}
+
+	param := proc.Parameters[0]
+	if param.Name != "user_id" {
+		t.Errorf("Parameter name = %q, want 'user_id'", param.Name)
+	}
+	if param.Mode != ParamModeIn {
+		t.Errorf("Parameter mode = %v, want ParamModeIn", param.Mode)
+	}
+	if param.Type != types.TypeInt {
+		t.Errorf("Parameter type = %v, want TypeInt", param.Type)
+	}
+}
+
+func TestParser_CreateProcedure_WithOUTParam(t *testing.T) {
+	// Procedure with OUT parameter (simple body for now, SELECT INTO is separate feature)
+	input := "CREATE PROCEDURE count_users(OUT total INT) BEGIN SELECT COUNT(*) FROM users END"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	proc, ok := stmt.(*CreateProcedureStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateProcedureStmt, got %T", stmt)
+	}
+
+	if len(proc.Parameters) != 1 {
+		t.Fatalf("Parameters count = %d, want 1", len(proc.Parameters))
+	}
+
+	param := proc.Parameters[0]
+	if param.Name != "total" {
+		t.Errorf("Parameter name = %q, want 'total'", param.Name)
+	}
+	if param.Mode != ParamModeOut {
+		t.Errorf("Parameter mode = %v, want ParamModeOut", param.Mode)
+	}
+	if param.Type != types.TypeInt {
+		t.Errorf("Parameter type = %v, want TypeInt", param.Type)
+	}
+}
+
+func TestParser_CreateProcedure_WithINOUTParam(t *testing.T) {
+	// Procedure with INOUT parameter
+	input := "CREATE PROCEDURE double_value(INOUT val INT) BEGIN SET val = val * 2 END"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	proc, ok := stmt.(*CreateProcedureStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateProcedureStmt, got %T", stmt)
+	}
+
+	if len(proc.Parameters) != 1 {
+		t.Fatalf("Parameters count = %d, want 1", len(proc.Parameters))
+	}
+
+	param := proc.Parameters[0]
+	if param.Name != "val" {
+		t.Errorf("Parameter name = %q, want 'val'", param.Name)
+	}
+	if param.Mode != ParamModeInOut {
+		t.Errorf("Parameter mode = %v, want ParamModeInOut", param.Mode)
+	}
+}
+
+func TestParser_CreateProcedure_MultipleParams(t *testing.T) {
+	// Procedure with multiple parameters of different modes
+	input := "CREATE PROCEDURE transfer(IN from_id INT, IN to_id INT, IN amount FLOAT, OUT success INT) BEGIN SELECT 1 END"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	proc, ok := stmt.(*CreateProcedureStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateProcedureStmt, got %T", stmt)
+	}
+
+	if len(proc.Parameters) != 4 {
+		t.Fatalf("Parameters count = %d, want 4", len(proc.Parameters))
+	}
+
+	// Check each parameter
+	expected := []struct {
+		name     string
+		mode     ParamMode
+		dataType types.ValueType
+	}{
+		{"from_id", ParamModeIn, types.TypeInt},
+		{"to_id", ParamModeIn, types.TypeInt},
+		{"amount", ParamModeIn, types.TypeFloat},
+		{"success", ParamModeOut, types.TypeInt},
+	}
+
+	for i, exp := range expected {
+		param := proc.Parameters[i]
+		if param.Name != exp.name {
+			t.Errorf("Parameters[%d].Name = %q, want %q", i, param.Name, exp.name)
+		}
+		if param.Mode != exp.mode {
+			t.Errorf("Parameters[%d].Mode = %v, want %v", i, param.Mode, exp.mode)
+		}
+		if param.Type != exp.dataType {
+			t.Errorf("Parameters[%d].Type = %v, want %v", i, param.Type, exp.dataType)
+		}
+	}
+}
+
+func TestParser_CreateProcedure_DefaultParamMode(t *testing.T) {
+	// Parameter without explicit mode defaults to IN
+	input := "CREATE PROCEDURE simple(x INT) BEGIN SELECT x END"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	proc, ok := stmt.(*CreateProcedureStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateProcedureStmt, got %T", stmt)
+	}
+
+	if len(proc.Parameters) != 1 {
+		t.Fatalf("Parameters count = %d, want 1", len(proc.Parameters))
+	}
+
+	param := proc.Parameters[0]
+	if param.Mode != ParamModeIn {
+		t.Errorf("Default parameter mode = %v, want ParamModeIn", param.Mode)
+	}
+}
+
+func TestParser_DropProcedure(t *testing.T) {
+	input := "DROP PROCEDURE my_proc"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	drop, ok := stmt.(*DropProcedureStmt)
+	if !ok {
+		t.Fatalf("Expected *DropProcedureStmt, got %T", stmt)
+	}
+
+	if drop.Name != "my_proc" {
+		t.Errorf("Name = %q, want 'my_proc'", drop.Name)
+	}
+
+	if drop.IfExists {
+		t.Error("IfExists = true, want false")
+	}
+}
+
+func TestParser_DropProcedure_IfExists(t *testing.T) {
+	input := "DROP PROCEDURE IF EXISTS my_proc"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	drop, ok := stmt.(*DropProcedureStmt)
+	if !ok {
+		t.Fatalf("Expected *DropProcedureStmt, got %T", stmt)
+	}
+
+	if drop.Name != "my_proc" {
+		t.Errorf("Name = %q, want 'my_proc'", drop.Name)
+	}
+
+	if !drop.IfExists {
+		t.Error("IfExists = false, want true")
+	}
+}
+
+func TestParser_CallProcedure_NoArgs(t *testing.T) {
+	input := "CALL my_proc()"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	call, ok := stmt.(*CallStmt)
+	if !ok {
+		t.Fatalf("Expected *CallStmt, got %T", stmt)
+	}
+
+	if call.Name != "my_proc" {
+		t.Errorf("Name = %q, want 'my_proc'", call.Name)
+	}
+
+	if len(call.Args) != 0 {
+		t.Errorf("Args count = %d, want 0", len(call.Args))
+	}
+}
+
+func TestParser_CallProcedure_WithArgs(t *testing.T) {
+	input := "CALL transfer(1, 2, 100.50, @result)"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	call, ok := stmt.(*CallStmt)
+	if !ok {
+		t.Fatalf("Expected *CallStmt, got %T", stmt)
+	}
+
+	if call.Name != "transfer" {
+		t.Errorf("Name = %q, want 'transfer'", call.Name)
+	}
+
+	if len(call.Args) != 4 {
+		t.Fatalf("Args count = %d, want 4", len(call.Args))
+	}
+
+	// Check first arg is literal 1
+	lit, ok := call.Args[0].(*Literal)
+	if !ok {
+		t.Errorf("Args[0] = %T, want *Literal", call.Args[0])
+	} else if lit.Value.Int() != 1 {
+		t.Errorf("Args[0] value = %v, want 1", lit.Value.Int())
+	}
+
+	// Check last arg is session variable @result
+	sessVar, ok := call.Args[3].(*SessionVariable)
+	if !ok {
+		t.Errorf("Args[3] = %T, want *SessionVariable", call.Args[3])
+	} else if sessVar.Name != "result" {
+		t.Errorf("Args[3] name = %q, want 'result'", sessVar.Name)
+	}
+}
+
+// ==================== Procedure Statement Tests ====================
+
+func TestParser_DeclareVariable(t *testing.T) {
+	// Test parsing DECLARE within a procedure body
+	input := "CREATE PROCEDURE test_proc() BEGIN DECLARE counter INT DEFAULT 0 END"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	proc, ok := stmt.(*CreateProcedureStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateProcedureStmt, got %T", stmt)
+	}
+
+	if len(proc.Body) != 1 {
+		t.Fatalf("Body count = %d, want 1", len(proc.Body))
+	}
+
+	decl, ok := proc.Body[0].(*DeclareStmt)
+	if !ok {
+		t.Fatalf("Body[0] = %T, want *DeclareStmt", proc.Body[0])
+	}
+
+	if decl.Name != "counter" {
+		t.Errorf("Name = %q, want 'counter'", decl.Name)
+	}
+	if decl.Type != types.TypeInt {
+		t.Errorf("Type = %v, want TypeInt", decl.Type)
+	}
+	if decl.DefaultValue == nil {
+		t.Fatal("DefaultValue should not be nil")
+	}
+	lit, ok := decl.DefaultValue.(*Literal)
+	if !ok {
+		t.Fatalf("DefaultValue = %T, want *Literal", decl.DefaultValue)
+	}
+	if lit.Value.Int() != 0 {
+		t.Errorf("DefaultValue = %v, want 0", lit.Value.Int())
+	}
+}
+
+func TestParser_SetStatement(t *testing.T) {
+	// Test parsing SET statement
+	input := "SET @counter = 10"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	setStmt, ok := stmt.(*SetStmt)
+	if !ok {
+		t.Fatalf("Expected *SetStmt, got %T", stmt)
+	}
+
+	sessVar, ok := setStmt.Variable.(*SessionVariable)
+	if !ok {
+		t.Fatalf("Variable = %T, want *SessionVariable", setStmt.Variable)
+	}
+	if sessVar.Name != "counter" {
+		t.Errorf("Variable name = %q, want 'counter'", sessVar.Name)
+	}
+
+	lit, ok := setStmt.Value.(*Literal)
+	if !ok {
+		t.Fatalf("Value = %T, want *Literal", setStmt.Value)
+	}
+	if lit.Value.Int() != 10 {
+		t.Errorf("Value = %v, want 10", lit.Value.Int())
+	}
+}
+
+func TestParser_LoopStatement(t *testing.T) {
+	// Test parsing LOOP with LEAVE
+	input := "CREATE PROCEDURE test_loop() BEGIN LOOP LEAVE END LOOP END"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	proc, ok := stmt.(*CreateProcedureStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateProcedureStmt, got %T", stmt)
+	}
+
+	if len(proc.Body) != 1 {
+		t.Fatalf("Body count = %d, want 1", len(proc.Body))
+	}
+
+	loop, ok := proc.Body[0].(*LoopStmt)
+	if !ok {
+		t.Fatalf("Body[0] = %T, want *LoopStmt", proc.Body[0])
+	}
+
+	if len(loop.Body) != 1 {
+		t.Fatalf("Loop body count = %d, want 1", len(loop.Body))
+	}
+
+	_, ok = loop.Body[0].(*LeaveStmt)
+	if !ok {
+		t.Errorf("Loop body[0] = %T, want *LeaveStmt", loop.Body[0])
+	}
+}
+
+func TestParser_DeclareCursor(t *testing.T) {
+	// Test parsing DECLARE CURSOR
+	input := "CREATE PROCEDURE test_cursor() BEGIN DECLARE cur CURSOR FOR SELECT id FROM users END"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	proc, ok := stmt.(*CreateProcedureStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateProcedureStmt, got %T", stmt)
+	}
+
+	if len(proc.Body) != 1 {
+		t.Fatalf("Body count = %d, want 1", len(proc.Body))
+	}
+
+	cursor, ok := proc.Body[0].(*DeclareCursorStmt)
+	if !ok {
+		t.Fatalf("Body[0] = %T, want *DeclareCursorStmt", proc.Body[0])
+	}
+
+	if cursor.Name != "cur" {
+		t.Errorf("Cursor name = %q, want 'cur'", cursor.Name)
+	}
+	if cursor.Query == nil {
+		t.Fatal("Query should not be nil")
+	}
+}
+
+func TestParser_CursorOperations(t *testing.T) {
+	// Test parsing OPEN, FETCH, CLOSE cursor statements
+	input := `CREATE PROCEDURE test_ops() BEGIN
+		OPEN cur;
+		FETCH cur INTO user_name;
+		CLOSE cur
+	END`
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	proc, ok := stmt.(*CreateProcedureStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateProcedureStmt, got %T", stmt)
+	}
+
+	if len(proc.Body) != 3 {
+		t.Fatalf("Body count = %d, want 3", len(proc.Body))
+	}
+
+	// Check OPEN
+	open, ok := proc.Body[0].(*OpenStmt)
+	if !ok {
+		t.Errorf("Body[0] = %T, want *OpenStmt", proc.Body[0])
+	} else if open.CursorName != "cur" {
+		t.Errorf("OPEN cursor = %q, want 'cur'", open.CursorName)
+	}
+
+	// Check FETCH
+	fetch, ok := proc.Body[1].(*FetchStmt)
+	if !ok {
+		t.Errorf("Body[1] = %T, want *FetchStmt", proc.Body[1])
+	} else {
+		if fetch.CursorName != "cur" {
+			t.Errorf("FETCH cursor = %q, want 'cur'", fetch.CursorName)
+		}
+		if len(fetch.Variables) != 1 {
+			t.Errorf("FETCH variables = %d, want 1", len(fetch.Variables))
+		}
+	}
+
+	// Check CLOSE
+	close, ok := proc.Body[2].(*CloseStmt)
+	if !ok {
+		t.Errorf("Body[2] = %T, want *CloseStmt", proc.Body[2])
+	} else if close.CursorName != "cur" {
+		t.Errorf("CLOSE cursor = %q, want 'cur'", close.CursorName)
+	}
+}
+
+func TestParser_DeclareHandler(t *testing.T) {
+	// Test parsing DECLARE CONTINUE HANDLER
+	input := "CREATE PROCEDURE test_handler() BEGIN DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1 END"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	proc, ok := stmt.(*CreateProcedureStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateProcedureStmt, got %T", stmt)
+	}
+
+	if len(proc.Body) != 1 {
+		t.Fatalf("Body count = %d, want 1", len(proc.Body))
+	}
+
+	handler, ok := proc.Body[0].(*DeclareHandlerStmt)
+	if !ok {
+		t.Fatalf("Body[0] = %T, want *DeclareHandlerStmt", proc.Body[0])
+	}
+
+	if handler.Action != HandlerActionContinue {
+		t.Errorf("Action = %v, want HandlerActionContinue", handler.Action)
+	}
+	if handler.Condition != HandlerConditionNotFound {
+		t.Errorf("Condition = %v, want HandlerConditionNotFound", handler.Condition)
+	}
+	if len(handler.Body) != 1 {
+		t.Fatalf("Handler body count = %d, want 1", len(handler.Body))
+	}
+
+	_, ok = handler.Body[0].(*SetStmt)
+	if !ok {
+		t.Errorf("Handler body[0] = %T, want *SetStmt", handler.Body[0])
+	}
+}

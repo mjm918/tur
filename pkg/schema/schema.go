@@ -10,17 +10,19 @@ import (
 )
 
 var (
-	ErrTableExists      = errors.New("table already exists")
-	ErrTableNotFound    = errors.New("table not found")
-	ErrColumnNotFound   = errors.New("column not found")
-	ErrColumnExists     = errors.New("column already exists")
-	ErrIndexExists      = errors.New("index already exists")
-	ErrIndexNotFound    = errors.New("index not found")
-	ErrViewExists       = errors.New("view already exists")
-	ErrViewNotFound     = errors.New("view not found")
-	ErrTriggerExists    = errors.New("trigger already exists")
-	ErrTriggerNotFound  = errors.New("trigger not found")
-	ErrTriggerIgnore    = errors.New("trigger RAISE(IGNORE)") // Sentinel for RAISE(IGNORE)
+	ErrTableExists        = errors.New("table already exists")
+	ErrTableNotFound      = errors.New("table not found")
+	ErrColumnNotFound     = errors.New("column not found")
+	ErrColumnExists       = errors.New("column already exists")
+	ErrIndexExists        = errors.New("index already exists")
+	ErrIndexNotFound      = errors.New("index not found")
+	ErrViewExists         = errors.New("view already exists")
+	ErrViewNotFound       = errors.New("view not found")
+	ErrTriggerExists      = errors.New("trigger already exists")
+	ErrTriggerNotFound    = errors.New("trigger not found")
+	ErrTriggerIgnore      = errors.New("trigger RAISE(IGNORE)") // Sentinel for RAISE(IGNORE)
+	ErrProcedureExists    = errors.New("procedure already exists")
+	ErrProcedureNotFound  = errors.New("procedure not found")
 )
 
 // TriggerAbortError represents a RAISE(ABORT, message) error
@@ -322,6 +324,30 @@ type TriggerDef struct {
 	Actions   []interface{} // Parsed action statements (stored as interface{} to avoid circular import)
 }
 
+// ProcedureParamMode represents the mode of a procedure parameter
+type ProcedureParamMode int
+
+const (
+	ParamModeIn    ProcedureParamMode = iota // IN parameter (default)
+	ParamModeOut                             // OUT parameter
+	ParamModeInOut                           // INOUT parameter
+)
+
+// ProcedureParam represents a stored procedure parameter
+type ProcedureParam struct {
+	Name string          // Parameter name
+	Mode ProcedureParamMode // IN, OUT, or INOUT
+	Type types.ValueType // Data type
+}
+
+// ProcedureDef defines a stored procedure schema
+type ProcedureDef struct {
+	Name       string           // Procedure name
+	Parameters []ProcedureParam // Procedure parameters
+	SQL        string           // Original CREATE PROCEDURE SQL for persistence
+	Body       []interface{}    // Parsed body statements (stored as interface{} to avoid circular import)
+}
+
 // Catalog holds all schema definitions
 type Catalog struct {
 	mu         sync.RWMutex
@@ -329,6 +355,7 @@ type Catalog struct {
 	indexes    map[string]*IndexDef
 	views      map[string]*ViewDef
 	triggers   map[string]*TriggerDef
+	procedures map[string]*ProcedureDef
 	statistics map[string]*TableStatistics
 }
 
@@ -339,6 +366,7 @@ func NewCatalog() *Catalog {
 		indexes:    make(map[string]*IndexDef),
 		views:      make(map[string]*ViewDef),
 		triggers:   make(map[string]*TriggerDef),
+		procedures: make(map[string]*ProcedureDef),
 		statistics: make(map[string]*TableStatistics),
 	}
 }
@@ -793,4 +821,59 @@ func (c *Catalog) TriggerCount() int {
 	defer c.mu.RUnlock()
 
 	return len(c.triggers)
+}
+
+// CreateProcedure adds a procedure to the catalog
+func (c *Catalog) CreateProcedure(proc *ProcedureDef) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if _, exists := c.procedures[proc.Name]; exists {
+		return ErrProcedureExists
+	}
+
+	c.procedures[proc.Name] = proc
+	return nil
+}
+
+// DropProcedure removes a procedure from the catalog
+func (c *Catalog) DropProcedure(name string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if _, exists := c.procedures[name]; !exists {
+		return ErrProcedureNotFound
+	}
+
+	delete(c.procedures, name)
+	return nil
+}
+
+// GetProcedure returns a procedure definition by name
+func (c *Catalog) GetProcedure(name string) *ProcedureDef {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.procedures[name]
+}
+
+// ListProcedures returns all procedure names in sorted order
+func (c *Catalog) ListProcedures() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	names := make([]string, 0, len(c.procedures))
+	for name := range c.procedures {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// ProcedureCount returns the number of procedures
+func (c *Catalog) ProcedureCount() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return len(c.procedures)
 }

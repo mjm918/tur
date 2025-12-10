@@ -85,10 +85,14 @@ func (l *Lexer) NextToken() Token {
 		tok = l.newToken(COMMA, ",")
 	case ';':
 		tok = l.newToken(SEMICOLON, ";")
+	case ':':
+		tok = l.newToken(COLON, ":")
 	case '(':
 		tok = l.newToken(LPAREN, "(")
 	case ')':
 		tok = l.newToken(RPAREN, ")")
+	case '@':
+		tok = l.newToken(AT, "@")
 	case '.':
 		if isDigit(l.peekChar()) {
 			tok.Literal = l.readNumber()
