@@ -6,8 +6,6 @@ import (
 	"os"
 	"sync"
 
-	"golang.org/x/sys/unix"
-
 	"tur/pkg/btree"
 	"tur/pkg/hnsw"
 	"tur/pkg/mvcc"
@@ -82,18 +80,14 @@ type Options struct {
 func OpenWithOptions(path string, opts Options) (*DB, error) {
 	// Acquire exclusive lock on lock file to prevent concurrent access
 	lockPath := path + ".lock"
-	lockFile, err := os.OpenFile(lockPath, os.O_RDWR|os.O_CREATE, 0644)
+	lf, err := os.OpenFile(lockPath, os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		return nil, err
 	}
 
 	// Try to acquire exclusive lock (non-blocking)
-	err = unix.Flock(int(lockFile.Fd()), unix.LOCK_EX|unix.LOCK_NB)
-	if err != nil {
-		lockFile.Close()
-		if errors.Is(err, unix.EWOULDBLOCK) {
-			return nil, ErrDatabaseLocked
-		}
+	if err := lockFile(lf); err != nil {
+		lf.Close()
 		return nil, err
 	}
 
@@ -108,14 +102,14 @@ func OpenWithOptions(path string, opts Options) (*DB, error) {
 	p, err := pager.Open(path, pagerOpts)
 	if err != nil {
 		// Release lock and close lock file on error
-		unix.Flock(int(lockFile.Fd()), unix.LOCK_UN)
-		lockFile.Close()
+		unlockFile(lf)
+		lf.Close()
 		return nil, err
 	}
 
 	db := &DB{
 		path:        path,
-		lockFile:    lockFile,
+		lockFile:    lf,
 		pager:       p,
 		catalog:     schema.NewCatalog(),
 		trees:       make(map[string]*btree.BTree),
@@ -157,7 +151,7 @@ func (db *DB) Close() error {
 
 	// Release the file lock and close lock file
 	if db.lockFile != nil {
-		unix.Flock(int(db.lockFile.Fd()), unix.LOCK_UN)
+		unlockFile(db.lockFile)
 		db.lockFile.Close()
 		db.lockFile = nil
 	}
