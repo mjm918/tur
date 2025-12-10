@@ -177,6 +177,10 @@ func (e *Executor) executeCreateTable(stmt *parser.CreateTableStmt) (*Result, er
 
 		// FOREIGN KEY (column-level REFERENCES)
 		if col.ForeignKey != nil {
+			// Validate that the referenced table and column exist
+			if err := e.validateForeignKeyReference(col.ForeignKey.RefTable, col.ForeignKey.RefColumn); err != nil {
+				return nil, fmt.Errorf("FOREIGN KEY constraint on column '%s': %w", col.Name, err)
+			}
 			constraints = append(constraints, schema.Constraint{
 				Type:      schema.ConstraintForeignKey,
 				RefTable:  col.ForeignKey.RefTable,
@@ -217,6 +221,16 @@ func (e *Executor) executeCreateTable(stmt *parser.CreateTableStmt) (*Result, er
 		case parser.TableConstraintUnique:
 			schemaTC.Type = schema.ConstraintUnique
 		case parser.TableConstraintForeignKey:
+			// Validate that the referenced table and columns exist
+			for i, refCol := range tc.RefColumns {
+				if err := e.validateForeignKeyReference(tc.RefTable, refCol); err != nil {
+					colName := ""
+					if i < len(tc.Columns) {
+						colName = tc.Columns[i]
+					}
+					return nil, fmt.Errorf("FOREIGN KEY constraint on column '%s': %w", colName, err)
+				}
+			}
 			schemaTC.Type = schema.ConstraintForeignKey
 			schemaTC.RefTable = tc.RefTable
 			schemaTC.RefColumns = tc.RefColumns
@@ -566,6 +580,71 @@ func convertFKAction(action parser.FKAction) schema.ForeignKeyAction {
 	default:
 		return schema.FKActionNoAction
 	}
+}
+
+// validateForeignKeyReference validates that a foreign key reference points to an existing table and column
+func (e *Executor) validateForeignKeyReference(refTable, refColumn string) error {
+	// Check if referenced table exists
+	table := e.catalog.GetTable(refTable)
+	if table == nil {
+		return fmt.Errorf("referenced table '%s' does not exist", refTable)
+	}
+
+	// Check if referenced column exists
+	col, _ := table.GetColumn(refColumn)
+	if col == nil {
+		return fmt.Errorf("referenced column '%s' does not exist in table '%s'", refColumn, refTable)
+	}
+
+	return nil
+}
+
+// validateForeignKeyValue checks that a value exists in the referenced table/column
+func (e *Executor) validateForeignKeyValue(refTable, refColumn string, value types.Value) error {
+	// Get the referenced table
+	table := e.catalog.GetTable(refTable)
+	if table == nil {
+		return fmt.Errorf("referenced table '%s' does not exist", refTable)
+	}
+
+	// Get the column index
+	_, colIdx := table.GetColumn(refColumn)
+	if colIdx < 0 {
+		return fmt.Errorf("referenced column '%s' does not exist in table '%s'", refColumn, refTable)
+	}
+
+	// Get or open the B-tree for the referenced table
+	tree := e.trees[refTable]
+	if tree == nil {
+		if table.RootPage == 0 {
+			// Table has no root page yet (empty), so value doesn't exist
+			return fmt.Errorf("no matching value found in '%s.%s'", refTable, refColumn)
+		}
+		tree = btree.Open(e.pager, table.RootPage)
+		e.trees[refTable] = tree
+	}
+
+	// Scan the referenced table for the value
+	cursor := tree.Cursor()
+	defer cursor.Close()
+
+	for cursor.First(); cursor.Valid(); cursor.Next() {
+		rowData := cursor.Value()
+		rowValues := record.Decode(rowData)
+
+		if colIdx >= len(rowValues) {
+			continue
+		}
+
+		refValue := rowValues[colIdx]
+
+		// Check if the values match
+		if valuesEqual(value, refValue) {
+			return nil // Found a match
+		}
+	}
+
+	return fmt.Errorf("no matching value found in '%s.%s'", refTable, refColumn)
 }
 
 // exprToString converts an expression to a string representation
@@ -1168,6 +1247,11 @@ func (e *Executor) executeUpdate(stmt *parser.UpdateStmt) (*Result, error) {
 			return nil, err
 		}
 
+		// Check and propagate foreign key updates (CASCADE/SET NULL ON UPDATE)
+		if err := e.checkForeignKeyOnUpdate(table, entry.oldValues, newValues, colMap); err != nil {
+			return nil, err
+		}
+
 		// Fire AFTER UPDATE triggers
 		if err := e.fireTriggers(stmt.TableName, schema.TriggerAfter, schema.TriggerUpdate, ctx); err != nil {
 			return nil, err
@@ -1283,7 +1367,8 @@ func (e *Executor) executeDelete(stmt *parser.DeleteStmt) (*Result, error) {
 }
 
 // checkForeignKeyOnDelete checks if deleting a row would violate foreign key constraints
-// in other tables that reference this table
+// in other tables that reference this table. For CASCADE/SET NULL actions, it performs
+// the appropriate modifications to the referencing rows.
 func (e *Executor) checkForeignKeyOnDelete(table *schema.TableDef, values []types.Value, colMap map[string]int) error {
 	// For each column that might be referenced, check for FK constraints
 	for i, col := range table.Columns {
@@ -1330,7 +1415,13 @@ func (e *Executor) checkForeignKeyOnDelete(table *schema.TableDef, values []type
 				continue
 			}
 
-			// Scan the referencing table for matching rows
+			// Collect matching rows first (to avoid modifying while iterating)
+			type matchingRow struct {
+				key    []byte
+				values []types.Value
+			}
+			var matchingRows []matchingRow
+
 			cursor := refTree.Cursor()
 			for cursor.First(); cursor.Valid(); cursor.Next() {
 				refRowData := cursor.Value()
@@ -1344,29 +1435,201 @@ func (e *Executor) checkForeignKeyOnDelete(table *schema.TableDef, values []type
 
 				// Check if the FK value matches the value being deleted
 				if valuesEqual(refValue, deletedValue) {
-					cursor.Close()
-
-					// Handle based on ON DELETE action
-					switch ref.OnDelete {
-					case schema.FKActionNoAction, schema.FKActionRestrict:
-						return fmt.Errorf("FOREIGN KEY constraint failed: table '%s' has rows referencing this record (ON DELETE %s)",
-							ref.ReferencingTable, ref.OnDelete.String())
-					case schema.FKActionCascade:
-						// TODO: Implement CASCADE - delete referencing rows
-						return fmt.Errorf("ON DELETE CASCADE not yet implemented: cannot delete row referenced by '%s'",
-							ref.ReferencingTable)
-					case schema.FKActionSetNull:
-						// TODO: Implement SET NULL - update FK columns to NULL
-						return fmt.Errorf("ON DELETE SET NULL not yet implemented: cannot delete row referenced by '%s'",
-							ref.ReferencingTable)
-					case schema.FKActionSetDefault:
-						// TODO: Implement SET DEFAULT - update FK columns to default
-						return fmt.Errorf("ON DELETE SET DEFAULT not yet implemented: cannot delete row referenced by '%s'",
-							ref.ReferencingTable)
-					}
+					matchingRows = append(matchingRows, matchingRow{
+						key:    cursor.Key(),
+						values: refRowValues,
+					})
 				}
 			}
 			cursor.Close()
+
+			// Process matching rows based on ON DELETE action
+			if len(matchingRows) > 0 {
+				switch ref.OnDelete {
+				case schema.FKActionNoAction, schema.FKActionRestrict:
+					return fmt.Errorf("FOREIGN KEY constraint failed: table '%s' has rows referencing this record (ON DELETE %s)",
+						ref.ReferencingTable, ref.OnDelete.String())
+
+				case schema.FKActionCascade:
+					// CASCADE: Delete all referencing rows
+					for _, row := range matchingRows {
+						if err := refTree.Delete(row.key); err != nil {
+							return fmt.Errorf("CASCADE delete failed: %w", err)
+						}
+						// Convert key to rowID for index deletion
+						rowID := binary.BigEndian.Uint64(row.key)
+						if err := e.deleteFromIndexes(refTable, rowID, row.values); err != nil {
+							return fmt.Errorf("CASCADE delete from indexes failed: %w", err)
+						}
+					}
+
+				case schema.FKActionSetNull:
+					// SET NULL: Update FK column to NULL
+					for _, row := range matchingRows {
+						newValues := make([]types.Value, len(row.values))
+						copy(newValues, row.values)
+						newValues[refColIdx] = types.NewNull()
+						newData := record.Encode(newValues)
+						if err := refTree.Insert(row.key, newData); err != nil {
+							return fmt.Errorf("SET NULL update failed: %w", err)
+						}
+						// Convert key to rowID for index update
+						rowID := binary.BigEndian.Uint64(row.key)
+						// Delete old index entries and add new ones
+						if err := e.deleteFromIndexes(refTable, rowID, row.values); err != nil {
+							return fmt.Errorf("SET NULL delete from indexes failed: %w", err)
+						}
+						if err := e.updateIndexes(refTable, rowID, newValues); err != nil {
+							return fmt.Errorf("SET NULL update indexes failed: %w", err)
+						}
+					}
+
+				case schema.FKActionSetDefault:
+					// SET DEFAULT: Not yet supported
+					return fmt.Errorf("ON DELETE SET DEFAULT not yet implemented")
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// checkForeignKeyOnUpdate checks if updating a row would violate foreign key constraints
+// in other tables that reference this table. For CASCADE/SET NULL actions, it performs
+// the appropriate modifications to the referencing rows.
+func (e *Executor) checkForeignKeyOnUpdate(table *schema.TableDef, oldValues, newValues []types.Value, colMap map[string]int) error {
+	// For each column that might be referenced, check for FK constraints
+	for i, col := range table.Columns {
+		// Get all FK references to this table/column
+		refs := e.catalog.GetForeignKeyReferences(table.Name, col.Name)
+		if len(refs) == 0 {
+			continue
+		}
+
+		// Get the old and new values
+		if i >= len(oldValues) || i >= len(newValues) {
+			continue
+		}
+		oldValue := oldValues[i]
+		newValue := newValues[i]
+
+		// If the value hasn't changed, no need to propagate
+		if valuesEqual(oldValue, newValue) {
+			continue
+		}
+
+		// Check each referencing table for rows that reference the old value
+		for _, ref := range refs {
+			// Get the referencing table
+			refTable := e.catalog.GetTable(ref.ReferencingTable)
+			if refTable == nil {
+				continue
+			}
+
+			// Get or open the B-tree for the referencing table
+			refTree := e.trees[ref.ReferencingTable]
+			if refTree == nil {
+				if refTable.RootPage == 0 {
+					continue
+				}
+				refTree = btree.Open(e.pager, refTable.RootPage)
+				e.trees[ref.ReferencingTable] = refTree
+			}
+
+			// Find the column index in the referencing table
+			var refColIdx int = -1
+			if ref.ReferencingColumn != "" {
+				// Column-level FK
+				_, refColIdx = refTable.GetColumn(ref.ReferencingColumn)
+			} else if len(ref.ReferencingColumns) > 0 {
+				// Table-level FK - find the corresponding column
+				_, refColIdx = refTable.GetColumn(ref.ReferencingColumns[0])
+			}
+			if refColIdx < 0 {
+				continue
+			}
+
+			// Collect matching rows first (to avoid modifying while iterating)
+			type matchingRow struct {
+				key    []byte
+				values []types.Value
+			}
+			var matchingRows []matchingRow
+
+			cursor := refTree.Cursor()
+			for cursor.First(); cursor.Valid(); cursor.Next() {
+				refRowData := cursor.Value()
+				refRowValues := record.Decode(refRowData)
+
+				if refColIdx >= len(refRowValues) {
+					continue
+				}
+
+				refValue := refRowValues[refColIdx]
+
+				// Check if the FK value matches the old value being updated
+				if valuesEqual(refValue, oldValue) {
+					matchingRows = append(matchingRows, matchingRow{
+						key:    cursor.Key(),
+						values: refRowValues,
+					})
+				}
+			}
+			cursor.Close()
+
+			// Process matching rows based on ON UPDATE action
+			if len(matchingRows) > 0 {
+				switch ref.OnUpdate {
+				case schema.FKActionNoAction, schema.FKActionRestrict:
+					return fmt.Errorf("FOREIGN KEY constraint failed: table '%s' has rows referencing the old value (ON UPDATE %s)",
+						ref.ReferencingTable, ref.OnUpdate.String())
+
+				case schema.FKActionCascade:
+					// CASCADE: Update FK column to the new value
+					for _, row := range matchingRows {
+						updatedValues := make([]types.Value, len(row.values))
+						copy(updatedValues, row.values)
+						updatedValues[refColIdx] = newValue
+						updatedData := record.Encode(updatedValues)
+						if err := refTree.Insert(row.key, updatedData); err != nil {
+							return fmt.Errorf("CASCADE update failed: %w", err)
+						}
+						// Update indexes for the modified row
+						rowID := binary.BigEndian.Uint64(row.key)
+						if err := e.deleteFromIndexes(refTable, rowID, row.values); err != nil {
+							return fmt.Errorf("CASCADE update delete from indexes failed: %w", err)
+						}
+						if err := e.updateIndexes(refTable, rowID, updatedValues); err != nil {
+							return fmt.Errorf("CASCADE update indexes failed: %w", err)
+						}
+					}
+
+				case schema.FKActionSetNull:
+					// SET NULL: Update FK column to NULL
+					for _, row := range matchingRows {
+						updatedValues := make([]types.Value, len(row.values))
+						copy(updatedValues, row.values)
+						updatedValues[refColIdx] = types.NewNull()
+						updatedData := record.Encode(updatedValues)
+						if err := refTree.Insert(row.key, updatedData); err != nil {
+							return fmt.Errorf("SET NULL update failed: %w", err)
+						}
+						// Update indexes for the modified row
+						rowID := binary.BigEndian.Uint64(row.key)
+						if err := e.deleteFromIndexes(refTable, rowID, row.values); err != nil {
+							return fmt.Errorf("SET NULL update delete from indexes failed: %w", err)
+						}
+						if err := e.updateIndexes(refTable, rowID, updatedValues); err != nil {
+							return fmt.Errorf("SET NULL update indexes failed: %w", err)
+						}
+					}
+
+				case schema.FKActionSetDefault:
+					// SET DEFAULT: Not yet supported
+					return fmt.Errorf("ON UPDATE SET DEFAULT not yet implemented")
+				}
+			}
 		}
 	}
 
@@ -1481,6 +1744,17 @@ func (e *Executor) validateConstraints(table *schema.TableDef, values []types.Va
 				if err := e.validateCheckConstraint(constraint.CheckExpression, values, colMap); err != nil {
 					return fmt.Errorf("CHECK constraint violation on column '%s': %w", colDef.Name, err)
 				}
+
+			case schema.ConstraintForeignKey:
+				// Skip FK validation if value is NULL (NULL is allowed in FK columns)
+				if val.IsNull() {
+					continue
+				}
+				// Validate that the referenced value exists
+				if err := e.validateForeignKeyValue(constraint.RefTable, constraint.RefColumn, val); err != nil {
+					return fmt.Errorf("FOREIGN KEY constraint failed: column '%s' references '%s.%s': %w",
+						colDef.Name, constraint.RefTable, constraint.RefColumn, err)
+				}
 			}
 		}
 	}
@@ -1492,6 +1766,32 @@ func (e *Executor) validateConstraints(table *schema.TableDef, values []types.Va
 			// Evaluate table-level CHECK constraint
 			if err := e.validateCheckConstraint(tc.CheckExpression, values, colMap); err != nil {
 				return fmt.Errorf("CHECK constraint violation: %w", err)
+			}
+
+		case schema.ConstraintForeignKey:
+			// Validate table-level FOREIGN KEY constraint
+			for i, colName := range tc.Columns {
+				colIdx, ok := colMap[colName]
+				if !ok || colIdx >= len(values) {
+					continue
+				}
+				val := values[colIdx]
+
+				// Skip FK validation if value is NULL
+				if val.IsNull() {
+					continue
+				}
+
+				// Get corresponding ref column
+				refCol := ""
+				if i < len(tc.RefColumns) {
+					refCol = tc.RefColumns[i]
+				}
+
+				if err := e.validateForeignKeyValue(tc.RefTable, refCol, val); err != nil {
+					return fmt.Errorf("FOREIGN KEY constraint failed: column '%s' references '%s.%s': %w",
+						colName, tc.RefTable, refCol, err)
+				}
 			}
 		}
 	}

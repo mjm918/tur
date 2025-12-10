@@ -2483,3 +2483,326 @@ func TestExecutor_Trigger_RaiseIgnore(t *testing.T) {
 		t.Errorf("Expected 0 rows after IGNORE, got %d", len(result.Rows))
 	}
 }
+
+// ============================================================================
+// Foreign Key Validation Tests
+// ============================================================================
+
+func TestExecutor_ForeignKey_ReferencedTableMustExist(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Try to create table with FK to non-existent table
+	_, err := exec.Execute("CREATE TABLE orders (id INT, user_id INT REFERENCES nonexistent(id))")
+	if err == nil {
+		t.Fatal("expected error when referencing non-existent table, got nil")
+	}
+	if !strings.Contains(err.Error(), "nonexistent") {
+		t.Errorf("error should mention the non-existent table, got: %v", err)
+	}
+}
+
+func TestExecutor_ForeignKey_ReferencedColumnMustExist(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create referenced table
+	_, err := exec.Execute("CREATE TABLE users (id INT PRIMARY KEY, name TEXT)")
+	if err != nil {
+		t.Fatalf("Create users: %v", err)
+	}
+
+	// Try to create table with FK to non-existent column
+	_, err = exec.Execute("CREATE TABLE orders (id INT, user_id INT REFERENCES users(nonexistent))")
+	if err == nil {
+		t.Fatal("expected error when referencing non-existent column, got nil")
+	}
+	if !strings.Contains(err.Error(), "nonexistent") {
+		t.Errorf("error should mention the non-existent column, got: %v", err)
+	}
+}
+
+func TestExecutor_ForeignKey_TableLevelRefTableMustExist(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Try to create table with table-level FK to non-existent table
+	_, err := exec.Execute("CREATE TABLE orders (id INT, user_id INT, FOREIGN KEY (user_id) REFERENCES nonexistent(id))")
+	if err == nil {
+		t.Fatal("expected error when referencing non-existent table, got nil")
+	}
+	if !strings.Contains(err.Error(), "nonexistent") {
+		t.Errorf("error should mention the non-existent table, got: %v", err)
+	}
+}
+
+func TestExecutor_ForeignKey_InsertMustReferenceExistingValue(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create tables
+	_, err := exec.Execute("CREATE TABLE users (id INT PRIMARY KEY)")
+	if err != nil {
+		t.Fatalf("Create users: %v", err)
+	}
+	_, err = exec.Execute("CREATE TABLE orders (id INT, user_id INT REFERENCES users(id))")
+	if err != nil {
+		t.Fatalf("Create orders: %v", err)
+	}
+
+	// Insert a user
+	_, err = exec.Execute("INSERT INTO users (id) VALUES (1)")
+	if err != nil {
+		t.Fatalf("Insert user: %v", err)
+	}
+
+	// Insert order with valid FK should succeed
+	_, err = exec.Execute("INSERT INTO orders (id, user_id) VALUES (1, 1)")
+	if err != nil {
+		t.Fatalf("Insert order with valid FK failed: %v", err)
+	}
+
+	// Insert order with invalid FK should fail
+	_, err = exec.Execute("INSERT INTO orders (id, user_id) VALUES (2, 999)")
+	if err == nil {
+		t.Fatal("expected error when inserting with non-existent FK value, got nil")
+	}
+	if !strings.Contains(err.Error(), "FOREIGN KEY") {
+		t.Errorf("error should mention FOREIGN KEY constraint, got: %v", err)
+	}
+}
+
+func TestExecutor_ForeignKey_InsertNullIsAllowed(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create tables
+	_, err := exec.Execute("CREATE TABLE users (id INT PRIMARY KEY)")
+	if err != nil {
+		t.Fatalf("Create users: %v", err)
+	}
+	_, err = exec.Execute("CREATE TABLE orders (id INT, user_id INT REFERENCES users(id))")
+	if err != nil {
+		t.Fatalf("Create orders: %v", err)
+	}
+
+	// Insert order with NULL FK should succeed (NULL is always allowed in FK columns)
+	_, err = exec.Execute("INSERT INTO orders (id, user_id) VALUES (1, NULL)")
+	if err != nil {
+		t.Fatalf("Insert order with NULL FK should succeed: %v", err)
+	}
+}
+
+func TestExecutor_ForeignKey_UpdateMustReferenceExistingValue(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create tables
+	_, err := exec.Execute("CREATE TABLE users (id INT PRIMARY KEY)")
+	if err != nil {
+		t.Fatalf("Create users: %v", err)
+	}
+	_, err = exec.Execute("CREATE TABLE orders (id INT, user_id INT REFERENCES users(id))")
+	if err != nil {
+		t.Fatalf("Create orders: %v", err)
+	}
+
+	// Insert user and order
+	exec.Execute("INSERT INTO users (id) VALUES (1)")
+	exec.Execute("INSERT INTO users (id) VALUES (2)")
+	exec.Execute("INSERT INTO orders (id, user_id) VALUES (1, 1)")
+
+	// Update order to valid FK should succeed
+	_, err = exec.Execute("UPDATE orders SET user_id = 2 WHERE id = 1")
+	if err != nil {
+		t.Fatalf("Update order with valid FK failed: %v", err)
+	}
+
+	// Update order to invalid FK should fail
+	_, err = exec.Execute("UPDATE orders SET user_id = 999 WHERE id = 1")
+	if err == nil {
+		t.Fatal("expected error when updating to non-existent FK value, got nil")
+	}
+	if !strings.Contains(err.Error(), "FOREIGN KEY") {
+		t.Errorf("error should mention FOREIGN KEY constraint, got: %v", err)
+	}
+}
+
+func TestExecutor_ForeignKey_CascadeDelete(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create parent table
+	_, err := exec.Execute("CREATE TABLE departments (id INT PRIMARY KEY, name TEXT)")
+	if err != nil {
+		t.Fatalf("Create departments: %v", err)
+	}
+
+	// Create child table with CASCADE DELETE
+	_, err = exec.Execute("CREATE TABLE employees (id INT, name TEXT, dept_id INT REFERENCES departments(id) ON DELETE CASCADE)")
+	if err != nil {
+		t.Fatalf("Create employees: %v", err)
+	}
+
+	// Insert data
+	exec.Execute("INSERT INTO departments (id, name) VALUES (1, 'Engineering')")
+	exec.Execute("INSERT INTO departments (id, name) VALUES (2, 'Sales')")
+	exec.Execute("INSERT INTO employees (id, name, dept_id) VALUES (100, 'Alice', 1)")
+	exec.Execute("INSERT INTO employees (id, name, dept_id) VALUES (101, 'Bob', 1)")
+	exec.Execute("INSERT INTO employees (id, name, dept_id) VALUES (102, 'Charlie', 2)")
+
+	// Delete department 1 - should cascade delete employees
+	_, err = exec.Execute("DELETE FROM departments WHERE id = 1")
+	if err != nil {
+		t.Fatalf("CASCADE DELETE should succeed: %v", err)
+	}
+
+	// Verify employees in dept 1 were deleted
+	result, err := exec.Execute("SELECT * FROM employees WHERE dept_id = 1")
+	if err != nil {
+		t.Fatalf("SELECT after cascade: %v", err)
+	}
+	if len(result.Rows) != 0 {
+		t.Errorf("Expected 0 employees in dept 1 after cascade, got %d", len(result.Rows))
+	}
+
+	// Verify employee in dept 2 still exists
+	result, err = exec.Execute("SELECT * FROM employees WHERE dept_id = 2")
+	if err != nil {
+		t.Fatalf("SELECT dept 2: %v", err)
+	}
+	if len(result.Rows) != 1 {
+		t.Errorf("Expected 1 employee in dept 2, got %d", len(result.Rows))
+	}
+}
+
+func TestExecutor_ForeignKey_SetNullOnDelete(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create parent table
+	_, err := exec.Execute("CREATE TABLE departments (id INT PRIMARY KEY, name TEXT)")
+	if err != nil {
+		t.Fatalf("Create departments: %v", err)
+	}
+
+	// Create child table with SET NULL ON DELETE
+	_, err = exec.Execute("CREATE TABLE employees (id INT, name TEXT, dept_id INT REFERENCES departments(id) ON DELETE SET NULL)")
+	if err != nil {
+		t.Fatalf("Create employees: %v", err)
+	}
+
+	// Insert data
+	exec.Execute("INSERT INTO departments (id, name) VALUES (1, 'Engineering')")
+	exec.Execute("INSERT INTO employees (id, name, dept_id) VALUES (100, 'Alice', 1)")
+	exec.Execute("INSERT INTO employees (id, name, dept_id) VALUES (101, 'Bob', 1)")
+
+	// Delete department 1 - should set employee dept_id to NULL
+	_, err = exec.Execute("DELETE FROM departments WHERE id = 1")
+	if err != nil {
+		t.Fatalf("SET NULL on DELETE should succeed: %v", err)
+	}
+
+	// Verify employees still exist but with NULL dept_id
+	result, err := exec.Execute("SELECT id, name, dept_id FROM employees ORDER BY id")
+	if err != nil {
+		t.Fatalf("SELECT after SET NULL: %v", err)
+	}
+	if len(result.Rows) != 2 {
+		t.Errorf("Expected 2 employees after SET NULL, got %d", len(result.Rows))
+	}
+
+	// Check dept_id is NULL for both
+	for _, row := range result.Rows {
+		if !row[2].IsNull() {
+			t.Errorf("Expected NULL dept_id, got %v", row[2])
+		}
+	}
+}
+
+func TestExecutor_ForeignKey_CascadeUpdate(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create parent table
+	_, err := exec.Execute("CREATE TABLE departments (id INT PRIMARY KEY, name TEXT)")
+	if err != nil {
+		t.Fatalf("Create departments: %v", err)
+	}
+
+	// Create child table with CASCADE UPDATE
+	_, err = exec.Execute("CREATE TABLE employees (id INT, name TEXT, dept_id INT REFERENCES departments(id) ON UPDATE CASCADE)")
+	if err != nil {
+		t.Fatalf("Create employees: %v", err)
+	}
+
+	// Insert data
+	exec.Execute("INSERT INTO departments (id, name) VALUES (1, 'Engineering')")
+	exec.Execute("INSERT INTO employees (id, name, dept_id) VALUES (100, 'Alice', 1)")
+	exec.Execute("INSERT INTO employees (id, name, dept_id) VALUES (101, 'Bob', 1)")
+
+	// Update department id 1 to 10 - should cascade update employees
+	_, err = exec.Execute("UPDATE departments SET id = 10 WHERE id = 1")
+	if err != nil {
+		t.Fatalf("CASCADE UPDATE should succeed: %v", err)
+	}
+
+	// Verify employees now reference dept_id = 10
+	result, err := exec.Execute("SELECT * FROM employees WHERE dept_id = 10")
+	if err != nil {
+		t.Fatalf("SELECT after cascade update: %v", err)
+	}
+	if len(result.Rows) != 2 {
+		t.Errorf("Expected 2 employees in dept 10 after cascade, got %d", len(result.Rows))
+	}
+
+	// Verify no employees reference old dept_id = 1
+	result, err = exec.Execute("SELECT * FROM employees WHERE dept_id = 1")
+	if err != nil {
+		t.Fatalf("SELECT old dept: %v", err)
+	}
+	if len(result.Rows) != 0 {
+		t.Errorf("Expected 0 employees in old dept 1, got %d", len(result.Rows))
+	}
+}
+
+func TestExecutor_ForeignKey_SetNullOnUpdate(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create parent table
+	_, err := exec.Execute("CREATE TABLE departments (id INT PRIMARY KEY, name TEXT)")
+	if err != nil {
+		t.Fatalf("Create departments: %v", err)
+	}
+
+	// Create child table with SET NULL ON UPDATE
+	_, err = exec.Execute("CREATE TABLE employees (id INT, name TEXT, dept_id INT REFERENCES departments(id) ON UPDATE SET NULL)")
+	if err != nil {
+		t.Fatalf("Create employees: %v", err)
+	}
+
+	// Insert data
+	exec.Execute("INSERT INTO departments (id, name) VALUES (1, 'Engineering')")
+	exec.Execute("INSERT INTO employees (id, name, dept_id) VALUES (100, 'Alice', 1)")
+
+	// Update department id 1 to 10 - should set employee dept_id to NULL
+	_, err = exec.Execute("UPDATE departments SET id = 10 WHERE id = 1")
+	if err != nil {
+		t.Fatalf("SET NULL on UPDATE should succeed: %v", err)
+	}
+
+	// Verify employee still exists but with NULL dept_id
+	result, err := exec.Execute("SELECT id, name, dept_id FROM employees")
+	if err != nil {
+		t.Fatalf("SELECT after SET NULL: %v", err)
+	}
+	if len(result.Rows) != 1 {
+		t.Errorf("Expected 1 employee after SET NULL, got %d", len(result.Rows))
+	}
+
+	// Check dept_id is NULL
+	if !result.Rows[0][2].IsNull() {
+		t.Errorf("Expected NULL dept_id, got %v", result.Rows[0][2])
+	}
+}

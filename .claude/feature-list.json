@@ -1664,35 +1664,35 @@
     {
       "title": "Constraints - FOREIGN KEY",
       "description": "Foreign key constraints with CASCADE, SET NULL, RESTRICT actions",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Parse FOREIGN KEY REFERENCES syntax",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse ON DELETE/UPDATE actions (CASCADE, SET NULL, RESTRICT)",
-          "done": false
+          "done": true
         },
         {
           "task": "Store foreign key metadata in schema",
-          "done": false
+          "done": true
         },
         {
           "task": "Validate referenced table and column exist",
-          "done": false
+          "done": true
         },
         {
           "task": "Check foreign key on insert/update",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement CASCADE delete/update propagation",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement SET NULL on parent delete/update",
-          "done": false
+          "done": true
         }
       ]
     },
