@@ -2030,11 +2030,11 @@
       "tasks": [
         {
           "task": "Implement REPL with readline support",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse SQL statements with multi-line input",
-          "done": false
+          "done": true
         },
         {
           "task": "Execute statements and display results",
