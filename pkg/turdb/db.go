@@ -1,9 +1,12 @@
-// pkg/api/db.go
-package api
+// pkg/turdb/db.go
+package turdb
 
 import (
 	"errors"
+	"os"
 	"sync"
+
+	"golang.org/x/sys/unix"
 
 	"tur/pkg/btree"
 	"tur/pkg/hnsw"
@@ -15,6 +18,9 @@ import (
 var (
 	// ErrDatabaseClosed is returned when attempting operations on a closed database
 	ErrDatabaseClosed = errors.New("database is closed")
+
+	// ErrDatabaseLocked is returned when the database file is already locked
+	ErrDatabaseLocked = errors.New("database is locked by another connection")
 )
 
 // DB represents an open database connection.
@@ -24,6 +30,9 @@ type DB struct {
 
 	// path is the file path of the database
 	path string
+
+	// lockFile holds the lock file to prevent concurrent access
+	lockFile *os.File
 
 	// pager manages page-level I/O and caching
 	pager *pager.Pager
@@ -71,6 +80,23 @@ type Options struct {
 
 // OpenWithOptions opens a database file with the specified options.
 func OpenWithOptions(path string, opts Options) (*DB, error) {
+	// Acquire exclusive lock on lock file to prevent concurrent access
+	lockPath := path + ".lock"
+	lockFile, err := os.OpenFile(lockPath, os.O_RDWR|os.O_CREATE, 0644)
+	if err != nil {
+		return nil, err
+	}
+
+	// Try to acquire exclusive lock (non-blocking)
+	err = unix.Flock(int(lockFile.Fd()), unix.LOCK_EX|unix.LOCK_NB)
+	if err != nil {
+		lockFile.Close()
+		if errors.Is(err, unix.EWOULDBLOCK) {
+			return nil, ErrDatabaseLocked
+		}
+		return nil, err
+	}
+
 	// Configure pager options
 	pagerOpts := pager.Options{
 		PageSize:  opts.PageSize,
@@ -81,11 +107,15 @@ func OpenWithOptions(path string, opts Options) (*DB, error) {
 	// Open the pager (handles file creation if needed)
 	p, err := pager.Open(path, pagerOpts)
 	if err != nil {
+		// Release lock and close lock file on error
+		unix.Flock(int(lockFile.Fd()), unix.LOCK_UN)
+		lockFile.Close()
 		return nil, err
 	}
 
 	db := &DB{
 		path:        path,
+		lockFile:    lockFile,
 		pager:       p,
 		catalog:     schema.NewCatalog(),
 		trees:       make(map[string]*btree.BTree),
@@ -118,12 +148,21 @@ func (db *DB) Close() error {
 
 	db.closed = true
 
+	var closeErr error
+
 	// Close the pager (syncs and closes the file)
 	if db.pager != nil {
-		return db.pager.Close()
+		closeErr = db.pager.Close()
 	}
 
-	return nil
+	// Release the file lock and close lock file
+	if db.lockFile != nil {
+		unix.Flock(int(db.lockFile.Fd()), unix.LOCK_UN)
+		db.lockFile.Close()
+		db.lockFile = nil
+	}
+
+	return closeErr
 }
 
 // IsClosed returns true if the database has been closed.

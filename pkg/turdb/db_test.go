@@ -1,5 +1,5 @@
-// pkg/api/db_test.go
-package api
+// pkg/turdb/db_test.go
+package turdb
 
 import (
 	"os"
@@ -106,5 +106,72 @@ func TestDB_Close_MultipleCallsError(t *testing.T) {
 	// Second close should return error (already closed)
 	if err := db.Close(); err == nil {
 		t.Error("expected error on second Close, got nil")
+	}
+}
+
+func TestDB_ConcurrentConnections_SameFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "concurrent.db")
+
+	// Open first connection
+	db1, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("first Open failed: %v", err)
+	}
+	defer db1.Close()
+
+	// Opening a second connection to the same file should fail
+	// because the file is locked by the first connection
+	db2, err := Open(dbPath)
+	if err == nil {
+		db2.Close()
+		t.Error("expected error opening second connection to same file, got nil")
+	}
+}
+
+func TestDB_ConcurrentConnections_DifferentFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Open connections to different files should work
+	db1, err := Open(filepath.Join(tmpDir, "db1.db"))
+	if err != nil {
+		t.Fatalf("first Open failed: %v", err)
+	}
+	defer db1.Close()
+
+	db2, err := Open(filepath.Join(tmpDir, "db2.db"))
+	if err != nil {
+		t.Fatalf("second Open failed: %v", err)
+	}
+	defer db2.Close()
+
+	// Both connections should be valid
+	if db1.IsClosed() || db2.IsClosed() {
+		t.Error("connections should not be closed")
+	}
+}
+
+func TestDB_ReopenAfterClose(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "reopen.db")
+
+	// Open and close first connection
+	db1, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("first Open failed: %v", err)
+	}
+	if err := db1.Close(); err != nil {
+		t.Fatalf("first Close failed: %v", err)
+	}
+
+	// After closing, we should be able to open a new connection
+	db2, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("second Open failed: %v", err)
+	}
+	defer db2.Close()
+
+	if db2.IsClosed() {
+		t.Error("reopened connection should not be closed")
 	}
 }

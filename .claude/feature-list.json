@@ -1863,7 +1863,7 @@
     {
       "title": "API - Database Connection",
       "description": "Go API for opening/closing database connections",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Design DB struct with pager and schema fields",
@@ -1883,7 +1883,7 @@
         },
         {
           "task": "Handle concurrent connections to same file",
-          "done": false
+          "done": true
         }
       ]
     },
