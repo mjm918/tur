@@ -2026,27 +2026,27 @@
     {
       "title": "CLI - Interactive SQL Shell",
       "description": "Command-line interface for executing SQL interactively",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Implement REPL with readline support",
-          "done": false
+          "done": true
         },
         {
           "task": "Parse SQL statements with multi-line input",
-          "done": false
+          "done": true
         },
         {
           "task": "Execute statements and display results",
-          "done": false
+          "done": true
         },
         {
           "task": "Handle errors gracefully with clear messages",
-          "done": false
+          "done": true
         },
         {
           "task": "Add command history and editing",
-          "done": false
+          "done": true
         }
       ]
     },
