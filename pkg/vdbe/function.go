@@ -151,6 +151,34 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Function: builtinRTrim,
 	})
 
+	// Register LEFT function
+	r.Register(&ScalarFunction{
+		Name:     "LEFT",
+		NumArgs:  2,
+		Function: builtinLeft,
+	})
+
+	// Register RIGHT function
+	r.Register(&ScalarFunction{
+		Name:     "RIGHT",
+		NumArgs:  2,
+		Function: builtinRight,
+	})
+
+	// Register REPEAT function
+	r.Register(&ScalarFunction{
+		Name:     "REPEAT",
+		NumArgs:  2,
+		Function: builtinRepeat,
+	})
+
+	// Register SPACE function
+	r.Register(&ScalarFunction{
+		Name:     "SPACE",
+		NumArgs:  1,
+		Function: builtinSpace,
+	})
+
 	return r
 }
 
@@ -545,4 +573,64 @@ func builtinRTrim(args []types.Value) types.Value {
 		return types.NewText(strings.TrimRight(str, args[1].Text()))
 	}
 	return types.NewText(strings.TrimRight(str, " \t\n\r"))
+}
+
+// builtinLeft implements LEFT(string, n)
+// Returns the leftmost n characters from string.
+func builtinLeft(args []types.Value) types.Value {
+	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+	runes := []rune(args[0].Text())
+	n := int(args[1].Int())
+	if n < 0 {
+		n = 0
+	}
+	if n > len(runes) {
+		n = len(runes)
+	}
+	return types.NewText(string(runes[:n]))
+}
+
+// builtinRight implements RIGHT(string, n)
+// Returns the rightmost n characters from string.
+func builtinRight(args []types.Value) types.Value {
+	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+	runes := []rune(args[0].Text())
+	n := int(args[1].Int())
+	if n < 0 {
+		n = 0
+	}
+	if n > len(runes) {
+		n = len(runes)
+	}
+	return types.NewText(string(runes[len(runes)-n:]))
+}
+
+// builtinRepeat implements REPEAT(string, n)
+// Returns a string consisting of string repeated n times.
+func builtinRepeat(args []types.Value) types.Value {
+	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+	n := int(args[1].Int())
+	if n < 0 {
+		n = 0
+	}
+	return types.NewText(strings.Repeat(args[0].Text(), n))
+}
+
+// builtinSpace implements SPACE(n)
+// Returns a string consisting of n space characters.
+func builtinSpace(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	n := int(args[0].Int())
+	if n < 0 {
+		n = 0
+	}
+	return types.NewText(strings.Repeat(" ", n))
 }
