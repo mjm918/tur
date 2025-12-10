@@ -94,6 +94,7 @@ func (n *FilterNode) EstimatedRows() int64 {
 type ProjectionNode struct {
 	Input       PlanNode
 	Expressions []parser.Expression
+	Aliases     []string // Column aliases (empty string means use expression-derived name)
 }
 
 func (n *ProjectionNode) EstimatedCost() float64 {

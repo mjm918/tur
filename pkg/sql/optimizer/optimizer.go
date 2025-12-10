@@ -397,6 +397,7 @@ func (o *Optimizer) ApplyPredicatePushdown(plan PlanNode) PlanNode {
 			return &ProjectionNode{
 				Input:       pushedFilter,
 				Expressions: child.Expressions,
+				Aliases:     child.Aliases,
 			}
 
 		case *FilterNode:
@@ -464,6 +465,7 @@ func (o *Optimizer) ApplyProjectionPushdown(plan PlanNode) PlanNode {
 			return &ProjectionNode{
 				Input:       childProj.Input,
 				Expressions: node.Expressions,
+				Aliases:     node.Aliases,
 			}
 		}
 

@@ -66,12 +66,14 @@ func BuildPlanWithCTEs(stmt *parser.SelectStmt, catalog *schema.Catalog, ctes ma
 
 	if !isStar && len(stmt.GroupBy) == 0 {
 		var exprs []parser.Expression
+		var aliases []string
 		var windowFuncs []*parser.WindowFunction
 
 		for _, col := range stmt.Columns {
 			// Convert SelectColumn to Expression
 			if col.Expr != nil {
 				exprs = append(exprs, col.Expr)
+				aliases = append(aliases, col.Alias)
 
 				// Check if this is a window function
 				if wf, ok := col.Expr.(*parser.WindowFunction); ok {
@@ -91,6 +93,7 @@ func BuildPlanWithCTEs(stmt *parser.SelectStmt, catalog *schema.Catalog, ctes ma
 			node = &ProjectionNode{
 				Input:       node,
 				Expressions: exprs,
+				Aliases:     aliases,
 			}
 		}
 	}

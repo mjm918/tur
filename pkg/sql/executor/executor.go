@@ -2436,14 +2436,17 @@ func (e *Executor) executePlanWithCTEs(plan optimizer.PlanNode, cteData map[stri
 
 		colMap := e.buildColMap(inputCols)
 
-		// Projection changes schema
+		// Projection changes schema - use aliases if available
 		var outputCols []string
-		for _, expr := range node.Expressions {
-			// Name?
-			// parser.Expression doesn't strictly have a name method.
-			// Use alias if we had it, or string representation.
-			if colRef, ok := expr.(*parser.ColumnRef); ok {
+		for i, expr := range node.Expressions {
+			// Check if we have an alias for this column
+			if i < len(node.Aliases) && node.Aliases[i] != "" {
+				outputCols = append(outputCols, node.Aliases[i])
+			} else if colRef, ok := expr.(*parser.ColumnRef); ok {
 				outputCols = append(outputCols, colRef.Name)
+			} else if funcCall, ok := expr.(*parser.FunctionCall); ok {
+				// Use function name as column name
+				outputCols = append(outputCols, funcCall.Name)
 			} else {
 				outputCols = append(outputCols, "?") // Placeholder for complex exprs
 			}
