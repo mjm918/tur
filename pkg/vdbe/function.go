@@ -455,6 +455,48 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Function: builtinDateDiff,
 	})
 
+	// Register YEAR function
+	r.Register(&ScalarFunction{
+		Name:     "YEAR",
+		NumArgs:  1,
+		Function: builtinYear,
+	})
+
+	// Register MONTH function
+	r.Register(&ScalarFunction{
+		Name:     "MONTH",
+		NumArgs:  1,
+		Function: builtinMonth,
+	})
+
+	// Register DAY function
+	r.Register(&ScalarFunction{
+		Name:     "DAY",
+		NumArgs:  1,
+		Function: builtinDay,
+	})
+
+	// Register HOUR function
+	r.Register(&ScalarFunction{
+		Name:     "HOUR",
+		NumArgs:  1,
+		Function: builtinHour,
+	})
+
+	// Register MINUTE function
+	r.Register(&ScalarFunction{
+		Name:     "MINUTE",
+		NumArgs:  1,
+		Function: builtinMinute,
+	})
+
+	// Register SECOND function
+	r.Register(&ScalarFunction{
+		Name:     "SECOND",
+		NumArgs:  1,
+		Function: builtinSecond,
+	})
+
 	return r
 }
 
@@ -1929,4 +1971,171 @@ func builtinDateDiff(args []types.Value) types.Value {
 	days := int64(diff.Hours() / 24)
 
 	return types.NewInt(days)
+}
+
+// builtinYear implements YEAR(date_value)
+// Extracts the year from a DATE, TIMESTAMP, or TIMESTAMPTZ value.
+// Returns the year as an INTEGER.
+// If argument is NULL or not a date/timestamp type, returns NULL.
+func builtinYear(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+
+	val := args[0]
+	switch val.Type() {
+	case types.TypeDate:
+		year, _, _ := val.DateValue()
+		return types.NewInt(int64(year))
+	case types.TypeTimestamp:
+		t := val.TimestampValue()
+		return types.NewInt(int64(t.Year()))
+	case types.TypeTimestampTZ:
+		t := val.TimestampTZValue()
+		return types.NewInt(int64(t.Year()))
+	default:
+		return types.NewNull()
+	}
+}
+
+// builtinMonth implements MONTH(date_value)
+// Extracts the month from a DATE, TIMESTAMP, or TIMESTAMPTZ value.
+// Returns the month as an INTEGER (1-12).
+// If argument is NULL or not a date/timestamp type, returns NULL.
+func builtinMonth(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+
+	val := args[0]
+	switch val.Type() {
+	case types.TypeDate:
+		_, month, _ := val.DateValue()
+		return types.NewInt(int64(month))
+	case types.TypeTimestamp:
+		t := val.TimestampValue()
+		return types.NewInt(int64(t.Month()))
+	case types.TypeTimestampTZ:
+		t := val.TimestampTZValue()
+		return types.NewInt(int64(t.Month()))
+	default:
+		return types.NewNull()
+	}
+}
+
+// builtinDay implements DAY(date_value)
+// Extracts the day of month from a DATE, TIMESTAMP, or TIMESTAMPTZ value.
+// Returns the day as an INTEGER (1-31).
+// If argument is NULL or not a date/timestamp type, returns NULL.
+func builtinDay(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+
+	val := args[0]
+	switch val.Type() {
+	case types.TypeDate:
+		_, _, day := val.DateValue()
+		return types.NewInt(int64(day))
+	case types.TypeTimestamp:
+		t := val.TimestampValue()
+		return types.NewInt(int64(t.Day()))
+	case types.TypeTimestampTZ:
+		t := val.TimestampTZValue()
+		return types.NewInt(int64(t.Day()))
+	default:
+		return types.NewNull()
+	}
+}
+
+// builtinHour implements HOUR(time_value)
+// Extracts the hour from a TIME, TIMETZ, TIMESTAMP, or TIMESTAMPTZ value.
+// Returns the hour as an INTEGER (0-23).
+// If argument is NULL or not a time/timestamp type, returns NULL.
+func builtinHour(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+
+	val := args[0]
+	switch val.Type() {
+	case types.TypeTime:
+		hour, _, _, _ := val.TimeValue()
+		return types.NewInt(int64(hour))
+	case types.TypeTimeTZ:
+		hour, _, _, _, _ := val.TimeTZValue()
+		return types.NewInt(int64(hour))
+	case types.TypeTimestamp:
+		t := val.TimestampValue()
+		return types.NewInt(int64(t.Hour()))
+	case types.TypeTimestampTZ:
+		t := val.TimestampTZValue()
+		return types.NewInt(int64(t.Hour()))
+	default:
+		return types.NewNull()
+	}
+}
+
+// builtinMinute implements MINUTE(time_value)
+// Extracts the minute from a TIME, TIMETZ, TIMESTAMP, or TIMESTAMPTZ value.
+// Returns the minute as an INTEGER (0-59).
+// If argument is NULL or not a time/timestamp type, returns NULL.
+func builtinMinute(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+
+	val := args[0]
+	switch val.Type() {
+	case types.TypeTime:
+		_, minute, _, _ := val.TimeValue()
+		return types.NewInt(int64(minute))
+	case types.TypeTimeTZ:
+		_, minute, _, _, _ := val.TimeTZValue()
+		return types.NewInt(int64(minute))
+	case types.TypeTimestamp:
+		t := val.TimestampValue()
+		return types.NewInt(int64(t.Minute()))
+	case types.TypeTimestampTZ:
+		t := val.TimestampTZValue()
+		return types.NewInt(int64(t.Minute()))
+	default:
+		return types.NewNull()
+	}
+}
+
+// builtinSecond implements SECOND(time_value)
+// Extracts the second from a TIME, TIMETZ, TIMESTAMP, or TIMESTAMPTZ value.
+// Returns the second as a REAL (FLOAT) to include fractional seconds.
+// If argument is NULL or not a time/timestamp type, returns NULL.
+func builtinSecond(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+
+	val := args[0]
+	switch val.Type() {
+	case types.TypeTime:
+		_, _, second, microsecond := val.TimeValue()
+		// Convert to float with fractional part
+		seconds := float64(second) + float64(microsecond)/1000000.0
+		return types.NewFloat(seconds)
+	case types.TypeTimeTZ:
+		_, _, second, microsecond, _ := val.TimeTZValue()
+		// Convert to float with fractional part
+		seconds := float64(second) + float64(microsecond)/1000000.0
+		return types.NewFloat(seconds)
+	case types.TypeTimestamp:
+		t := val.TimestampValue()
+		// Get second and nanosecond components
+		seconds := float64(t.Second()) + float64(t.Nanosecond())/1000000000.0
+		return types.NewFloat(seconds)
+	case types.TypeTimestampTZ:
+		t := val.TimestampTZValue()
+		// Get second and nanosecond components
+		seconds := float64(t.Second()) + float64(t.Nanosecond())/1000000000.0
+		return types.NewFloat(seconds)
+	default:
+		return types.NewNull()
+	}
 }

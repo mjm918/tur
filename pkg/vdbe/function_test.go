@@ -1991,3 +1991,94 @@ func TestDateDiff(t *testing.T) {
 		t.Errorf("DATEDIFF expected -5, got %d", result.Int())
 	}
 }
+
+func TestYear(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	year := registry.Lookup("YEAR")
+	if year == nil {
+		t.Fatal("YEAR function not found")
+	}
+
+	d := types.NewDate(2025, 12, 10)
+	result := year.Call([]types.Value{d})
+	if result.Int() != 2025 {
+		t.Errorf("YEAR expected 2025, got %d", result.Int())
+	}
+
+	ts := types.NewTimestamp(2024, 6, 15, 10, 30, 0, 0)
+	result = year.Call([]types.Value{ts})
+	if result.Int() != 2024 {
+		t.Errorf("YEAR on timestamp expected 2024, got %d", result.Int())
+	}
+}
+
+func TestMonth(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	month := registry.Lookup("MONTH")
+	if month == nil {
+		t.Fatal("MONTH function not found")
+	}
+
+	d := types.NewDate(2025, 12, 10)
+	result := month.Call([]types.Value{d})
+	if result.Int() != 12 {
+		t.Errorf("MONTH expected 12, got %d", result.Int())
+	}
+}
+
+func TestDay(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	day := registry.Lookup("DAY")
+	if day == nil {
+		t.Fatal("DAY function not found")
+	}
+
+	d := types.NewDate(2025, 12, 10)
+	result := day.Call([]types.Value{d})
+	if result.Int() != 10 {
+		t.Errorf("DAY expected 10, got %d", result.Int())
+	}
+}
+
+func TestHour(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	hour := registry.Lookup("HOUR")
+	if hour == nil {
+		t.Fatal("HOUR function not found")
+	}
+
+	tm := types.NewTime(14, 30, 45, 0)
+	result := hour.Call([]types.Value{tm})
+	if result.Int() != 14 {
+		t.Errorf("HOUR expected 14, got %d", result.Int())
+	}
+}
+
+func TestMinute(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	minute := registry.Lookup("MINUTE")
+	if minute == nil {
+		t.Fatal("MINUTE function not found")
+	}
+
+	tm := types.NewTime(14, 30, 45, 0)
+	result := minute.Call([]types.Value{tm})
+	if result.Int() != 30 {
+		t.Errorf("MINUTE expected 30, got %d", result.Int())
+	}
+}
+
+func TestSecond(t *testing.T) {
+	registry := DefaultFunctionRegistry()
+	second := registry.Lookup("SECOND")
+	if second == nil {
+		t.Fatal("SECOND function not found")
+	}
+
+	tm := types.NewTime(14, 30, 45, 500000)
+	result := second.Call([]types.Value{tm})
+	// Should return 45.5 (with fractional)
+	if result.Float() != 45.5 {
+		t.Errorf("SECOND expected 45.5, got %f", result.Float())
+	}
+}
