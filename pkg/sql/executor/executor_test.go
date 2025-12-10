@@ -3,6 +3,7 @@ package executor
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"tur/pkg/pager"
@@ -2268,5 +2269,217 @@ func TestExecutor_DropTrigger_IfExists(t *testing.T) {
 	_, err := exec.Execute("DROP TRIGGER IF EXISTS nonexistent")
 	if err != nil {
 		t.Fatalf("DROP TRIGGER IF EXISTS should not fail: %v", err)
+	}
+}
+
+// =============================================================================
+// TRIGGER FIRING TESTS
+// =============================================================================
+
+func TestExecutor_Trigger_BeforeInsert_Fires(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create tables
+	_, _ = exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	_, _ = exec.Execute("CREATE TABLE audit_log (event_type TEXT, timestamp INT)")
+
+	// Create BEFORE INSERT trigger that logs to audit_log
+	_, err := exec.Execute(`CREATE TRIGGER log_insert BEFORE INSERT ON users
+BEGIN
+  INSERT INTO audit_log (event_type, timestamp) VALUES ('before_insert', 1);
+END`)
+	if err != nil {
+		t.Fatalf("CREATE TRIGGER: %v", err)
+	}
+
+	// Insert a row - should fire the trigger
+	_, err = exec.Execute("INSERT INTO users (id, name) VALUES (1, 'Alice')")
+	if err != nil {
+		t.Fatalf("INSERT: %v", err)
+	}
+
+	// Check audit_log has the trigger record
+	result, err := exec.Execute("SELECT event_type FROM audit_log")
+	if err != nil {
+		t.Fatalf("SELECT: %v", err)
+	}
+
+	if len(result.Rows) != 1 {
+		t.Fatalf("Expected 1 audit log entry, got %d", len(result.Rows))
+	}
+	if result.Rows[0][0].Text() != "before_insert" {
+		t.Errorf("event_type = %q, want 'before_insert'", result.Rows[0][0].Text())
+	}
+}
+
+func TestExecutor_Trigger_AfterInsert_Fires(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, _ = exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	_, _ = exec.Execute("CREATE TABLE audit_log (event_type TEXT)")
+
+	_, _ = exec.Execute(`CREATE TRIGGER log_after_insert AFTER INSERT ON users
+BEGIN
+  INSERT INTO audit_log (event_type) VALUES ('after_insert');
+END`)
+
+	_, _ = exec.Execute("INSERT INTO users (id, name) VALUES (1, 'Alice')")
+
+	result, _ := exec.Execute("SELECT event_type FROM audit_log")
+	if len(result.Rows) != 1 || result.Rows[0][0].Text() != "after_insert" {
+		t.Errorf("AFTER INSERT trigger did not fire correctly")
+	}
+}
+
+func TestExecutor_Trigger_BeforeUpdate_Fires(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, _ = exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	_, _ = exec.Execute("CREATE TABLE audit_log (event_type TEXT)")
+	_, _ = exec.Execute("INSERT INTO users (id, name) VALUES (1, 'Alice')")
+
+	_, _ = exec.Execute(`CREATE TRIGGER log_update BEFORE UPDATE ON users
+BEGIN
+  INSERT INTO audit_log (event_type) VALUES ('before_update');
+END`)
+
+	_, err := exec.Execute("UPDATE users SET name = 'Bob' WHERE id = 1")
+	if err != nil {
+		t.Fatalf("UPDATE: %v", err)
+	}
+
+	result, _ := exec.Execute("SELECT event_type FROM audit_log")
+	if len(result.Rows) != 1 || result.Rows[0][0].Text() != "before_update" {
+		t.Errorf("BEFORE UPDATE trigger did not fire correctly")
+	}
+}
+
+func TestExecutor_Trigger_AfterDelete_Fires(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, _ = exec.Execute("CREATE TABLE users (id INT, name TEXT)")
+	_, _ = exec.Execute("CREATE TABLE audit_log (event_type TEXT)")
+	_, _ = exec.Execute("INSERT INTO users (id, name) VALUES (1, 'Alice')")
+
+	_, _ = exec.Execute(`CREATE TRIGGER log_delete AFTER DELETE ON users
+BEGIN
+  INSERT INTO audit_log (event_type) VALUES ('after_delete');
+END`)
+
+	_, err := exec.Execute("DELETE FROM users WHERE id = 1")
+	if err != nil {
+		t.Fatalf("DELETE: %v", err)
+	}
+
+	result, _ := exec.Execute("SELECT event_type FROM audit_log")
+	if len(result.Rows) != 1 || result.Rows[0][0].Text() != "after_delete" {
+		t.Errorf("AFTER DELETE trigger did not fire correctly")
+	}
+}
+
+func TestExecutor_Trigger_MultipleTriggers(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, _ = exec.Execute("CREATE TABLE users (id INT)")
+	_, _ = exec.Execute("CREATE TABLE audit_log (event_type TEXT)")
+
+	// Create multiple triggers for the same event
+	_, err1 := exec.Execute(`CREATE TRIGGER t1 BEFORE INSERT ON users BEGIN INSERT INTO audit_log (event_type) VALUES ('t1'); END`)
+	if err1 != nil {
+		t.Fatalf("Failed to create t1: %v", err1)
+	}
+	_, err2 := exec.Execute(`CREATE TRIGGER t2 BEFORE INSERT ON users BEGIN INSERT INTO audit_log (event_type) VALUES ('t2'); END`)
+	if err2 != nil {
+		t.Fatalf("Failed to create t2: %v", err2)
+	}
+
+	// Verify both triggers exist
+	catalog := exec.GetCatalog()
+	if catalog.TriggerCount() != 2 {
+		t.Fatalf("Expected 2 triggers, got %d", catalog.TriggerCount())
+	}
+
+	_, err := exec.Execute("INSERT INTO users (id) VALUES (1)")
+	if err != nil {
+		t.Fatalf("INSERT failed: %v", err)
+	}
+
+	result, err := exec.Execute("SELECT event_type FROM audit_log")
+	if err != nil {
+		t.Fatalf("SELECT failed: %v", err)
+	}
+	if len(result.Rows) != 2 {
+		// Show what we got
+		for _, row := range result.Rows {
+			t.Logf("Got: %s", row[0].Text())
+		}
+		t.Errorf("Expected 2 audit entries from 2 triggers, got %d", len(result.Rows))
+	}
+}
+
+func TestExecutor_Trigger_RaiseAbort(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, _ = exec.Execute("CREATE TABLE users (id INT, age INT)")
+
+	// Create a trigger that raises ABORT when age < 0
+	_, err := exec.Execute(`CREATE TRIGGER check_age BEFORE INSERT ON users BEGIN SELECT RAISE(ABORT, 'Age must be non-negative'); END`)
+	if err != nil {
+		t.Fatalf("CREATE TRIGGER failed: %v", err)
+	}
+
+	// Insert with valid age should work (but we'll test invalid first)
+	// For now, this trigger always raises ABORT on any insert
+	_, err = exec.Execute("INSERT INTO users (id, age) VALUES (1, -5)")
+	if err == nil {
+		t.Fatal("Expected RAISE(ABORT) error, got nil")
+	}
+	if !strings.Contains(err.Error(), "Age must be non-negative") {
+		t.Errorf("Error message = %q, want to contain 'Age must be non-negative'", err.Error())
+	}
+
+	// Verify no row was inserted (ABORT rolls back)
+	result, err := exec.Execute("SELECT * FROM users")
+	if err != nil {
+		t.Fatalf("SELECT failed: %v", err)
+	}
+	if len(result.Rows) != 0 {
+		t.Errorf("Expected 0 rows after ABORT, got %d", len(result.Rows))
+	}
+}
+
+func TestExecutor_Trigger_RaiseIgnore(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, _ = exec.Execute("CREATE TABLE users (id INT)")
+	_, _ = exec.Execute("CREATE TABLE audit_log (msg TEXT)")
+
+	// Create a trigger that uses RAISE(IGNORE) to silently skip the insert
+	// and an after trigger that won't run due to IGNORE
+	_, err := exec.Execute(`CREATE TRIGGER skip_insert BEFORE INSERT ON users BEGIN SELECT RAISE(IGNORE); END`)
+	if err != nil {
+		t.Fatalf("CREATE TRIGGER failed: %v", err)
+	}
+
+	// Insert should be silently ignored (no error, but no row inserted)
+	_, err = exec.Execute("INSERT INTO users (id) VALUES (1)")
+	if err != nil {
+		t.Fatalf("INSERT with RAISE(IGNORE) should not return error: %v", err)
+	}
+
+	// Verify no row was inserted (IGNORE skips the statement)
+	result, err := exec.Execute("SELECT * FROM users")
+	if err != nil {
+		t.Fatalf("SELECT failed: %v", err)
+	}
+	if len(result.Rows) != 0 {
+		t.Errorf("Expected 0 rows after IGNORE, got %d", len(result.Rows))
 	}
 }

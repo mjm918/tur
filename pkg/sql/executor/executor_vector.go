@@ -273,6 +273,10 @@ func (it *SliceIterator) Value() []types.Value {
 	return it.val
 }
 
+func (it *SliceIterator) Err() error {
+	return nil
+}
+
 func (it *SliceIterator) Close() {
 	// Nothing to release
 }

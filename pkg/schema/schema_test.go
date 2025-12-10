@@ -1412,3 +1412,16 @@ func TestCatalog_TriggerCount(t *testing.T) {
 		t.Errorf("TriggerCount: got %d, want 2", catalog.TriggerCount())
 	}
 }
+
+func TestCatalog_GetTriggersForTable_MultipleSameTiming(t *testing.T) {
+	catalog := NewCatalog()
+
+	// Create TWO triggers for the same table/timing/event
+	_ = catalog.CreateTrigger(&TriggerDef{Name: "t1", TableName: "users", Timing: TriggerBefore, Event: TriggerInsert})
+	_ = catalog.CreateTrigger(&TriggerDef{Name: "t2", TableName: "users", Timing: TriggerBefore, Event: TriggerInsert})
+
+	triggers := catalog.GetTriggersForTable("users", TriggerBefore, TriggerInsert)
+	if len(triggers) != 2 {
+		t.Errorf("Expected 2 triggers for same timing/event, got %d", len(triggers))
+	}
+}

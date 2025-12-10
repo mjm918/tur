@@ -20,7 +20,17 @@ var (
 	ErrViewNotFound     = errors.New("view not found")
 	ErrTriggerExists    = errors.New("trigger already exists")
 	ErrTriggerNotFound  = errors.New("trigger not found")
+	ErrTriggerIgnore    = errors.New("trigger RAISE(IGNORE)") // Sentinel for RAISE(IGNORE)
 )
+
+// TriggerAbortError represents a RAISE(ABORT, message) error
+type TriggerAbortError struct {
+	Message string
+}
+
+func (e *TriggerAbortError) Error() string {
+	return e.Message
+}
 
 // Constraint violation errors
 var (
@@ -280,6 +290,7 @@ type TriggerDef struct {
 	Timing    TriggerTiming // BEFORE or AFTER
 	Event     TriggerEvent  // INSERT, UPDATE, or DELETE
 	SQL       string        // Original CREATE TRIGGER SQL for persistence
+	Actions   []interface{} // Parsed action statements (stored as interface{} to avoid circular import)
 }
 
 // Catalog holds all schema definitions

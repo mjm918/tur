@@ -2,6 +2,7 @@
 package executor
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -84,17 +85,13 @@ func TestScalarSubquery_ReturnsMultipleRows_Error(t *testing.T) {
 		t.Fatalf("INSERT failed: %v", err)
 	}
 
-	// Test: scalar subquery that returns multiple rows - should return no rows
-	// (The filter condition fails due to multiple row error, so no rows match)
-	// Note: Due to iterator architecture limitations, errors during filtering
-	// cause no rows to match rather than returning an error to the caller.
-	result, err := exec.Execute("SELECT name FROM users WHERE id = (SELECT user_id FROM orders)")
-	if err != nil {
-		t.Fatalf("Execute failed: %v", err)
+	// Test: scalar subquery that returns multiple rows - should return an error
+	_, err = exec.Execute("SELECT name FROM users WHERE id = (SELECT user_id FROM orders)")
+	if err == nil {
+		t.Fatal("Expected error for scalar subquery returning multiple rows, got nil")
 	}
-	// No rows should be returned because the subquery error causes filter to fail
-	if len(result.Rows) != 0 {
-		t.Errorf("Expected 0 rows due to subquery error, got %d", len(result.Rows))
+	if !strings.Contains(err.Error(), "more than one row") {
+		t.Errorf("Expected 'more than one row' error, got: %v", err)
 	}
 }
 

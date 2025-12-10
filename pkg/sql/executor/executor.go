@@ -335,12 +335,19 @@ func (e *Executor) executeCreateTrigger(stmt *parser.CreateTriggerStmt) (*Result
 		event = schema.TriggerDelete
 	}
 
+	// Store parsed action statements
+	actions := make([]interface{}, len(stmt.Actions))
+	for i, action := range stmt.Actions {
+		actions[i] = action
+	}
+
 	trigger := &schema.TriggerDef{
 		Name:      stmt.TriggerName,
 		TableName: stmt.TableName,
 		Timing:    timing,
 		Event:     event,
 		SQL:       "", // TODO: Store original SQL for persistence
+		Actions:   actions,
 	}
 
 	if err := e.catalog.CreateTrigger(trigger); err != nil {
@@ -365,6 +372,77 @@ func (e *Executor) executeDropTrigger(stmt *parser.DropTriggerStmt) (*Result, er
 	}
 
 	return &Result{}, nil
+}
+
+// TriggerContext holds the OLD and NEW row values for trigger execution
+type TriggerContext struct {
+	OldRow   []types.Value       // OLD row values (nil for INSERT)
+	NewRow   []types.Value       // NEW row values (nil for DELETE)
+	ColMap   map[string]int      // Column name to index mapping
+	Table    *schema.TableDef    // Table definition
+}
+
+// fireTriggers executes all triggers for a table/timing/event combination
+// Returns ErrTriggerAbort if RAISE(ABORT) is called, ErrTriggerIgnore for RAISE(IGNORE)
+func (e *Executor) fireTriggers(tableName string, timing schema.TriggerTiming, event schema.TriggerEvent, ctx *TriggerContext) error {
+	triggers := e.catalog.GetTriggersForTable(tableName, timing, event)
+	if len(triggers) == 0 {
+		return nil
+	}
+
+	for _, trigger := range triggers {
+		if err := e.executeTriggerActions(trigger, ctx); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// executeTriggerActions executes the action statements of a trigger
+func (e *Executor) executeTriggerActions(trigger *schema.TriggerDef, ctx *TriggerContext) error {
+	for _, action := range trigger.Actions {
+		stmt, ok := action.(parser.Statement)
+		if !ok {
+			continue
+		}
+
+		// Execute the trigger action statement
+		if err := e.executeTriggerStatement(stmt, ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// executeTriggerStatement executes a single trigger action statement with NEW/OLD context
+func (e *Executor) executeTriggerStatement(stmt parser.Statement, ctx *TriggerContext) error {
+	// For now, execute statements directly without NEW/OLD resolution
+	// TODO: Add NEW/OLD column reference resolution in a later iteration
+	switch s := stmt.(type) {
+	case *parser.InsertStmt:
+		_, err := e.executeInsertWithTriggerContext(s, ctx)
+		return err
+	case *parser.UpdateStmt:
+		_, err := e.executeUpdate(s)
+		return err
+	case *parser.DeleteStmt:
+		_, err := e.executeDelete(s)
+		return err
+	case *parser.SelectStmt:
+		// SELECT in triggers is typically used for RAISE validation
+		_, err := e.executeSelect(s)
+		return err
+	default:
+		return fmt.Errorf("unsupported statement type in trigger: %T", stmt)
+	}
+}
+
+// executeInsertWithTriggerContext executes INSERT with trigger context (for nested triggers)
+func (e *Executor) executeInsertWithTriggerContext(stmt *parser.InsertStmt, ctx *TriggerContext) (*Result, error) {
+	// For now, just call regular executeInsert but without firing triggers (to prevent infinite recursion)
+	// A proper implementation would track trigger depth and allow limited nesting
+	return e.executeInsertNoTriggers(stmt)
 }
 
 // selectStmtToSQL converts a SelectStmt back to SQL text
@@ -769,8 +847,18 @@ func (e *Executor) executeDropIndex(stmt *parser.DropIndexStmt) (*Result, error)
 	return &Result{}, nil
 }
 
-// executeInsert handles INSERT
+// executeInsert handles INSERT with trigger support
 func (e *Executor) executeInsert(stmt *parser.InsertStmt) (*Result, error) {
+	return e.executeInsertInternal(stmt, true)
+}
+
+// executeInsertNoTriggers handles INSERT without firing triggers (used by triggers themselves)
+func (e *Executor) executeInsertNoTriggers(stmt *parser.InsertStmt) (*Result, error) {
+	return e.executeInsertInternal(stmt, false)
+}
+
+// executeInsertInternal is the internal INSERT implementation with optional trigger firing
+func (e *Executor) executeInsertInternal(stmt *parser.InsertStmt, fireTriggers bool) (*Result, error) {
 	// Get table
 	table := e.catalog.GetTable(stmt.TableName)
 	if table == nil {
@@ -782,6 +870,12 @@ func (e *Executor) executeInsert(stmt *parser.InsertStmt) (*Result, error) {
 	if tree == nil {
 		tree = btree.Open(e.pager, table.RootPage)
 		e.trees[stmt.TableName] = tree
+	}
+
+	// Build column map for trigger context
+	colMap := make(map[string]int)
+	for i, col := range table.Columns {
+		colMap[col.Name] = i
 	}
 
 	// Find INTEGER PRIMARY KEY column for AUTOINCREMENT
@@ -837,6 +931,23 @@ func (e *Executor) executeInsert(stmt *parser.InsertStmt) (*Result, error) {
 			}
 		}
 
+		// Fire BEFORE INSERT triggers
+		if fireTriggers {
+			ctx := &TriggerContext{
+				OldRow: nil, // INSERT has no OLD row
+				NewRow: values,
+				ColMap: colMap,
+				Table:  table,
+			}
+			if err := e.fireTriggers(stmt.TableName, schema.TriggerBefore, schema.TriggerInsert, ctx); err != nil {
+				if err == schema.ErrTriggerIgnore {
+					// RAISE(IGNORE) - skip this row silently
+					continue
+				}
+				return nil, err
+			}
+		}
+
 		// Validate constraints
 		if err := e.validateConstraints(table, values); err != nil {
 			return nil, err
@@ -885,6 +996,19 @@ func (e *Executor) executeInsert(stmt *parser.InsertStmt) (*Result, error) {
 		// Update indexes
 		if err := e.updateIndexes(table, rowid, values); err != nil {
 			return nil, err
+		}
+
+		// Fire AFTER INSERT triggers
+		if fireTriggers {
+			ctx := &TriggerContext{
+				OldRow: nil,
+				NewRow: values,
+				ColMap: colMap,
+				Table:  table,
+			}
+			if err := e.fireTriggers(stmt.TableName, schema.TriggerAfter, schema.TriggerInsert, ctx); err != nil {
+				return nil, err
+			}
 		}
 
 		rowsAffected++
@@ -983,6 +1107,17 @@ func (e *Executor) executeUpdate(stmt *parser.UpdateStmt) (*Result, error) {
 			newValues[colIdx] = newVal
 		}
 
+		// Fire BEFORE UPDATE triggers
+		ctx := &TriggerContext{
+			OldRow: entry.oldValues,
+			NewRow: newValues,
+			ColMap: colMap,
+			Table:  table,
+		}
+		if err := e.fireTriggers(stmt.TableName, schema.TriggerBefore, schema.TriggerUpdate, ctx); err != nil {
+			return nil, err
+		}
+
 		// Validate constraints on new row
 		if err := e.validateConstraints(table, newValues); err != nil {
 			return nil, err
@@ -1030,6 +1165,11 @@ func (e *Executor) executeUpdate(stmt *parser.UpdateStmt) (*Result, error) {
 
 		// Add new index entries
 		if err := e.updateIndexes(table, rowid, newValues); err != nil {
+			return nil, err
+		}
+
+		// Fire AFTER UPDATE triggers
+		if err := e.fireTriggers(stmt.TableName, schema.TriggerAfter, schema.TriggerUpdate, ctx); err != nil {
 			return nil, err
 		}
 
@@ -1100,6 +1240,17 @@ func (e *Executor) executeDelete(stmt *parser.DeleteStmt) (*Result, error) {
 		// Extract rowid from key for index deletion
 		rowid := binary.BigEndian.Uint64(entry.key)
 
+		// Fire BEFORE DELETE triggers
+		ctx := &TriggerContext{
+			OldRow: entry.values, // DELETE has OLD row
+			NewRow: nil,          // DELETE has no NEW row
+			ColMap: colMap,
+			Table:  table,
+		}
+		if err := e.fireTriggers(stmt.TableName, schema.TriggerBefore, schema.TriggerDelete, ctx); err != nil {
+			return nil, err
+		}
+
 		// Check foreign key constraints before deletion
 		if err := e.checkForeignKeyOnDelete(table, entry.values, colMap); err != nil {
 			return nil, err
@@ -1114,6 +1265,12 @@ func (e *Executor) executeDelete(stmt *parser.DeleteStmt) (*Result, error) {
 		if err := tree.Delete(entry.key); err != nil {
 			return nil, fmt.Errorf("failed to delete row: %w", err)
 		}
+
+		// Fire AFTER DELETE triggers
+		if err := e.fireTriggers(stmt.TableName, schema.TriggerAfter, schema.TriggerDelete, ctx); err != nil {
+			return nil, err
+		}
+
 		rowsAffected++
 	}
 
@@ -1463,6 +1620,11 @@ func (e *Executor) executeSelectWithCTEs(stmt *parser.SelectStmt, cteData map[st
 		rowCopy := make([]types.Value, len(val))
 		copy(rowCopy, val)
 		rows = append(rows, rowCopy)
+	}
+
+	// Check for errors during iteration (e.g., RAISE in triggers)
+	if err := iterator.Err(); err != nil {
+		return nil, err
 	}
 
 	return &Result{
@@ -1952,6 +2114,13 @@ func (e *Executor) evaluateExpr(expr parser.Expression, rowValues []types.Value,
 			return rowValues[idx], nil
 		}
 		return types.NewNull(), nil
+	case *parser.RaiseExpr:
+		// RAISE expressions are used in triggers to abort or ignore
+		if ex.Type == parser.RaiseAbort {
+			return types.NewNull(), &schema.TriggerAbortError{Message: ex.Message}
+		}
+		// RaiseIgnore
+		return types.NewNull(), schema.ErrTriggerIgnore
 	default:
 		return types.NewNull(), fmt.Errorf("unsupported expression type: %T", expr)
 	}

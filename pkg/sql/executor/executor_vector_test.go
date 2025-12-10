@@ -4,6 +4,7 @@ package executor
 import (
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"testing"
 
 	"tur/pkg/types"
@@ -97,15 +98,13 @@ func TestVectorQuantize_InvalidTable(t *testing.T) {
 	exec, cleanup := setupTestExecutor(t)
 	defer cleanup()
 
-	// Call vector_quantize on non-existent table
-	// The projection iterator swallows errors and returns no rows
-	result, err := exec.Execute("SELECT vector_quantize('nonexistent', 'embedding')")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// Call vector_quantize on non-existent table - should return an error
+	_, err := exec.Execute("SELECT vector_quantize('nonexistent', 'embedding')")
+	if err == nil {
+		t.Fatal("expected error for non-existent table, got nil")
 	}
-	// No rows returned because projection failed
-	if len(result.Rows) != 0 {
-		t.Errorf("expected 0 rows for non-existent table, got %d", len(result.Rows))
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' error, got: %v", err)
 	}
 }
 
@@ -120,15 +119,13 @@ func TestVectorQuantize_InvalidColumn(t *testing.T) {
 		t.Fatalf("failed to create table: %v", err)
 	}
 
-	// Call vector_quantize with non-existent column
-	// The projection iterator swallows errors and returns no rows
-	result, err := exec.Execute("SELECT vector_quantize('embeddings', 'nonexistent')")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// Call vector_quantize with non-existent column - should return an error
+	_, err = exec.Execute("SELECT vector_quantize('embeddings', 'nonexistent')")
+	if err == nil {
+		t.Fatal("expected error for non-existent column, got nil")
 	}
-	// No rows returned because projection failed
-	if len(result.Rows) != 0 {
-		t.Errorf("expected 0 rows for non-existent column, got %d", len(result.Rows))
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' error, got: %v", err)
 	}
 }
 
@@ -143,15 +140,13 @@ func TestVectorQuantize_NonVectorColumn(t *testing.T) {
 		t.Fatalf("failed to create table: %v", err)
 	}
 
-	// Call vector_quantize on TEXT column
-	// The projection iterator swallows errors and returns no rows
-	result, err := exec.Execute("SELECT vector_quantize('items', 'name')")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// Call vector_quantize on TEXT column - should return an error
+	_, err = exec.Execute("SELECT vector_quantize('items', 'name')")
+	if err == nil {
+		t.Fatal("expected error for non-vector column, got nil")
 	}
-	// No rows returned because projection failed
-	if len(result.Rows) != 0 {
-		t.Errorf("expected 0 rows for non-vector column, got %d", len(result.Rows))
+	if !strings.Contains(err.Error(), "not a VECTOR") {
+		t.Errorf("expected 'not a VECTOR' error, got: %v", err)
 	}
 }
 

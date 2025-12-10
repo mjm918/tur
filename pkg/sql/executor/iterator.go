@@ -18,6 +18,9 @@ type RowIterator interface {
 	// Value returns the current row.
 	Value() []types.Value
 
+	// Err returns any error that occurred during iteration (e.g., RAISE in triggers)
+	Err() error
+
 	// Close releases resources.
 	Close()
 }
@@ -117,6 +120,10 @@ func (it *TableScanIterator) Value() []types.Value {
 	return it.val
 }
 
+func (it *TableScanIterator) Err() error {
+	return nil
+}
+
 func (it *TableScanIterator) Close() {
 	it.cursor.Close()
 }
@@ -128,18 +135,20 @@ type FilterIterator struct {
 	colMap    map[string]int
 	executor  *Executor
 	val       []types.Value
+	err       error
 }
 
 func (it *FilterIterator) Next() bool {
+	// Check for child errors first
+	if err := it.child.Err(); err != nil {
+		it.err = err
+		return false
+	}
 	for it.child.Next() {
 		row := it.child.Value()
 		match, err := it.executor.evaluateCondition(it.condition, row, it.colMap)
 		if err != nil {
-			// In iterator interface, hard to propagate error.
-			// TODO: Add Error() method to iterator?
-			// For now, treat error as non-match or log?
-			// panic? panic for now as fallback.
-			fmt.Printf("Filter error: %v\n", err)
+			it.err = err
 			return false
 		}
 		if match {
@@ -147,12 +156,20 @@ func (it *FilterIterator) Next() bool {
 			return true
 		}
 	}
+	// Check for child errors after iteration
+	if err := it.child.Err(); err != nil {
+		it.err = err
+	}
 	it.val = nil
 	return false
 }
 
 func (it *FilterIterator) Value() []types.Value {
 	return it.val
+}
+
+func (it *FilterIterator) Err() error {
+	return it.err
 }
 
 func (it *FilterIterator) Close() {
@@ -166,16 +183,22 @@ type ProjectionIterator struct {
 	colMap      map[string]int // Input schema mapping
 	executor    *Executor
 	val         []types.Value
+	err         error
 }
 
 func (it *ProjectionIterator) Next() bool {
+	// Check for child errors first
+	if err := it.child.Err(); err != nil {
+		it.err = err
+		return false
+	}
 	if it.child.Next() {
 		inputRow := it.child.Value()
 		outputRow := make([]types.Value, len(it.expressions))
 		for i, expr := range it.expressions {
 			val, err := it.executor.evaluateExpr(expr, inputRow, it.colMap)
 			if err != nil {
-				fmt.Printf("Projection error: %v\n", err)
+				it.err = err
 				return false
 			}
 			outputRow[i] = val
@@ -183,12 +206,20 @@ func (it *ProjectionIterator) Next() bool {
 		it.val = outputRow
 		return true
 	}
+	// Check for child errors after iteration
+	if err := it.child.Err(); err != nil {
+		it.err = err
+	}
 	it.val = nil
 	return false
 }
 
 func (it *ProjectionIterator) Value() []types.Value {
 	return it.val
+}
+
+func (it *ProjectionIterator) Err() error {
+	return it.err
 }
 
 func (it *ProjectionIterator) Close() {
@@ -402,6 +433,10 @@ func (it *NestedLoopJoinIterator) Value() []types.Value {
 	return it.val
 }
 
+func (it *NestedLoopJoinIterator) Err() error {
+	return nil
+}
+
 func (it *NestedLoopJoinIterator) Close() {
 	it.left.Close()
 	// Right is already closed/materialized
@@ -528,6 +563,10 @@ func (it *HashJoinIterator) Value() []types.Value {
 	return it.val
 }
 
+func (it *HashJoinIterator) Err() error {
+	return nil
+}
+
 func (it *HashJoinIterator) Close() {
 	it.right.Close()
 	// Left is already closed
@@ -594,6 +633,10 @@ func (it *SortIterator) Value() []types.Value {
 	if it.idx > 0 && it.idx <= len(it.rows) {
 		return it.rows[it.idx-1]
 	}
+	return nil
+}
+
+func (it *SortIterator) Err() error {
 	return nil
 }
 
@@ -733,6 +776,10 @@ func (it *LimitIterator) Next() bool {
 
 func (it *LimitIterator) Value() []types.Value {
 	return it.child.Value()
+}
+
+func (it *LimitIterator) Err() error {
+	return it.child.Err()
 }
 
 func (it *LimitIterator) Close() {
@@ -969,6 +1016,10 @@ func (it *HashGroupByIterator) Value() []types.Value {
 	return nil
 }
 
+func (it *HashGroupByIterator) Err() error {
+	return nil
+}
+
 func (it *HashGroupByIterator) Close() {
 	// Child already closed during prepare
 }
@@ -988,6 +1039,10 @@ func (it *CTEScanIterator) Value() []types.Value {
 	if it.index >= 0 && it.index < len(it.rows) {
 		return it.rows[it.index]
 	}
+	return nil
+}
+
+func (it *CTEScanIterator) Err() error {
 	return nil
 }
 
@@ -1012,6 +1067,10 @@ func (it *DualIterator) Next() bool {
 func (it *DualIterator) Value() []types.Value {
 	// Return empty row - projection will add the computed values
 	return []types.Value{}
+}
+
+func (it *DualIterator) Err() error {
+	return nil
 }
 
 func (it *DualIterator) Close() {
@@ -1080,6 +1139,10 @@ func (it *WindowIterator) Value() []types.Value {
 	if it.index >= 0 && it.index < len(it.outputRows) {
 		return it.outputRows[it.index]
 	}
+	return nil
+}
+
+func (it *WindowIterator) Err() error {
 	return nil
 }
 
@@ -1378,6 +1441,10 @@ func (it *WindowFunctionIterator) Value() []types.Value {
 	if it.index >= 0 && it.index < len(it.computedRows) {
 		return it.computedRows[it.index]
 	}
+	return nil
+}
+
+func (it *WindowFunctionIterator) Err() error {
 	return nil
 }
 
