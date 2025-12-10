@@ -2528,7 +2528,7 @@
     {
       "title": "Monitoring - Query Profiling",
       "description": "Profile query execution time and resource usage",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Add timing instrumentation to VDBE opcodes",
@@ -2544,7 +2544,7 @@
         },
         {
           "task": "Output profiling report after query execution",
-          "done": false
+          "done": true
         }
       ]
     },

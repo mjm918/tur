@@ -296,3 +296,259 @@ func (p *Profiler) IsEnabled() bool {
 	defer p.mu.Unlock()
 	return p.enabled
 }
+
+// ProfileReport contains a complete profiling report for a query execution.
+type ProfileReport struct {
+	TotalTime   time.Duration          // Total execution time
+	OpcodeStats []OpcodeStats          // Opcode timing statistics (sorted by total time)
+	PhaseStats  map[QueryPhase]PhaseStats // Phase timing statistics
+	MemoryStats MemoryStatsData        // Memory allocation statistics
+}
+
+// Report generates a complete profiling report from the collected statistics.
+func (p *Profiler) Report() ProfileReport {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Collect opcode stats
+	opcodeStats := make([]OpcodeStats, 0, len(p.opcodeStats))
+	for op, acc := range p.opcodeStats {
+		var avgTime time.Duration
+		if acc.count > 0 {
+			avgTime = acc.totalTime / time.Duration(acc.count)
+		}
+		opcodeStats = append(opcodeStats, OpcodeStats{
+			Opcode:    op,
+			Count:     acc.count,
+			TotalTime: acc.totalTime,
+			MinTime:   acc.minTime,
+			MaxTime:   acc.maxTime,
+			AvgTime:   avgTime,
+		})
+	}
+
+	// Sort opcode stats by total time (descending)
+	sortOpcodeStatsByTime(opcodeStats)
+
+	// Collect phase stats
+	phaseStats := make(map[QueryPhase]PhaseStats, len(p.phaseStats))
+	for phase, acc := range p.phaseStats {
+		phaseStats[phase] = PhaseStats{
+			Phase:    phase,
+			Duration: acc.duration,
+		}
+	}
+
+	// Collect memory stats
+	memStats := MemoryStatsData{
+		TotalAllocated:  p.memoryStats.totalAllocated,
+		TotalFreed:      p.memoryStats.totalFreed,
+		CurrentUsage:    p.memoryStats.currentUsage,
+		PeakUsage:       p.memoryStats.peakUsage,
+		AllocationCount: p.memoryStats.allocationCount,
+	}
+
+	return ProfileReport{
+		TotalTime:   p.totalTime,
+		OpcodeStats: opcodeStats,
+		PhaseStats:  phaseStats,
+		MemoryStats: memStats,
+	}
+}
+
+// sortOpcodeStatsByTime sorts opcode stats by total time in descending order.
+func sortOpcodeStatsByTime(stats []OpcodeStats) {
+	// Simple insertion sort (efficient for small arrays)
+	for i := 1; i < len(stats); i++ {
+		key := stats[i]
+		j := i - 1
+		for j >= 0 && stats[j].TotalTime < key.TotalTime {
+			stats[j+1] = stats[j]
+			j--
+		}
+		stats[j+1] = key
+	}
+}
+
+// String returns a human-readable string representation of the profile report.
+func (r ProfileReport) String() string {
+	var sb stringBuilder
+	sb.WriteString("=== Query Profile Report ===\n\n")
+
+	// Total time
+	sb.WriteString(formatString("Total Execution Time: %v\n\n", r.TotalTime))
+
+	// Phase timing
+	sb.WriteString("--- Phase Timing ---\n")
+	phases := []QueryPhase{PhaseParse, PhaseCompile, PhaseExecute, PhaseFetch}
+	for _, phase := range phases {
+		if stat, ok := r.PhaseStats[phase]; ok {
+			sb.WriteString(formatString("  %-10s: %v\n", phase.String(), stat.Duration))
+		}
+	}
+	sb.WriteString("\n")
+
+	// Opcode statistics
+	sb.WriteString("--- Opcode Statistics ---\n")
+	sb.WriteString(formatString("  %-15s %10s %12s %12s %12s\n",
+		"Opcode", "Count", "Total", "Avg", "Max"))
+	for _, stat := range r.OpcodeStats {
+		sb.WriteString(formatString("  %-15s %10d %12v %12v %12v\n",
+			stat.Opcode.String(), stat.Count, stat.TotalTime, stat.AvgTime, stat.MaxTime))
+	}
+	sb.WriteString("\n")
+
+	// Memory statistics
+	sb.WriteString("--- Memory Statistics ---\n")
+	sb.WriteString(formatString("  Total Allocated:  %d bytes\n", r.MemoryStats.TotalAllocated))
+	sb.WriteString(formatString("  Total Freed:      %d bytes\n", r.MemoryStats.TotalFreed))
+	sb.WriteString(formatString("  Current Usage:    %d bytes\n", r.MemoryStats.CurrentUsage))
+	sb.WriteString(formatString("  Peak Usage:       %d bytes\n", r.MemoryStats.PeakUsage))
+	sb.WriteString(formatString("  Allocation Count: %d\n", r.MemoryStats.AllocationCount))
+
+	return sb.String()
+}
+
+// stringBuilder is a simple string builder for report generation
+type stringBuilder struct {
+	data []byte
+}
+
+func (sb *stringBuilder) WriteString(s string) {
+	sb.data = append(sb.data, s...)
+}
+
+func (sb *stringBuilder) String() string {
+	return string(sb.data)
+}
+
+// formatString formats a string with the given arguments
+func formatString(format string, args ...interface{}) string {
+	// Simple implementation using fmt.Sprintf
+	return formatWithArgs(format, args...)
+}
+
+// formatWithArgs formats a string with arguments
+func formatWithArgs(format string, args ...interface{}) string {
+	result := make([]byte, 0, len(format)*2)
+	argIdx := 0
+
+	for i := 0; i < len(format); i++ {
+		if format[i] == '%' && i+1 < len(format) {
+			// Find the format specifier
+			j := i + 1
+			// Handle width/precision
+			for j < len(format) && (format[j] == '-' || format[j] == '+' || format[j] == ' ' || format[j] == '#' || format[j] == '0' || (format[j] >= '0' && format[j] <= '9') || format[j] == '.') {
+				j++
+			}
+			if j < len(format) {
+				spec := format[j]
+				if argIdx < len(args) {
+					// Get width specification
+					width := 0
+					leftAlign := false
+					k := i + 1
+					if k < j && format[k] == '-' {
+						leftAlign = true
+						k++
+					}
+					for k < j && format[k] >= '0' && format[k] <= '9' {
+						width = width*10 + int(format[k]-'0')
+						k++
+					}
+
+					formatted := formatArg(args[argIdx], spec)
+					if width > 0 {
+						if leftAlign {
+							formatted = padRight(formatted, width)
+						} else {
+							formatted = padLeft(formatted, width)
+						}
+					}
+					result = append(result, formatted...)
+					argIdx++
+				}
+				i = j
+				continue
+			}
+		}
+		result = append(result, format[i])
+	}
+	return string(result)
+}
+
+func formatArg(arg interface{}, spec byte) string {
+	switch spec {
+	case 'd':
+		switch v := arg.(type) {
+		case int:
+			return intToString(int64(v))
+		case int64:
+			return intToString(v)
+		case int32:
+			return intToString(int64(v))
+		}
+	case 's':
+		switch v := arg.(type) {
+		case string:
+			return v
+		}
+	case 'v':
+		switch v := arg.(type) {
+		case time.Duration:
+			return v.String()
+		case string:
+			return v
+		case int:
+			return intToString(int64(v))
+		case int64:
+			return intToString(v)
+		}
+	}
+	return ""
+}
+
+func intToString(n int64) string {
+	if n == 0 {
+		return "0"
+	}
+	negative := n < 0
+	if negative {
+		n = -n
+	}
+	digits := make([]byte, 0, 20)
+	for n > 0 {
+		digits = append(digits, byte('0'+n%10))
+		n /= 10
+	}
+	// Reverse
+	for i, j := 0, len(digits)-1; i < j; i, j = i+1, j-1 {
+		digits[i], digits[j] = digits[j], digits[i]
+	}
+	if negative {
+		return "-" + string(digits)
+	}
+	return string(digits)
+}
+
+func padLeft(s string, width int) string {
+	if len(s) >= width {
+		return s
+	}
+	padding := make([]byte, width-len(s))
+	for i := range padding {
+		padding[i] = ' '
+	}
+	return string(padding) + s
+}
+
+func padRight(s string, width int) string {
+	if len(s) >= width {
+		return s
+	}
+	padding := make([]byte, width-len(s))
+	for i := range padding {
+		padding[i] = ' '
+	}
+	return s + string(padding)
+}

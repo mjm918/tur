@@ -484,3 +484,140 @@ func TestProfilerMemoryDisabled(t *testing.T) {
 		t.Errorf("Expected 0 allocations when disabled, got %d", stats.TotalAllocated)
 	}
 }
+
+// Tests for profiling report generation
+
+func TestProfilerReport(t *testing.T) {
+	// Create a program and run it with profiling
+	prog := NewProgram()
+	prog.AddOp(OpInit, 0, 1, 0)
+	prog.AddOp(OpInteger, 42, 0, 0)
+	prog.AddOp(OpInteger, 100, 1, 0)
+	prog.AddOp(OpAdd, 0, 1, 2)
+	prog.AddOp(OpResultRow, 2, 1, 0)
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	profiler := NewProfiler()
+	vm.SetProfiler(profiler)
+
+	// Simulate some phase timing
+	profiler.StartPhase(PhaseParse)
+	profiler.EndPhase(PhaseParse)
+	profiler.StartPhase(PhaseCompile)
+	profiler.EndPhase(PhaseCompile)
+	profiler.StartPhase(PhaseExecute)
+
+	err := vm.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	profiler.EndPhase(PhaseExecute)
+
+	// Record some memory allocations
+	profiler.RecordAllocation(1024)
+	profiler.RecordAllocation(2048)
+
+	// Generate report
+	report := profiler.Report()
+
+	// Report should contain opcode stats
+	if len(report.OpcodeStats) == 0 {
+		t.Error("Expected opcode stats in report")
+	}
+
+	// Report should contain phase stats
+	if len(report.PhaseStats) == 0 {
+		t.Error("Expected phase stats in report")
+	}
+
+	// Report should contain memory stats
+	if report.MemoryStats.TotalAllocated != 3072 {
+		t.Errorf("Expected TotalAllocated 3072, got %d", report.MemoryStats.TotalAllocated)
+	}
+
+	// Total execution time should be positive
+	if report.TotalTime <= 0 {
+		t.Errorf("Expected positive total time, got %v", report.TotalTime)
+	}
+}
+
+func TestProfilerReportString(t *testing.T) {
+	profiler := NewProfiler()
+
+	// Add some data
+	profiler.StartPhase(PhaseParse)
+	profiler.EndPhase(PhaseParse)
+	profiler.RecordAllocation(1024)
+
+	// Generate report
+	report := profiler.Report()
+
+	// Get string representation
+	str := report.String()
+
+	// String should contain key sections
+	if len(str) == 0 {
+		t.Error("Report string should not be empty")
+	}
+
+	// Should contain "Query Profile Report"
+	if !containsSubstring(str, "Query Profile Report") {
+		t.Error("Report should contain 'Query Profile Report' header")
+	}
+
+	// Should contain memory stats section
+	if !containsSubstring(str, "Memory Statistics") {
+		t.Error("Report should contain 'Memory Statistics' section")
+	}
+
+	// Should contain phase stats section
+	if !containsSubstring(str, "Phase Timing") {
+		t.Error("Report should contain 'Phase Timing' section")
+	}
+}
+
+func TestProfilerReportOpcodesSortedByTime(t *testing.T) {
+	// Create program with multiple opcode types
+	prog := NewProgram()
+	prog.AddOp(OpInit, 0, 1, 0)
+	prog.AddOp(OpInteger, 1, 0, 0)
+	prog.AddOp(OpInteger, 2, 1, 0)
+	prog.AddOp(OpInteger, 3, 2, 0)
+	prog.AddOp(OpAdd, 0, 1, 3)
+	prog.AddOp(OpHalt, 0, 0, 0)
+
+	vm := NewVM(prog, nil)
+	profiler := NewProfiler()
+	vm.SetProfiler(profiler)
+
+	err := vm.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	report := profiler.Report()
+
+	// Opcodes should be sorted by total time (descending)
+	for i := 1; i < len(report.OpcodeStats); i++ {
+		if report.OpcodeStats[i].TotalTime > report.OpcodeStats[i-1].TotalTime {
+			t.Errorf("Opcode stats not sorted by time: %v > %v",
+				report.OpcodeStats[i].TotalTime, report.OpcodeStats[i-1].TotalTime)
+		}
+	}
+}
+
+// Helper function to check if a string contains a substring
+func containsSubstring(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstringHelper(s, substr))
+}
+
+func containsSubstringHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
