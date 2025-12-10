@@ -841,7 +841,29 @@ func (e *Executor) executeDropTable(stmt *parser.DropTableStmt) (*Result, error)
 		return nil, fmt.Errorf("table not found")
 	}
 
-	// TODO: Check for dependent views and triggers (if CASCADE is not specified)
+	// Check for dependent views (if CASCADE is not specified)
+	if !stmt.Cascade {
+		dependentViews := e.catalog.GetViewsDependingOn(stmt.TableName)
+		if len(dependentViews) > 0 {
+			viewNames := make([]string, len(dependentViews))
+			for i, v := range dependentViews {
+				viewNames[i] = v.Name
+			}
+			return nil, fmt.Errorf("cannot drop table %s: view(s) %s depend on it",
+				stmt.TableName, strings.Join(viewNames, ", "))
+		}
+
+		// Check for dependent triggers
+		dependentTriggers := e.catalog.GetTriggersOnTable(stmt.TableName)
+		if len(dependentTriggers) > 0 {
+			triggerNames := make([]string, len(dependentTriggers))
+			for i, t := range dependentTriggers {
+				triggerNames[i] = t.Name
+			}
+			return nil, fmt.Errorf("cannot drop table %s: trigger(s) %s depend on it",
+				stmt.TableName, strings.Join(triggerNames, ", "))
+		}
+	}
 
 	// TODO: If CASCADE is specified, drop associated indexes and handle foreign keys
 

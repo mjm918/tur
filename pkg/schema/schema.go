@@ -4,6 +4,7 @@ package schema
 import (
 	"errors"
 	"sort"
+	"strings"
 	"sync"
 
 	"tur/pkg/types"
@@ -793,4 +794,83 @@ func (c *Catalog) TriggerCount() int {
 	defer c.mu.RUnlock()
 
 	return len(c.triggers)
+}
+
+// GetTriggersOnTable returns all triggers attached to a specific table
+func (c *Catalog) GetTriggersOnTable(tableName string) []*TriggerDef {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var triggers []*TriggerDef
+	for _, trigger := range c.triggers {
+		if trigger.TableName == tableName {
+			triggers = append(triggers, trigger)
+		}
+	}
+
+	// Sort by name for consistent ordering
+	sort.Slice(triggers, func(i, j int) bool {
+		return triggers[i].Name < triggers[j].Name
+	})
+
+	return triggers
+}
+
+// GetViewsDependingOn returns all views whose SQL contains a reference to the given table name
+// Note: This is a simple string-based check; a more robust implementation would parse the SQL
+func (c *Catalog) GetViewsDependingOn(tableName string) []*ViewDef {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var views []*ViewDef
+	// Check for table name in view SQL (simple string matching)
+	// We look for common patterns like "FROM tablename" or "JOIN tablename"
+	for _, view := range c.views {
+		// Simple check: view SQL contains the table name
+		// This could have false positives but is good enough for basic dependency checking
+		if containsTableReference(view.SQL, tableName) {
+			views = append(views, view)
+		}
+	}
+
+	// Sort by name for consistent ordering
+	sort.Slice(views, func(i, j int) bool {
+		return views[i].Name < views[j].Name
+	})
+
+	return views
+}
+
+// containsTableReference checks if SQL contains a reference to the given table name
+// Uses simple word boundary matching to avoid false positives
+func containsTableReference(sql, tableName string) bool {
+	// Convert to lowercase for case-insensitive matching
+	sqlLower := strings.ToLower(sql)
+	tableNameLower := strings.ToLower(tableName)
+
+	// Look for FROM tablename, JOIN tablename patterns
+	keywords := []string{"from ", "join "}
+	for _, keyword := range keywords {
+		idx := strings.Index(sqlLower, keyword)
+		for idx != -1 {
+			// Find table name after keyword
+			rest := sqlLower[idx+len(keyword):]
+			// Check if table name starts at this position
+			if strings.HasPrefix(rest, tableNameLower) {
+				// Verify it's a complete word (followed by space, comma, or end)
+				afterTable := rest[len(tableNameLower):]
+				if len(afterTable) == 0 || afterTable[0] == ' ' || afterTable[0] == ',' ||
+					afterTable[0] == ')' || afterTable[0] == '\n' || afterTable[0] == '\t' {
+					return true
+				}
+			}
+			// Look for next occurrence
+			nextIdx := strings.Index(rest, keyword)
+			if nextIdx == -1 {
+				break
+			}
+			idx = idx + len(keyword) + nextIdx
+		}
+	}
+	return false
 }
