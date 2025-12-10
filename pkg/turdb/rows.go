@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 
 	"tur/pkg/types"
 )
@@ -22,7 +23,9 @@ var (
 
 // Rows represents a result set from a query.
 // It provides methods to iterate over and access query results.
+// Rows is safe for concurrent use.
 type Rows struct {
+	mu      sync.Mutex
 	columns []string
 	rows    [][]types.Value
 	index   int  // current row index (-1 means before first row)
@@ -41,7 +44,12 @@ func NewRows(columns []string, rows [][]types.Value) *Rows {
 
 // Columns returns the column names of the result set.
 func (r *Rows) Columns() []string {
-	return r.columns
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	result := make([]string, len(r.columns))
+	copy(result, r.columns)
+	return result
 }
 
 // Next advances the result set to the next row.
@@ -49,6 +57,9 @@ func (r *Rows) Columns() []string {
 // or the result set has been closed.
 // Every call to Scan must be preceded by a successful call to Next.
 func (r *Rows) Next() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if r.closed {
 		return false
 	}
@@ -60,6 +71,9 @@ func (r *Rows) Next() bool {
 // Scan copies the columns in the current row into the values pointed at by dest.
 // The number of values in dest must match the number of columns in the result set.
 func (r *Rows) Scan(dest ...interface{}) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if r.closed {
 		return ErrRowsClosed
 	}
@@ -307,6 +321,9 @@ func (r *Rows) ColumnValue(i int) types.Value {
 // It is safe to call Close multiple times.
 // After Close, Next will always return false and Scan will return an error.
 func (r *Rows) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if r.closed {
 		return nil // Already closed, no-op
 	}
