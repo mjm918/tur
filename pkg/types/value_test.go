@@ -184,3 +184,82 @@ func TestIntervalNegative(t *testing.T) {
 		t.Errorf("expected -3600000000 usec, got %d", usec)
 	}
 }
+
+func TestDateTypeString(t *testing.T) {
+	tests := []struct {
+		typ    ValueType
+		expect string
+	}{
+		{TypeDate, "DATE"},
+		{TypeTime, "TIME"},
+		{TypeTimeTZ, "TIMETZ"},
+		{TypeTimestamp, "TIMESTAMP"},
+		{TypeTimestampTZ, "TIMESTAMPTZ"},
+		{TypeInterval, "INTERVAL"},
+	}
+
+	for _, tc := range tests {
+		if tc.typ.String() != tc.expect {
+			t.Errorf("expected %q, got %q", tc.expect, tc.typ.String())
+		}
+	}
+}
+
+func TestDateComparison(t *testing.T) {
+	d1 := NewDate(2025, 12, 10)
+	d2 := NewDate(2025, 12, 11)
+	d3 := NewDate(2025, 12, 10)
+
+	if Compare(d1, d2) >= 0 {
+		t.Error("d1 should be less than d2")
+	}
+	if Compare(d2, d1) <= 0 {
+		t.Error("d2 should be greater than d1")
+	}
+	if Compare(d1, d3) != 0 {
+		t.Error("d1 should equal d3")
+	}
+}
+
+func TestTimestampComparison(t *testing.T) {
+	ts1 := NewTimestamp(2025, 12, 10, 14, 30, 0, 0)
+	ts2 := NewTimestamp(2025, 12, 10, 14, 31, 0, 0)
+	ts3 := NewTimestamp(2025, 12, 10, 14, 30, 0, 0)
+
+	if Compare(ts1, ts2) >= 0 {
+		t.Error("ts1 should be less than ts2")
+	}
+	if Compare(ts2, ts1) <= 0 {
+		t.Error("ts2 should be greater than ts1")
+	}
+	if Compare(ts1, ts3) != 0 {
+		t.Error("ts1 should equal ts3")
+	}
+}
+
+func TestTimeComparison(t *testing.T) {
+	t1 := NewTime(14, 30, 0, 0)
+	t2 := NewTime(14, 31, 0, 0)
+	t3 := NewTime(14, 30, 0, 0)
+
+	if Compare(t1, t2) >= 0 {
+		t.Error("t1 should be less than t2")
+	}
+	if Compare(t1, t3) != 0 {
+		t.Error("t1 should equal t3")
+	}
+}
+
+func TestIntervalComparison(t *testing.T) {
+	// Intervals compare months first, then microseconds
+	i1 := NewInterval(1, 0)      // 1 month
+	i2 := NewInterval(2, 0)      // 2 months
+	i3 := NewInterval(1, 1000000) // 1 month + 1 second
+
+	if Compare(i1, i2) >= 0 {
+		t.Error("1 month should be less than 2 months")
+	}
+	if Compare(i1, i3) >= 0 {
+		t.Error("1 month should be less than 1 month + 1 second")
+	}
+}

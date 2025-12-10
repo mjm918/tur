@@ -179,3 +179,152 @@ func NewInterval(months, microseconds int64) Value {
 func (v Value) IntervalValue() (months, microseconds int64) {
 	return v.intervalVal.Months, v.intervalVal.Microseconds
 }
+
+// String returns the string representation of ValueType
+func (t ValueType) String() string {
+	switch t {
+	case TypeNull:
+		return "NULL"
+	case TypeInt:
+		return "INTEGER"
+	case TypeFloat:
+		return "REAL"
+	case TypeText:
+		return "TEXT"
+	case TypeBlob:
+		return "BLOB"
+	case TypeVector:
+		return "VECTOR"
+	case TypeDate:
+		return "DATE"
+	case TypeTime:
+		return "TIME"
+	case TypeTimeTZ:
+		return "TIMETZ"
+	case TypeTimestamp:
+		return "TIMESTAMP"
+	case TypeTimestampTZ:
+		return "TIMESTAMPTZ"
+	case TypeInterval:
+		return "INTERVAL"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+// Compare compares two Values and returns:
+// -1 if a < b
+//
+//	0 if a == b
+//	1 if a > b
+//
+// NULL values are considered less than non-NULL values.
+// Different types are compared by their type order.
+func Compare(a, b Value) int {
+	// Handle NULL cases
+	if a.IsNull() && b.IsNull() {
+		return 0
+	}
+	if a.IsNull() {
+		return -1
+	}
+	if b.IsNull() {
+		return 1
+	}
+
+	// Different types - compare by type order
+	if a.typ != b.typ {
+		if a.typ < b.typ {
+			return -1
+		}
+		return 1
+	}
+
+	// Same type - compare values
+	switch a.typ {
+	case TypeInt:
+		if a.intVal < b.intVal {
+			return -1
+		} else if a.intVal > b.intVal {
+			return 1
+		}
+		return 0
+
+	case TypeFloat:
+		if a.floatVal < b.floatVal {
+			return -1
+		} else if a.floatVal > b.floatVal {
+			return 1
+		}
+		return 0
+
+	case TypeText:
+		if a.textVal < b.textVal {
+			return -1
+		} else if a.textVal > b.textVal {
+			return 1
+		}
+		return 0
+
+	case TypeBlob:
+		// Compare blobs byte by byte
+		minLen := len(a.blobVal)
+		if len(b.blobVal) < minLen {
+			minLen = len(b.blobVal)
+		}
+		for i := 0; i < minLen; i++ {
+			if a.blobVal[i] < b.blobVal[i] {
+				return -1
+			} else if a.blobVal[i] > b.blobVal[i] {
+				return 1
+			}
+		}
+		if len(a.blobVal) < len(b.blobVal) {
+			return -1
+		} else if len(a.blobVal) > len(b.blobVal) {
+			return 1
+		}
+		return 0
+
+	case TypeDate:
+		if a.dateVal < b.dateVal {
+			return -1
+		} else if a.dateVal > b.dateVal {
+			return 1
+		}
+		return 0
+
+	case TypeTime, TypeTimeTZ:
+		if a.timeVal < b.timeVal {
+			return -1
+		} else if a.timeVal > b.timeVal {
+			return 1
+		}
+		return 0
+
+	case TypeTimestamp, TypeTimestampTZ:
+		if a.timestampVal.Before(b.timestampVal) {
+			return -1
+		} else if a.timestampVal.After(b.timestampVal) {
+			return 1
+		}
+		return 0
+
+	case TypeInterval:
+		// Compare months first, then microseconds
+		if a.intervalVal.Months < b.intervalVal.Months {
+			return -1
+		} else if a.intervalVal.Months > b.intervalVal.Months {
+			return 1
+		}
+		if a.intervalVal.Microseconds < b.intervalVal.Microseconds {
+			return -1
+		} else if a.intervalVal.Microseconds > b.intervalVal.Microseconds {
+			return 1
+		}
+		return 0
+
+	default:
+		return 0
+	}
+}
