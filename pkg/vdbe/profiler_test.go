@@ -276,3 +276,116 @@ func TestProfilerWithResultRow(t *testing.T) {
 		t.Error("ResultRow opcode not found in profiler stats")
 	}
 }
+
+// Tests for query phase tracking
+
+func TestProfilerQueryPhases(t *testing.T) {
+	profiler := NewProfiler()
+
+	// Simulate parsing phase
+	profiler.StartPhase(PhaseParse)
+	time.Sleep(1 * time.Millisecond)
+	profiler.EndPhase(PhaseParse)
+
+	// Simulate compilation phase
+	profiler.StartPhase(PhaseCompile)
+	time.Sleep(1 * time.Millisecond)
+	profiler.EndPhase(PhaseCompile)
+
+	// Simulate execution phase
+	profiler.StartPhase(PhaseExecute)
+	time.Sleep(1 * time.Millisecond)
+	profiler.EndPhase(PhaseExecute)
+
+	phases := profiler.PhaseStats()
+
+	// Should have 3 phases
+	if len(phases) != 3 {
+		t.Errorf("Expected 3 phase stats, got %d", len(phases))
+	}
+
+	// Check each phase was recorded
+	for _, phase := range []QueryPhase{PhaseParse, PhaseCompile, PhaseExecute} {
+		stat, ok := phases[phase]
+		if !ok {
+			t.Errorf("Phase %s not found in stats", phase)
+			continue
+		}
+		if stat.Duration <= 0 {
+			t.Errorf("Phase %s has non-positive duration: %v", phase, stat.Duration)
+		}
+	}
+}
+
+func TestProfilerQueryPhaseNesting(t *testing.T) {
+	profiler := NewProfiler()
+
+	// Start outer phase (execute)
+	profiler.StartPhase(PhaseExecute)
+
+	// Start inner phase (fetch)
+	profiler.StartPhase(PhaseFetch)
+	time.Sleep(1 * time.Millisecond)
+	profiler.EndPhase(PhaseFetch)
+
+	// End outer phase
+	profiler.EndPhase(PhaseExecute)
+
+	phases := profiler.PhaseStats()
+
+	// Both phases should be recorded
+	execStat, ok := phases[PhaseExecute]
+	if !ok {
+		t.Fatal("Execute phase not found")
+	}
+
+	fetchStat, ok := phases[PhaseFetch]
+	if !ok {
+		t.Fatal("Fetch phase not found")
+	}
+
+	// Execute phase should be >= fetch phase (since fetch is nested)
+	if execStat.Duration < fetchStat.Duration {
+		t.Errorf("Execute phase (%v) should be >= fetch phase (%v)",
+			execStat.Duration, fetchStat.Duration)
+	}
+}
+
+func TestProfilerPhaseReset(t *testing.T) {
+	profiler := NewProfiler()
+
+	profiler.StartPhase(PhaseParse)
+	profiler.EndPhase(PhaseParse)
+
+	phases := profiler.PhaseStats()
+	if len(phases) != 1 {
+		t.Errorf("Expected 1 phase, got %d", len(phases))
+	}
+
+	profiler.Reset()
+
+	phases = profiler.PhaseStats()
+	if len(phases) != 0 {
+		t.Errorf("Expected 0 phases after reset, got %d", len(phases))
+	}
+}
+
+func TestProfilerPhaseString(t *testing.T) {
+	tests := []struct {
+		phase    QueryPhase
+		expected string
+	}{
+		{PhaseParse, "parse"},
+		{PhaseCompile, "compile"},
+		{PhaseExecute, "execute"},
+		{PhaseFetch, "fetch"},
+		{QueryPhase(99), "unknown"},
+	}
+
+	for _, test := range tests {
+		if test.phase.String() != test.expected {
+			t.Errorf("Phase %d: expected %q, got %q",
+				test.phase, test.expected, test.phase.String())
+		}
+	}
+}

@@ -7,6 +7,42 @@ import (
 	"time"
 )
 
+// QueryPhase represents a phase of query execution.
+type QueryPhase int
+
+const (
+	// PhaseParse is the SQL parsing phase.
+	PhaseParse QueryPhase = iota
+	// PhaseCompile is the bytecode compilation phase.
+	PhaseCompile
+	// PhaseExecute is the VM execution phase.
+	PhaseExecute
+	// PhaseFetch is the result fetching phase.
+	PhaseFetch
+)
+
+// String returns the string representation of the query phase.
+func (p QueryPhase) String() string {
+	switch p {
+	case PhaseParse:
+		return "parse"
+	case PhaseCompile:
+		return "compile"
+	case PhaseExecute:
+		return "execute"
+	case PhaseFetch:
+		return "fetch"
+	default:
+		return "unknown"
+	}
+}
+
+// PhaseStats holds timing statistics for a query phase.
+type PhaseStats struct {
+	Phase    QueryPhase    // The phase being tracked
+	Duration time.Duration // Time spent in this phase
+}
+
 // OpcodeStats holds timing statistics for a single opcode type.
 type OpcodeStats struct {
 	Opcode    Opcode        // The opcode being tracked
@@ -21,6 +57,8 @@ type OpcodeStats struct {
 type Profiler struct {
 	mu              sync.Mutex
 	opcodeStats     map[Opcode]*opcodeStatsAccumulator
+	phaseStats      map[QueryPhase]*phaseStatsAccumulator
+	phaseStartTimes map[QueryPhase]time.Time
 	totalTime       time.Duration
 	executionStart  time.Time
 	enabled         bool
@@ -34,11 +72,18 @@ type opcodeStatsAccumulator struct {
 	maxTime   time.Duration
 }
 
+// phaseStatsAccumulator accumulates stats for query phases
+type phaseStatsAccumulator struct {
+	duration time.Duration
+}
+
 // NewProfiler creates a new Profiler instance.
 func NewProfiler() *Profiler {
 	return &Profiler{
-		opcodeStats: make(map[Opcode]*opcodeStatsAccumulator),
-		enabled:     true,
+		opcodeStats:     make(map[Opcode]*opcodeStatsAccumulator),
+		phaseStats:      make(map[QueryPhase]*phaseStatsAccumulator),
+		phaseStartTimes: make(map[QueryPhase]time.Time),
+		enabled:         true,
 	}
 }
 
@@ -121,7 +166,58 @@ func (p *Profiler) Reset() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.opcodeStats = make(map[Opcode]*opcodeStatsAccumulator)
+	p.phaseStats = make(map[QueryPhase]*phaseStatsAccumulator)
+	p.phaseStartTimes = make(map[QueryPhase]time.Time)
 	p.totalTime = 0
+}
+
+// StartPhase marks the beginning of a query phase.
+func (p *Profiler) StartPhase(phase QueryPhase) {
+	if !p.enabled {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.phaseStartTimes[phase] = time.Now()
+}
+
+// EndPhase marks the end of a query phase and records the duration.
+func (p *Profiler) EndPhase(phase QueryPhase) {
+	if !p.enabled {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	startTime, ok := p.phaseStartTimes[phase]
+	if !ok {
+		return
+	}
+
+	elapsed := time.Since(startTime)
+	delete(p.phaseStartTimes, phase)
+
+	stats, ok := p.phaseStats[phase]
+	if !ok {
+		stats = &phaseStatsAccumulator{}
+		p.phaseStats[phase] = stats
+	}
+	stats.duration += elapsed
+}
+
+// PhaseStats returns a snapshot of the current phase statistics.
+func (p *Profiler) PhaseStats() map[QueryPhase]PhaseStats {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	result := make(map[QueryPhase]PhaseStats, len(p.phaseStats))
+	for phase, acc := range p.phaseStats {
+		result[phase] = PhaseStats{
+			Phase:    phase,
+			Duration: acc.duration,
+		}
+	}
+	return result
 }
 
 // SetEnabled enables or disables profiling.

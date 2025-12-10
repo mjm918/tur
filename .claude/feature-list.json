@@ -2536,7 +2536,7 @@
         },
         {
           "task": "Track time spent in each query phase",
-          "done": false
+          "done": true
         },
         {
           "task": "Collect memory allocation statistics",
