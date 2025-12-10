@@ -11,6 +11,7 @@ import (
 	"tur/pkg/mvcc"
 	"tur/pkg/pager"
 	"tur/pkg/schema"
+	"tur/pkg/sql/executor"
 )
 
 var (
@@ -52,6 +53,12 @@ type DB struct {
 
 	// hnswIndexes holds HNSW indexes for vector columns
 	hnswIndexes map[string]*hnsw.Index
+
+	// executor handles SQL execution
+	executor *executor.Executor
+
+	// stmtCache caches prepared statements by SQL text
+	stmtCache map[string]*Stmt
 
 	// closed indicates if the database has been closed
 	closed bool
@@ -117,6 +124,8 @@ func OpenWithOptions(path string, opts Options) (*DB, error) {
 		maxRowid:    make(map[string]int64),
 		txManager:   mvcc.NewTransactionManager(),
 		hnswIndexes: make(map[string]*hnsw.Index),
+		executor:    executor.New(p),
+		stmtCache:   make(map[string]*Stmt),
 		closed:      false,
 	}
 
@@ -141,6 +150,12 @@ func (db *DB) Close() error {
 	}
 
 	db.closed = true
+
+	// Close all cached statements
+	for _, stmt := range db.stmtCache {
+		stmt.closed = true
+	}
+	db.stmtCache = nil
 
 	var closeErr error
 
@@ -179,4 +194,89 @@ func (db *DB) Catalog() *schema.Catalog {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 	return db.catalog
+}
+
+// Exec executes a SQL statement that does not return rows.
+// It is a convenience method that prepares, executes, and closes a statement.
+func (db *DB) Exec(sql string) (Result, error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	if db.closed {
+		return Result{}, ErrDatabaseClosed
+	}
+
+	// Use the executor directly for non-parameterized queries
+	result, err := db.executor.Execute(sql)
+	if err != nil {
+		return Result{}, err
+	}
+
+	return Result{
+		rowsAffected: result.RowsAffected,
+	}, nil
+}
+
+// Result represents the result of an Exec operation
+type Result struct {
+	lastInsertID int64
+	rowsAffected int64
+}
+
+// LastInsertId returns the ID of the last inserted row
+func (r Result) LastInsertId() int64 {
+	return r.lastInsertID
+}
+
+// RowsAffected returns the number of rows affected by the statement
+func (r Result) RowsAffected() int64 {
+	return r.rowsAffected
+}
+
+// PrepareWithCache prepares a SQL statement, using a cached version if available.
+// Unlike Prepare, this method caches the statement for reuse with the same SQL.
+// This is useful for frequently executed queries.
+func (db *DB) PrepareWithCache(sql string) (*Stmt, error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	if db.closed {
+		return nil, ErrDatabaseClosed
+	}
+
+	// Check if statement is already cached
+	if stmt, ok := db.stmtCache[sql]; ok && !stmt.closed {
+		// Reset the cached statement for reuse
+		stmt.ClearBindings()
+		return stmt, nil
+	}
+
+	// Need to unlock to call Prepare (it acquires its own lock)
+	db.mu.Unlock()
+	stmt, err := db.Prepare(sql)
+	db.mu.Lock()
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache the new statement
+	db.stmtCache[sql] = stmt
+
+	return stmt, nil
+}
+
+// ClearStmtCache clears the prepared statement cache.
+// This closes all cached statements and removes them from the cache.
+func (db *DB) ClearStmtCache() {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	// Close all cached statements
+	for _, stmt := range db.stmtCache {
+		stmt.closed = true
+	}
+
+	// Clear the cache
+	db.stmtCache = make(map[string]*Stmt)
 }
