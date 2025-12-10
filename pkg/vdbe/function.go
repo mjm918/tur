@@ -179,6 +179,20 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Function: builtinSpace,
 	})
 
+	// Register REPLACE function
+	r.Register(&ScalarFunction{
+		Name:     "REPLACE",
+		NumArgs:  3,
+		Function: builtinReplace,
+	})
+
+	// Register REVERSE function
+	r.Register(&ScalarFunction{
+		Name:     "REVERSE",
+		NumArgs:  1,
+		Function: builtinReverse,
+	})
+
 	return r
 }
 
@@ -633,4 +647,34 @@ func builtinSpace(args []types.Value) types.Value {
 		n = 0
 	}
 	return types.NewText(strings.Repeat(" ", n))
+}
+
+// builtinReplace implements REPLACE(string, from, to)
+// Replaces all occurrences of 'from' substring with 'to' substring.
+// If any argument is NULL, returns NULL.
+func builtinReplace(args []types.Value) types.Value {
+	if len(args) != 3 {
+		return types.NewNull()
+	}
+	for _, arg := range args {
+		if arg.IsNull() {
+			return types.NewNull()
+		}
+	}
+	return types.NewText(strings.ReplaceAll(args[0].Text(), args[1].Text(), args[2].Text()))
+}
+
+// builtinReverse implements REVERSE(string)
+// Reverses the characters in a string.
+// Properly handles Unicode characters (runes).
+// If argument is NULL, returns NULL.
+func builtinReverse(args []types.Value) types.Value {
+	if len(args) != 1 || args[0].IsNull() {
+		return types.NewNull()
+	}
+	runes := []rune(args[0].Text())
+	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+		runes[i], runes[j] = runes[j], runes[i]
+	}
+	return types.NewText(string(runes))
 }
