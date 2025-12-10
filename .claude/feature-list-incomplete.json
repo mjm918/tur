@@ -1132,19 +1132,19 @@
       "tasks": [
         {
           "task": "Parse EXPLAIN ANALYZE statement_to_analyze syntax",
-          "done": false
+          "done": true
         },
         {
           "task": "Execute query and collect runtime metrics per operation",
-          "done": false
+          "done": true
         },
         {
           "task": "Track actual row counts vs estimated row counts",
-          "done": false
+          "done": true
         },
         {
           "task": "Measure execution time for each query phase",
-          "done": false
+          "done": true
         },
         {
           "task": "Collect I/O statistics (page reads, cache hits)",
@@ -1156,7 +1156,7 @@
         },
         {
           "task": "Show memory usage during query execution",
-          "done": false
+          "done": true
         }
       ]
     }
