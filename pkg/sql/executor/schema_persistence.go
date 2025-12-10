@@ -105,6 +105,23 @@ func reconstructCreateTableSQL(stmt *parser.CreateTableStmt) string {
 	return sb.String()
 }
 
+// reconstructCreateIndexSQL rebuilds CREATE INDEX SQL from parsed statement
+func reconstructCreateIndexSQL(stmt *parser.CreateIndexStmt) string {
+	var sb strings.Builder
+	sb.WriteString("CREATE ")
+	if stmt.Unique {
+		sb.WriteString("UNIQUE ")
+	}
+	sb.WriteString("INDEX ")
+	sb.WriteString(stmt.IndexName)
+	sb.WriteString(" ON ")
+	sb.WriteString(stmt.TableName)
+	sb.WriteString("(")
+	sb.WriteString(strings.Join(stmt.Columns, ", "))
+	sb.WriteString(")")
+	return sb.String()
+}
+
 // loadSchemaFromBTree reads all schema entries from page 1 and populates the catalog
 func (e *Executor) loadSchemaFromBTree() error {
 	// Use cursor to iterate over all entries in the schema B-tree
@@ -213,7 +230,38 @@ func (e *Executor) loadTableSchema(entry *dbfile.SchemaEntry) error {
 
 // loadIndexSchema reconstructs an index from its stored SQL
 func (e *Executor) loadIndexSchema(entry *dbfile.SchemaEntry) error {
-	// TODO: Implement index loading
+	// Parse SQL
+	p := parser.New(entry.SQL)
+	stmt, err := p.Parse()
+	if err != nil {
+		return fmt.Errorf("failed to parse index SQL: %w", err)
+	}
+
+	createStmt, ok := stmt.(*parser.CreateIndexStmt)
+	if !ok {
+		return fmt.Errorf("expected CREATE INDEX statement")
+	}
+
+	// Reconstruct index definition
+	idx := &schema.IndexDef{
+		Name:      entry.Name,
+		TableName: entry.TableName,
+		Columns:   createStmt.Columns,
+		Type:      schema.IndexTypeBTree,
+		Unique:    createStmt.Unique,
+		RootPage:  entry.RootPage,
+	}
+
+	// Add to catalog
+	if err := e.catalog.CreateIndex(idx); err != nil {
+		return err
+	}
+
+	// Open existing B-tree for this index
+	tree := btree.Open(e.pager, entry.RootPage)
+	idxTreeName := "index:" + entry.Name
+	e.trees[idxTreeName] = tree
+
 	return nil
 }
 

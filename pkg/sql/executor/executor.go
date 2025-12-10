@@ -968,6 +968,23 @@ func (e *Executor) executeCreateIndex(stmt *parser.CreateIndexStmt) (*Result, er
 		return nil, err
 	}
 
+	// Persist index schema to disk
+	sql := reconstructCreateIndexSQL(stmt)
+	schemaEntry := &dbfile.SchemaEntry{
+		Type:      dbfile.SchemaEntryIndex,
+		Name:      stmt.IndexName,
+		TableName: stmt.TableName,
+		RootPage:  indexTree.RootPage(),
+		SQL:       sql,
+	}
+
+	if err := e.persistSchemaEntry(schemaEntry); err != nil {
+		// Rollback catalog change on persistence failure
+		e.catalog.DropIndex(stmt.IndexName)
+		delete(e.trees, idxTreeName)
+		return nil, fmt.Errorf("failed to persist index schema: %w", err)
+	}
+
 	return &Result{}, nil
 }
 
