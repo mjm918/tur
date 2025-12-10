@@ -61,6 +61,18 @@ func (e *Executor) GetCatalog() *schema.Catalog {
 	return e.catalog
 }
 
+// SetTransaction sets the current transaction context for execution.
+// This allows external code to control the transaction used by Execute.
+// Pass nil to clear the transaction (auto-commit mode).
+func (e *Executor) SetTransaction(tx *mvcc.Transaction) {
+	e.currentTx = tx
+}
+
+// GetTransaction returns the current transaction context.
+func (e *Executor) GetTransaction() *mvcc.Transaction {
+	return e.currentTx
+}
+
 // Execute parses and executes a SQL statement
 func (e *Executor) Execute(sql string) (*Result, error) {
 	p := parser.New(sql)

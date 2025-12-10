@@ -12,6 +12,7 @@ import (
 	"tur/pkg/pager"
 	"tur/pkg/schema"
 	"tur/pkg/sql/executor"
+	"tur/pkg/types"
 )
 
 var (
@@ -196,40 +197,38 @@ func (db *DB) Catalog() *schema.Catalog {
 	return db.catalog
 }
 
-// Exec executes a SQL statement that does not return rows.
+// Exec executes a SQL statement and returns the result.
 // It is a convenience method that prepares, executes, and closes a statement.
-func (db *DB) Exec(sql string) (Result, error) {
+func (db *DB) Exec(sql string) (*QueryResult, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
 	if db.closed {
-		return Result{}, ErrDatabaseClosed
+		return nil, ErrDatabaseClosed
 	}
 
 	// Use the executor directly for non-parameterized queries
 	result, err := db.executor.Execute(sql)
 	if err != nil {
-		return Result{}, err
+		return nil, err
 	}
 
-	return Result{
-		rowsAffected: result.RowsAffected,
-	}, nil
+	return convertQueryResult(result), nil
 }
 
-// Result represents the result of an Exec operation
-type Result struct {
+// ExecResult represents the result of an Exec operation (for prepared statements)
+type ExecResult struct {
 	lastInsertID int64
 	rowsAffected int64
 }
 
 // LastInsertId returns the ID of the last inserted row
-func (r Result) LastInsertId() int64 {
+func (r ExecResult) LastInsertId() int64 {
 	return r.lastInsertID
 }
 
 // RowsAffected returns the number of rows affected by the statement
-func (r Result) RowsAffected() int64 {
+func (r ExecResult) RowsAffected() int64 {
 	return r.rowsAffected
 }
 
@@ -279,4 +278,59 @@ func (db *DB) ClearStmtCache() {
 
 	// Clear the cache
 	db.stmtCache = make(map[string]*Stmt)
+}
+
+// QueryResult holds the result of executing a SQL query that returns rows.
+// This is used by transaction methods that need full result data.
+type QueryResult struct {
+	// Columns contains the column names for SELECT queries.
+	Columns []string
+
+	// Rows contains the result rows for SELECT queries.
+	Rows [][]interface{}
+
+	// RowsAffected is the number of rows affected by INSERT, UPDATE, or DELETE.
+	RowsAffected int64
+}
+
+// convertQueryResult converts executor.Result to turdb.QueryResult
+func convertQueryResult(r *executor.Result) *QueryResult {
+	if r == nil {
+		return &QueryResult{}
+	}
+
+	// Convert types.Value rows to interface{} rows
+	rows := make([][]interface{}, len(r.Rows))
+	for i, row := range r.Rows {
+		rows[i] = make([]interface{}, len(row))
+		for j, val := range row {
+			rows[i][j] = valueToGo(val)
+		}
+	}
+
+	return &QueryResult{
+		Columns:      r.Columns,
+		Rows:         rows,
+		RowsAffected: r.RowsAffected,
+	}
+}
+
+// valueToGo converts a types.Value to a Go native type
+func valueToGo(v types.Value) interface{} {
+	switch v.Type() {
+	case types.TypeNull:
+		return nil
+	case types.TypeInt:
+		return v.Int()
+	case types.TypeFloat:
+		return v.Float()
+	case types.TypeText:
+		return v.Text()
+	case types.TypeBlob:
+		return v.Blob()
+	case types.TypeVector:
+		return v.Vector()
+	default:
+		return nil
+	}
 }

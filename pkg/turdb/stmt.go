@@ -143,15 +143,15 @@ func (s *Stmt) Reset() error {
 }
 
 // Exec executes the prepared statement with the current bound parameters.
-// It returns a Result containing the number of rows affected.
+// It returns an ExecResult containing the number of rows affected.
 // This method is used for INSERT, UPDATE, DELETE, and other statements
 // that do not return rows.
-func (s *Stmt) Exec() (Result, error) {
+func (s *Stmt) Exec() (ExecResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.closed {
-		return Result{}, ErrStmtClosed
+		return ExecResult{}, ErrStmtClosed
 	}
 
 	// Build the SQL with bound parameters substituted
@@ -162,16 +162,16 @@ func (s *Stmt) Exec() (Result, error) {
 	defer s.db.mu.Unlock()
 
 	if s.db.closed {
-		return Result{}, ErrDatabaseClosed
+		return ExecResult{}, ErrDatabaseClosed
 	}
 
 	// Execute using the database's executor
 	result, err := s.db.executor.Execute(sqlWithParams)
 	if err != nil {
-		return Result{}, err
+		return ExecResult{}, err
 	}
 
-	return Result{
+	return ExecResult{
 		rowsAffected: result.RowsAffected,
 	}, nil
 }

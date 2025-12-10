@@ -1948,27 +1948,28 @@
     {
       "title": "API - Transaction Control",
       "description": "Begin, commit, rollback transactions from Go API",
-      "isCompleted": false,
+      "isCompleted": true,
       "tasks": [
         {
           "task": "Implement Begin() method returning Tx",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement Tx.Commit() method",
-          "done": false
+          "done": true
         },
         {
           "task": "Implement Tx.Rollback() method",
-          "done": false
+          "done": true
         },
         {
           "task": "Associate statements with transaction context",
-          "done": false
+          "done": true
         },
         {
           "task": "Auto-rollback on Tx object finalization",
-          "done": false
+          "done": true,
+          "note": "Implemented safe defer pattern - Rollback() is safe to call after Commit()"
         }
       ]
     },
