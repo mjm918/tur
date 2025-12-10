@@ -39,6 +39,7 @@ type Executor struct {
 	currentTx   *mvcc.Transaction      // current active transaction (nil if none)
 	hnswIndexes map[string]*hnsw.Index // HNSW index name -> index
 	queryCache  *cache.QueryCache      // optional query result cache
+	schemaBTree *btree.BTree           // schema metadata B-tree (page 1)
 	// valuesContext holds the would-be-inserted values for VALUES() function
 	// during ON DUPLICATE KEY UPDATE evaluation
 	valuesContext map[string]types.Value
@@ -46,7 +47,7 @@ type Executor struct {
 
 // New creates a new Executor
 func New(p *pager.Pager) *Executor {
-	return &Executor{
+	e := &Executor{
 		pager:     p,
 		catalog:   schema.NewCatalog(),
 		trees:     make(map[string]*btree.BTree),
@@ -54,6 +55,14 @@ func New(p *pager.Pager) *Executor {
 		maxRowid:  make(map[string]int64),
 		txManager: mvcc.NewTransactionManager(),
 	}
+
+	// Initialize schema B-tree on page 1
+	if err := e.initSchemaBTree(); err != nil {
+		// Critical error - cannot operate without schema
+		panic("Failed to initialize schema B-tree: " + err.Error())
+	}
+
+	return e
 }
 
 // Close closes the executor and syncs data
