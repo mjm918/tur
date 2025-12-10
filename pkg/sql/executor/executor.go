@@ -44,18 +44,23 @@ type Executor struct {
 	valuesContext map[string]types.Value
 	// sessionVars holds session-level variables (@var)
 	sessionVars map[string]types.Value
+	// VDBE configuration
+	vdbeMaxRegisters int // default register count for VDBE VMs
+	vdbeMaxCursors   int // default cursor count for VDBE VMs
 }
 
 // New creates a new Executor
 func New(p *pager.Pager) *Executor {
 	return &Executor{
-		pager:       p,
-		catalog:     schema.NewCatalog(),
-		trees:       make(map[string]*btree.BTree),
-		rowid:       make(map[string]uint64),
-		maxRowid:    make(map[string]int64),
-		txManager:   mvcc.NewTransactionManager(),
-		sessionVars: make(map[string]types.Value),
+		pager:            p,
+		catalog:          schema.NewCatalog(),
+		trees:            make(map[string]*btree.BTree),
+		rowid:            make(map[string]uint64),
+		maxRowid:         make(map[string]int64),
+		txManager:        mvcc.NewTransactionManager(),
+		sessionVars:      make(map[string]types.Value),
+		vdbeMaxRegisters: 16, // default (matches VDBE VM default)
+		vdbeMaxCursors:   8,  // default (matches VDBE VM default)
 	}
 }
 
@@ -4894,6 +4899,30 @@ func (e *Executor) executePragma(stmt *parser.PragmaStmt) (*Result, error) {
 			Columns: []string{"query_cache_size"},
 			Rows: [][]types.Value{
 				{types.NewInt(int64(size))},
+			},
+		}, nil
+
+	case "vdbe_max_registers":
+		if stmt.Value != nil {
+			// SET vdbe_max_registers = value
+			val, err := e.evaluateExpr(stmt.Value, nil, nil)
+			if err != nil {
+				return nil, fmt.Errorf("invalid vdbe_max_registers value: %w", err)
+			}
+
+			count := val.Int()
+			if count < 1 {
+				return nil, fmt.Errorf("vdbe_max_registers must be at least 1, got %d", count)
+			}
+
+			e.vdbeMaxRegisters = int(count)
+			return &Result{RowsAffected: 0}, nil
+		}
+		// GET vdbe_max_registers
+		return &Result{
+			Columns: []string{"vdbe_max_registers"},
+			Rows: [][]types.Value{
+				{types.NewInt(int64(e.vdbeMaxRegisters))},
 			},
 		}, nil
 

@@ -3281,3 +3281,46 @@ func TestPragmaQueryCacheSize(t *testing.T) {
 		t.Error("Expected error for query_cache_size = -5, got nil")
 	}
 }
+
+// TestPragmaVdbeMaxRegisters tests PRAGMA vdbe_max_registers setting and querying
+func TestPragmaVdbeMaxRegisters(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Test setting VDBE register count
+	_, err := exec.Execute("PRAGMA vdbe_max_registers = 4")
+	if err != nil {
+		t.Fatalf("PRAGMA vdbe_max_registers = 4: %v", err)
+	}
+
+	// Verify the setting
+	result, err := exec.Execute("PRAGMA vdbe_max_registers")
+	if err != nil {
+		t.Fatalf("PRAGMA vdbe_max_registers query: %v", err)
+	}
+
+	if len(result.Columns) != 1 || result.Columns[0] != "vdbe_max_registers" {
+		t.Errorf("Expected column 'vdbe_max_registers', got %v", result.Columns)
+	}
+
+	if len(result.Rows) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result.Rows))
+	}
+
+	regCount := result.Rows[0][0].Int()
+	if regCount != 4 {
+		t.Errorf("Expected vdbe_max_registers = 4, got %d", regCount)
+	}
+
+	// Test invalid value (zero)
+	_, err = exec.Execute("PRAGMA vdbe_max_registers = 0")
+	if err == nil {
+		t.Error("Expected error for vdbe_max_registers = 0, got nil")
+	}
+
+	// Test invalid value (negative)
+	_, err = exec.Execute("PRAGMA vdbe_max_registers = -1")
+	if err == nil {
+		t.Error("Expected error for vdbe_max_registers = -1, got nil")
+	}
+}
