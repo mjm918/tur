@@ -224,6 +224,11 @@ type ColumnDef struct {
 	VectorDim   int          // Dimension for VECTOR type, 0 for others
 	NoNormalize bool         // If true, skip auto-normalization for VECTOR columns
 	Constraints []Constraint // Column-level constraints
+
+	// Type parameters for strict types
+	MaxLength int // Maximum length for VARCHAR and CHAR types
+	Precision int // Total number of digits for DECIMAL type
+	Scale     int // Number of digits after decimal point for DECIMAL type
 }
 
 // HasConstraint returns true if the column has a constraint of the given type
@@ -956,4 +961,30 @@ func (c *Catalog) ProcedureCount() int {
 	defer c.mu.RUnlock()
 
 	return len(c.procedures)
+}
+
+// Helper functions for strict type checking
+
+// IsStrictIntegerType returns true if the type is one of the strict integer types
+func IsStrictIntegerType(t types.ValueType) bool {
+	switch t {
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+		return true
+	}
+	return false
+}
+
+// IsAutoIncrementType returns true if the type is an auto-incrementing type
+func IsAutoIncrementType(t types.ValueType) bool {
+	return t == types.TypeSerial || t == types.TypeBigSerial
+}
+
+// RequiresLengthParameter returns true if the type requires a length parameter
+func RequiresLengthParameter(t types.ValueType) bool {
+	return t == types.TypeVarchar || t == types.TypeChar
+}
+
+// RequiresPrecisionScale returns true if the type requires precision and scale parameters
+func RequiresPrecisionScale(t types.ValueType) bool {
+	return t == types.TypeDecimal
 }

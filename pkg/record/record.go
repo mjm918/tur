@@ -4,6 +4,8 @@ package record
 import (
 	"encoding/binary"
 	"math"
+	"math/big"
+	"strings"
 
 	"tur/pkg/encoding"
 	"tur/pkg/types"
@@ -23,6 +25,18 @@ const (
 	SerialTypeOne   = 9
 	SerialTypeBlob0 = 12 // even >= 12 for BLOB
 	SerialTypeText0 = 13 // odd >= 13 for TEXT
+
+	// Extended serial types for strict types (using high values to avoid conflicts)
+	// These are TurDB extensions beyond SQLite's serial types
+	SerialTypeSmallInt  = 100 // 2-byte signed integer (strict SMALLINT)
+	SerialTypeInt32Ext  = 101 // 4-byte signed integer (strict INT)
+	SerialTypeBigInt    = 102 // 8-byte signed integer (strict BIGINT)
+	SerialTypeSerial    = 103 // Auto-incrementing 4-byte integer
+	SerialTypeBigSerial = 104 // Auto-incrementing 8-byte integer
+	SerialTypeGUID      = 105 // 16-byte UUID/GUID
+	SerialTypeDecimal   = 106 // Variable-length decimal (header byte indicates size)
+	SerialTypeVarchar   = 107 // Variable-length string with max length metadata
+	SerialTypeChar      = 108 // Fixed-length string
 )
 
 // SerialTypeFor returns the serial type for a value
@@ -41,6 +55,29 @@ func SerialTypeFor(v types.Value) uint64 {
 		return SerialTypeText0 + uint64(len(v.JSON()))*2
 	case types.TypeBlob:
 		return SerialTypeBlob0 + uint64(len(v.Blob()))*2
+
+	// Strict integer types
+	case types.TypeSmallInt:
+		return SerialTypeSmallInt
+	case types.TypeInt32:
+		return SerialTypeInt32Ext
+	case types.TypeBigInt:
+		return SerialTypeBigInt
+	case types.TypeSerial:
+		return SerialTypeSerial
+	case types.TypeBigSerial:
+		return SerialTypeBigSerial
+
+	// Other strict types
+	case types.TypeGUID:
+		return SerialTypeGUID
+	case types.TypeDecimal:
+		return SerialTypeDecimal
+	case types.TypeVarchar:
+		return SerialTypeVarchar
+	case types.TypeChar:
+		return SerialTypeChar
+
 	default:
 		return SerialTypeNull
 	}
@@ -73,6 +110,7 @@ func serialTypeForInt(i int64) uint64 {
 }
 
 // SerialTypeSize returns the number of bytes needed to store a value with this serial type
+// For variable-length strict types, this returns -1 (size encoded in data)
 func SerialTypeSize(st uint64) int {
 	switch st {
 	case SerialTypeNull:
@@ -93,14 +131,52 @@ func SerialTypeSize(st uint64) int {
 		return 8
 	case SerialTypeZero, SerialTypeOne:
 		return 0
+
+	// Strict integer types (fixed sizes)
+	case SerialTypeSmallInt:
+		return 2
+	case SerialTypeInt32Ext, SerialTypeSerial:
+		return 4
+	case SerialTypeBigInt, SerialTypeBigSerial:
+		return 8
+	case SerialTypeGUID:
+		return 16
+
+	// Variable-length strict types (size encoded in data)
+	case SerialTypeDecimal, SerialTypeVarchar, SerialTypeChar:
+		return -1 // Size is determined during encode/decode
+
 	default:
-		if st >= SerialTypeBlob0 {
+		if st >= SerialTypeBlob0 && st < SerialTypeSmallInt {
 			if st&1 == 0 { // even = blob
 				return int((st - 12) / 2)
 			}
 			// odd = text
 			return int((st - 13) / 2)
 		}
+		return 0
+	}
+}
+
+// encodedValueSize returns the size needed to encode a value
+func encodedValueSize(v types.Value, st uint64) int {
+	size := SerialTypeSize(st)
+	if size >= 0 {
+		return size
+	}
+
+	// Variable-length strict types
+	switch st {
+	case SerialTypeDecimal:
+		// Format: [len:2][blob data...]
+		return 2 + len(v.Blob())
+	case SerialTypeVarchar:
+		// Format: [maxLen:2][strLen:2][string data...]
+		return 4 + len(v.Varchar())
+	case SerialTypeChar:
+		// Format: [charLen:2][string data...]
+		return 2 + len(v.Char())
+	default:
 		return 0
 	}
 }
@@ -121,7 +197,7 @@ func Encode(values []types.Value) []byte {
 	for i, v := range values {
 		st := SerialTypeFor(v)
 		serialTypes[i] = st
-		dataSize += SerialTypeSize(st)
+		dataSize += encodedValueSize(v, st)
 		headerSize += encoding.VarintLen(st)
 	}
 
@@ -184,9 +260,60 @@ func encodeValue(buf []byte, v types.Value, st uint64) int {
 	case SerialTypeFloat:
 		binary.BigEndian.PutUint64(buf, math.Float64bits(v.Float()))
 		return 8
+
+	// Strict integer types
+	case SerialTypeSmallInt:
+		binary.BigEndian.PutUint16(buf, uint16(v.SmallInt()))
+		return 2
+	case SerialTypeInt32Ext:
+		binary.BigEndian.PutUint32(buf, uint32(v.Int32()))
+		return 4
+	case SerialTypeBigInt:
+		binary.BigEndian.PutUint64(buf, uint64(v.BigInt()))
+		return 8
+	case SerialTypeSerial:
+		binary.BigEndian.PutUint32(buf, uint32(v.Serial()))
+		return 4
+	case SerialTypeBigSerial:
+		binary.BigEndian.PutUint64(buf, uint64(v.BigSerial()))
+		return 8
+
+	// GUID (16 bytes)
+	case SerialTypeGUID:
+		guid := v.GUID()
+		copy(buf, guid[:])
+		return 16
+
+	// Decimal: [len:2][blob data...]
+	case SerialTypeDecimal:
+		blob := v.Blob()
+		binary.BigEndian.PutUint16(buf, uint16(len(blob)))
+		copy(buf[2:], blob)
+		return 2 + len(blob)
+
+	// Varchar: [maxLen:2][strLen:2][string data...]
+	case SerialTypeVarchar:
+		str := v.Varchar()
+		maxLen := v.VarcharMaxLen()
+		binary.BigEndian.PutUint16(buf, uint16(maxLen))
+		binary.BigEndian.PutUint16(buf[2:], uint16(len(str)))
+		copy(buf[4:], str)
+		return 4 + len(str)
+
+	// Char: [charLen:2][string data...]
+	case SerialTypeChar:
+		str := v.Char()
+		charLen := v.CharLen()
+		binary.BigEndian.PutUint16(buf, uint16(charLen))
+		copy(buf[2:], str)
+		return 2 + len(str)
+
 	default:
-		// Text or Blob
+		// Text or Blob (standard SQLite types)
 		size := SerialTypeSize(st)
+		if size < 0 {
+			return 0
+		}
 		if st&1 == 0 { // even = blob
 			copy(buf, v.Blob())
 		} else { // odd = text or JSON (both stored as text)
@@ -268,8 +395,56 @@ func decodeValue(data []byte, pos int, st uint64) (types.Value, int) {
 	case SerialTypeFloat:
 		bits := binary.BigEndian.Uint64(data[pos:])
 		return types.NewFloat(math.Float64frombits(bits)), pos + 8
+
+	// Strict integer types
+	case SerialTypeSmallInt:
+		v := int16(binary.BigEndian.Uint16(data[pos:]))
+		return types.NewSmallInt(v), pos + 2
+	case SerialTypeInt32Ext:
+		v := int32(binary.BigEndian.Uint32(data[pos:]))
+		return types.NewInt32(v), pos + 4
+	case SerialTypeBigInt:
+		v := int64(binary.BigEndian.Uint64(data[pos:]))
+		return types.NewBigInt(v), pos + 8
+	case SerialTypeSerial:
+		v := int32(binary.BigEndian.Uint32(data[pos:]))
+		return types.NewSerial(v), pos + 4
+	case SerialTypeBigSerial:
+		v := int64(binary.BigEndian.Uint64(data[pos:]))
+		return types.NewBigSerial(v), pos + 8
+
+	// GUID (16 bytes)
+	case SerialTypeGUID:
+		var guid [16]byte
+		copy(guid[:], data[pos:pos+16])
+		return types.NewGUID(guid), pos + 16
+
+	// Decimal: [len:2][blob data...]
+	case SerialTypeDecimal:
+		blobLen := int(binary.BigEndian.Uint16(data[pos:]))
+		blob := make([]byte, blobLen)
+		copy(blob, data[pos+2:pos+2+blobLen])
+		// Reconstruct Decimal value from blob
+		return decodeDecimalFromBlob(blob), pos + 2 + blobLen
+
+	// Varchar: [maxLen:2][strLen:2][string data...]
+	case SerialTypeVarchar:
+		maxLen := int(binary.BigEndian.Uint16(data[pos:]))
+		strLen := int(binary.BigEndian.Uint16(data[pos+2:]))
+		str := string(data[pos+4 : pos+4+strLen])
+		return types.NewVarchar(str, maxLen), pos + 4 + strLen
+
+	// Char: [charLen:2][string data...]
+	case SerialTypeChar:
+		charLen := int(binary.BigEndian.Uint16(data[pos:]))
+		str := string(data[pos+2 : pos+2+charLen])
+		return types.NewChar(str, charLen), pos + 2 + charLen
+
 	default:
 		size := SerialTypeSize(st)
+		if size < 0 {
+			return types.NewNull(), pos
+		}
 		if st&1 == 0 { // even = blob
 			blob := make([]byte, size)
 			copy(blob, data[pos:pos+size])
@@ -278,4 +453,64 @@ func decodeValue(data []byte, pos int, st uint64) (types.Value, int) {
 		// odd = text
 		return types.NewText(string(data[pos : pos+size])), pos + size
 	}
+}
+
+// decodeDecimalFromBlob reconstructs a Decimal value from the encoded blob
+func decodeDecimalFromBlob(blob []byte) types.Value {
+	if len(blob) < 5 {
+		return types.NewNull()
+	}
+
+	negative := blob[0] == 1
+	precision := int(blob[1])
+	scale := int(blob[2])
+	coeffLen := int(blob[3])<<8 | int(blob[4])
+
+	if len(blob) < 5+coeffLen {
+		return types.NewNull()
+	}
+
+	// Reconstruct coefficient
+	coeff := new(big.Int).SetBytes(blob[5 : 5+coeffLen])
+	if negative {
+		coeff.Neg(coeff)
+	}
+
+	// Format as string
+	str := formatDecimalCoeff(coeff, scale)
+
+	// Create the decimal using NewDecimal
+	v, err := types.NewDecimal(str, precision, scale)
+	if err != nil {
+		return types.NewNull()
+	}
+	return v
+}
+
+// formatDecimalCoeff formats a big.Int coefficient with the given scale
+func formatDecimalCoeff(coeff *big.Int, scale int) string {
+	negative := coeff.Sign() < 0
+	absCoeff := new(big.Int).Abs(coeff)
+	s := absCoeff.String()
+
+	// Pad with leading zeros if necessary
+	if len(s) <= scale {
+		s = strings.Repeat("0", scale-len(s)+1) + s
+	}
+
+	// Insert decimal point
+	var result string
+	if scale > 0 {
+		intPart := s[:len(s)-scale]
+		fracPart := s[len(s)-scale:]
+		result = intPart + "." + fracPart
+	} else {
+		result = s
+	}
+
+	if negative {
+		result = "-" + result
+	}
+
+	return result
 }

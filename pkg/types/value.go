@@ -1,7 +1,14 @@
 // pkg/types/value.go
 package types
 
-import "time"
+import (
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"math/big"
+	"strings"
+	"time"
+)
 
 // ValueType represents the type of a database value
 type ValueType int
@@ -20,6 +27,17 @@ const (
 	TypeTimestampTZ // Date and time in UTC
 	TypeInterval    // Duration for date arithmetic
 	TypeJSON        // JSON data type
+
+	// Strict data types with fixed sizes
+	TypeSmallInt  // 2-byte signed integer (-32768 to 32767)
+	TypeInt32     // 4-byte signed integer (-2147483648 to 2147483647)
+	TypeBigInt    // 8-byte signed integer
+	TypeSerial    // Auto-incrementing 4-byte integer
+	TypeBigSerial // Auto-incrementing 8-byte integer
+	TypeGUID      // 128-bit UUID/GUID
+	TypeDecimal   // Exact numeric with precision and scale
+	TypeVarchar   // Variable-length string with max length
+	TypeChar      // Fixed-length string
 )
 
 // IntervalValue represents a duration for date arithmetic
@@ -221,6 +239,25 @@ func (t ValueType) String() string {
 		return "INTERVAL"
 	case TypeJSON:
 		return "JSON"
+	// Strict types
+	case TypeSmallInt:
+		return "SMALLINT"
+	case TypeInt32:
+		return "INT"
+	case TypeBigInt:
+		return "BIGINT"
+	case TypeSerial:
+		return "SERIAL"
+	case TypeBigSerial:
+		return "BIGSERIAL"
+	case TypeGUID:
+		return "GUID"
+	case TypeDecimal:
+		return "DECIMAL"
+	case TypeVarchar:
+		return "VARCHAR"
+	case TypeChar:
+		return "CHAR"
 	default:
 		return "UNKNOWN"
 	}
@@ -347,7 +384,376 @@ func Compare(a, b Value) int {
 		}
 		return 0
 
+	// Strict integer types - all use intVal
+	case TypeSmallInt, TypeInt32, TypeBigInt, TypeSerial, TypeBigSerial:
+		if a.intVal < b.intVal {
+			return -1
+		} else if a.intVal > b.intVal {
+			return 1
+		}
+		return 0
+
+	case TypeGUID:
+		// Compare GUIDs byte by byte
+		for i := 0; i < 16 && i < len(a.blobVal) && i < len(b.blobVal); i++ {
+			if a.blobVal[i] < b.blobVal[i] {
+				return -1
+			} else if a.blobVal[i] > b.blobVal[i] {
+				return 1
+			}
+		}
+		return 0
+
+	case TypeDecimal:
+		// Compare decimals using their coefficient and scale
+		aCoeff := a.DecimalCoefficient()
+		bCoeff := b.DecimalCoefficient()
+		_, aScale := a.DecimalPrecisionScale()
+		_, bScale := b.DecimalPrecisionScale()
+
+		// Normalize to same scale for comparison
+		if aScale < bScale {
+			// Scale up a
+			factor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(bScale-aScale)), nil)
+			aCoeff = new(big.Int).Mul(aCoeff, factor)
+		} else if bScale < aScale {
+			// Scale up b
+			factor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(aScale-bScale)), nil)
+			bCoeff = new(big.Int).Mul(bCoeff, factor)
+		}
+
+		return aCoeff.Cmp(bCoeff)
+
+	case TypeVarchar, TypeChar:
+		// Compare as strings
+		if a.textVal < b.textVal {
+			return -1
+		} else if a.textVal > b.textVal {
+			return 1
+		}
+		return 0
+
 	default:
 		return 0
 	}
+}
+
+// DecimalValue stores the decimal as a scaled integer for precision
+type DecimalValue struct {
+	// Coefficient stores the unscaled value (e.g., for 123.45, this is 12345)
+	Coefficient *big.Int
+	// Precision is the total number of digits
+	Precision int
+	// Scale is the number of digits after the decimal point
+	Scale int
+}
+
+// NewSmallInt creates a new SMALLINT value (2-byte signed integer)
+func NewSmallInt(i int16) Value {
+	return Value{typ: TypeSmallInt, intVal: int64(i)}
+}
+
+// SmallInt returns the value as a 16-bit integer
+func (v Value) SmallInt() int16 {
+	return int16(v.intVal)
+}
+
+// NewInt32 creates a new INT value (4-byte signed integer)
+func NewInt32(i int32) Value {
+	return Value{typ: TypeInt32, intVal: int64(i)}
+}
+
+// Int32 returns the value as a 32-bit integer
+func (v Value) Int32() int32 {
+	return int32(v.intVal)
+}
+
+// NewBigInt creates a new BIGINT value (8-byte signed integer)
+func NewBigInt(i int64) Value {
+	return Value{typ: TypeBigInt, intVal: i}
+}
+
+// BigInt returns the value as a 64-bit integer
+func (v Value) BigInt() int64 {
+	return v.intVal
+}
+
+// NewSerial creates a new SERIAL value (auto-incrementing 4-byte integer)
+func NewSerial(i int32) Value {
+	return Value{typ: TypeSerial, intVal: int64(i)}
+}
+
+// Serial returns the value as a 32-bit integer
+func (v Value) Serial() int32 {
+	return int32(v.intVal)
+}
+
+// NewBigSerial creates a new BIGSERIAL value (auto-incrementing 8-byte integer)
+func NewBigSerial(i int64) Value {
+	return Value{typ: TypeBigSerial, intVal: i}
+}
+
+// BigSerial returns the value as a 64-bit integer
+func (v Value) BigSerial() int64 {
+	return v.intVal
+}
+
+// NewGUID creates a new GUID value from a 16-byte array
+func NewGUID(uuid [16]byte) Value {
+	// Store UUID in blobVal
+	b := make([]byte, 16)
+	copy(b, uuid[:])
+	return Value{typ: TypeGUID, blobVal: b}
+}
+
+// GUID returns the value as a 16-byte UUID array
+func (v Value) GUID() [16]byte {
+	var uuid [16]byte
+	if len(v.blobVal) >= 16 {
+		copy(uuid[:], v.blobVal[:16])
+	}
+	return uuid
+}
+
+// GUIDString returns the UUID as a formatted string (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+func (v Value) GUIDString() string {
+	uuid := v.GUID()
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:16])
+}
+
+// NewGUIDFromString creates a new GUID value from a string representation
+func NewGUIDFromString(s string) (Value, error) {
+	// Remove hyphens
+	s = strings.ReplaceAll(s, "-", "")
+
+	if len(s) != 32 {
+		return Value{}, errors.New("invalid GUID string: must be 32 hex characters")
+	}
+
+	bytes, err := hex.DecodeString(s)
+	if err != nil {
+		return Value{}, fmt.Errorf("invalid GUID string: %w", err)
+	}
+
+	var uuid [16]byte
+	copy(uuid[:], bytes)
+	return NewGUID(uuid), nil
+}
+
+// NewDecimal creates a new DECIMAL value from a string representation
+func NewDecimal(s string, precision, scale int) (Value, error) {
+	if precision < 1 {
+		return Value{}, errors.New("precision must be at least 1")
+	}
+	if scale < 0 {
+		return Value{}, errors.New("scale cannot be negative")
+	}
+	if scale > precision {
+		return Value{}, errors.New("scale cannot exceed precision")
+	}
+
+	// Parse the decimal string
+	s = strings.TrimSpace(s)
+	negative := false
+	if strings.HasPrefix(s, "-") {
+		negative = true
+		s = s[1:]
+	} else if strings.HasPrefix(s, "+") {
+		s = s[1:]
+	}
+
+	// Split into integer and fractional parts
+	parts := strings.Split(s, ".")
+	intPart := parts[0]
+	fracPart := ""
+	if len(parts) > 1 {
+		fracPart = parts[1]
+	}
+
+	// Validate and adjust fractional part to match scale
+	if len(fracPart) > scale {
+		// Truncate or round (we'll truncate for simplicity)
+		fracPart = fracPart[:scale]
+	} else {
+		// Pad with zeros
+		fracPart = fracPart + strings.Repeat("0", scale-len(fracPart))
+	}
+
+	// Combine into coefficient
+	coeffStr := intPart + fracPart
+	// Remove leading zeros but keep at least one digit
+	coeffStr = strings.TrimLeft(coeffStr, "0")
+	if coeffStr == "" {
+		coeffStr = "0"
+	}
+
+	// Remove leading zeros from integer part for counting
+	intPartTrimmed := strings.TrimLeft(intPart, "0")
+	if intPartTrimmed == "" {
+		intPartTrimmed = "0"
+	}
+
+	// Check if we exceed precision (integer digits must fit in precision - scale)
+	if len(intPartTrimmed) > precision-scale {
+		return Value{}, fmt.Errorf("value exceeds precision: %d integer digits, max allowed %d", len(intPartTrimmed), precision-scale)
+	}
+
+	coeff := new(big.Int)
+	_, ok := coeff.SetString(intPart+fracPart, 10)
+	if !ok {
+		return Value{}, errors.New("invalid decimal string")
+	}
+
+	if negative {
+		coeff.Neg(coeff)
+	}
+
+	// Store decimal info in the Value
+	// We'll encode: precision (1 byte) + scale (1 byte) + coefficient bytes
+	coeffBytes := coeff.Bytes()
+	if coeff.Sign() < 0 {
+		// Use big.Int's signed representation
+		coeffBytes = coeff.Bytes()
+	}
+
+	// Encode: [negative:1][precision:1][scale:1][coeff_len:2][coeff:...]
+	encoded := make([]byte, 0, 5+len(coeffBytes))
+	if negative {
+		encoded = append(encoded, 1)
+	} else {
+		encoded = append(encoded, 0)
+	}
+	encoded = append(encoded, byte(precision), byte(scale))
+	encoded = append(encoded, byte(len(coeffBytes)>>8), byte(len(coeffBytes)))
+	encoded = append(encoded, coeffBytes...)
+
+	// Reconstruct with proper formatting
+	formattedStr := formatDecimal(coeff, scale)
+
+	return Value{typ: TypeDecimal, blobVal: encoded, textVal: formattedStr}, nil
+}
+
+// formatDecimal formats a big.Int coefficient with the given scale
+func formatDecimal(coeff *big.Int, scale int) string {
+	negative := coeff.Sign() < 0
+	absCoeff := new(big.Int).Abs(coeff)
+	s := absCoeff.String()
+
+	// Pad with leading zeros if necessary
+	if len(s) <= scale {
+		s = strings.Repeat("0", scale-len(s)+1) + s
+	}
+
+	// Insert decimal point
+	intPart := s[:len(s)-scale]
+	fracPart := s[len(s)-scale:]
+
+	result := intPart
+	if scale > 0 {
+		result = intPart + "." + fracPart
+	}
+
+	if negative {
+		result = "-" + result
+	}
+
+	return result
+}
+
+// DecimalString returns the decimal as a string
+func (v Value) DecimalString() string {
+	return v.textVal
+}
+
+// DecimalPrecisionScale returns the precision and scale of the decimal
+func (v Value) DecimalPrecisionScale() (precision, scale int) {
+	if len(v.blobVal) < 3 {
+		return 0, 0
+	}
+	return int(v.blobVal[1]), int(v.blobVal[2])
+}
+
+// DecimalCoefficient returns the coefficient as a big.Int
+func (v Value) DecimalCoefficient() *big.Int {
+	if len(v.blobVal) < 5 {
+		return big.NewInt(0)
+	}
+
+	negative := v.blobVal[0] == 1
+	coeffLen := int(v.blobVal[3])<<8 | int(v.blobVal[4])
+
+	if len(v.blobVal) < 5+coeffLen {
+		return big.NewInt(0)
+	}
+
+	coeff := new(big.Int).SetBytes(v.blobVal[5 : 5+coeffLen])
+	if negative {
+		coeff.Neg(coeff)
+	}
+
+	return coeff
+}
+
+// NewVarchar creates a new VARCHAR value with a maximum length
+func NewVarchar(s string, maxLen int) Value {
+	// Store maxLen in intVal for retrieval
+	return Value{typ: TypeVarchar, textVal: s, intVal: int64(maxLen)}
+}
+
+// Varchar returns the string value
+func (v Value) Varchar() string {
+	return v.textVal
+}
+
+// VarcharMaxLen returns the maximum length of the VARCHAR
+func (v Value) VarcharMaxLen() int {
+	return int(v.intVal)
+}
+
+// NewChar creates a new CHAR value with fixed length (space-padded)
+func NewChar(s string, length int) Value {
+	// Pad or truncate to exact length
+	if len(s) < length {
+		s = s + strings.Repeat(" ", length-len(s))
+	} else if len(s) > length {
+		s = s[:length]
+	}
+	return Value{typ: TypeChar, textVal: s, intVal: int64(length)}
+}
+
+// Char returns the fixed-length string (with padding)
+func (v Value) Char() string {
+	return v.textVal
+}
+
+// CharLen returns the fixed length of the CHAR
+func (v Value) CharLen() int {
+	return int(v.intVal)
+}
+
+// Validation functions
+
+// ValidateSmallInt checks if a value fits in a SMALLINT
+func ValidateSmallInt(val int64) error {
+	if val < -32768 || val > 32767 {
+		return fmt.Errorf("value %d out of range for SMALLINT (-32768 to 32767)", val)
+	}
+	return nil
+}
+
+// ValidateInt32 checks if a value fits in an INT (4-byte)
+func ValidateInt32(val int64) error {
+	if val < -2147483648 || val > 2147483647 {
+		return fmt.Errorf("value %d out of range for INT (-2147483648 to 2147483647)", val)
+	}
+	return nil
+}
+
+// ValidateVarchar checks if a string fits in a VARCHAR(n)
+func ValidateVarchar(s string, maxLen int) error {
+	if len(s) > maxLen {
+		return fmt.Errorf("string length %d exceeds VARCHAR(%d) limit", len(s), maxLen)
+	}
+	return nil
 }

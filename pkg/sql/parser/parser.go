@@ -384,12 +384,15 @@ func (p *Parser) parseColumnDef() (ColumnDef, error) {
 
 	// Type
 	p.nextToken()
-	colType, dim, err := p.parseColumnType()
+	typeInfo, err := p.parseColumnTypeInfo()
 	if err != nil {
 		return col, err
 	}
-	col.Type = colType
-	col.VectorDim = dim
+	col.Type = typeInfo.Type
+	col.VectorDim = typeInfo.VectorDim
+	col.MaxLength = typeInfo.MaxLength
+	col.Precision = typeInfo.Precision
+	col.Scale = typeInfo.Scale
 
 	// Optional constraints
 	for {
@@ -542,45 +545,193 @@ func (p *Parser) parseFKAction() (FKAction, error) {
 	}
 }
 
-// parseColumnType parses a column type and optional dimension
+// TypeInfo holds parsed type information including parameters
+type TypeInfo struct {
+	Type      types.ValueType
+	VectorDim int // Dimension for VECTOR type
+	MaxLength int // Length for VARCHAR/CHAR
+	Precision int // Precision for DECIMAL
+	Scale     int // Scale for DECIMAL
+}
+
+// parseColumnType parses a column type and optional dimension/parameters
 func (p *Parser) parseColumnType() (types.ValueType, int, error) {
+	info, err := p.parseColumnTypeInfo()
+	if err != nil {
+		return types.TypeNull, 0, err
+	}
+	return info.Type, info.VectorDim, nil
+}
+
+// parseColumnTypeInfo parses a column type with all parameters
+func (p *Parser) parseColumnTypeInfo() (*TypeInfo, error) {
+	info := &TypeInfo{}
+
 	switch p.cur.Type {
-	case lexer.INT_TYPE, lexer.INTEGER:
-		return types.TypeInt, 0, nil
+	case lexer.INT_TYPE:
+		// INT keyword now maps to strict TypeInt32
+		info.Type = types.TypeInt32
+		return info, nil
+
+	case lexer.INTEGER:
+		// INTEGER keyword maps to legacy TypeInt for backwards compatibility
+		info.Type = types.TypeInt
+		return info, nil
+
 	case lexer.TEXT_TYPE:
-		return types.TypeText, 0, nil
+		info.Type = types.TypeText
+		return info, nil
+
 	case lexer.FLOAT_TYPE, lexer.REAL:
-		return types.TypeFloat, 0, nil
+		info.Type = types.TypeFloat
+		return info, nil
+
 	case lexer.BLOB_TYPE:
-		return types.TypeBlob, 0, nil
+		info.Type = types.TypeBlob
+		return info, nil
+
 	case lexer.JSON_TYPE_KW:
-		return types.TypeJSON, 0, nil
+		info.Type = types.TypeJSON
+		return info, nil
+
+	case lexer.SMALLINT_TYPE:
+		info.Type = types.TypeSmallInt
+		return info, nil
+
+	case lexer.BIGINT_TYPE:
+		info.Type = types.TypeBigInt
+		return info, nil
+
+	case lexer.SERIAL_TYPE:
+		info.Type = types.TypeSerial
+		return info, nil
+
+	case lexer.BIGSERIAL_TYPE:
+		info.Type = types.TypeBigSerial
+		return info, nil
+
+	case lexer.GUID_TYPE, lexer.UUID_TYPE:
+		info.Type = types.TypeGUID
+		return info, nil
+
+	case lexer.VARCHAR_TYPE:
+		info.Type = types.TypeVarchar
+		// VARCHAR requires length parameter
+		if !p.expectPeek(lexer.LPAREN) {
+			return nil, fmt.Errorf("expected '(' after VARCHAR")
+		}
+		if !p.expectPeek(lexer.INT) {
+			return nil, fmt.Errorf("expected length integer after VARCHAR(, got %s", p.peek.Literal)
+		}
+		length, err := strconv.Atoi(p.cur.Literal)
+		if err != nil {
+			return nil, fmt.Errorf("invalid VARCHAR length: %s", p.cur.Literal)
+		}
+		if length <= 0 {
+			return nil, fmt.Errorf("VARCHAR length must be positive, got %d", length)
+		}
+		info.MaxLength = length
+		if !p.expectPeek(lexer.RPAREN) {
+			return nil, fmt.Errorf("expected ')' after VARCHAR length")
+		}
+		return info, nil
+
+	case lexer.CHAR_TYPE:
+		info.Type = types.TypeChar
+		// CHAR can have optional length, defaults to 1
+		if p.peek.Type == lexer.LPAREN {
+			p.nextToken() // consume '('
+			if !p.expectPeek(lexer.INT) {
+				return nil, fmt.Errorf("expected length integer after CHAR(, got %s", p.peek.Literal)
+			}
+			length, err := strconv.Atoi(p.cur.Literal)
+			if err != nil {
+				return nil, fmt.Errorf("invalid CHAR length: %s", p.cur.Literal)
+			}
+			if length <= 0 {
+				return nil, fmt.Errorf("CHAR length must be positive, got %d", length)
+			}
+			info.MaxLength = length
+			if !p.expectPeek(lexer.RPAREN) {
+				return nil, fmt.Errorf("expected ')' after CHAR length")
+			}
+		} else {
+			// Default to CHAR(1)
+			info.MaxLength = 1
+		}
+		return info, nil
+
+	case lexer.DECIMAL_TYPE, lexer.NUMERIC_TYPE:
+		info.Type = types.TypeDecimal
+		// DECIMAL requires at least precision
+		if !p.expectPeek(lexer.LPAREN) {
+			return nil, fmt.Errorf("expected '(' after DECIMAL/NUMERIC")
+		}
+		if !p.expectPeek(lexer.INT) {
+			return nil, fmt.Errorf("expected precision integer after DECIMAL(, got %s", p.peek.Literal)
+		}
+		precision, err := strconv.Atoi(p.cur.Literal)
+		if err != nil {
+			return nil, fmt.Errorf("invalid DECIMAL precision: %s", p.cur.Literal)
+		}
+		if precision <= 0 {
+			return nil, fmt.Errorf("DECIMAL precision must be positive, got %d", precision)
+		}
+		info.Precision = precision
+
+		// Check for optional scale
+		if p.peek.Type == lexer.COMMA {
+			p.nextToken() // consume ','
+			if !p.expectPeek(lexer.INT) {
+				return nil, fmt.Errorf("expected scale integer after comma, got %s", p.peek.Literal)
+			}
+			scale, err := strconv.Atoi(p.cur.Literal)
+			if err != nil {
+				return nil, fmt.Errorf("invalid DECIMAL scale: %s", p.cur.Literal)
+			}
+			if scale < 0 {
+				return nil, fmt.Errorf("DECIMAL scale cannot be negative, got %d", scale)
+			}
+			if scale > precision {
+				return nil, fmt.Errorf("DECIMAL scale (%d) cannot exceed precision (%d)", scale, precision)
+			}
+			info.Scale = scale
+		}
+
+		if !p.expectPeek(lexer.RPAREN) {
+			return nil, fmt.Errorf("expected ')' after DECIMAL parameters")
+		}
+		return info, nil
+
 	case lexer.VECTOR:
+		info.Type = types.TypeVector
 		// Expect (dimension)
 		if !p.expectPeek(lexer.LPAREN) {
-			return types.TypeVector, 0, fmt.Errorf("expected '(' after VECTOR")
+			return nil, fmt.Errorf("expected '(' after VECTOR")
 		}
 
 		if !p.expectPeek(lexer.INT) {
-			return types.TypeVector, 0, fmt.Errorf("expected dimension integer, got %s", p.peek.Literal)
+			return nil, fmt.Errorf("expected dimension integer, got %s", p.peek.Literal)
 		}
 
 		dim, err := strconv.Atoi(p.cur.Literal)
 		if err != nil {
-			return types.TypeVector, 0, fmt.Errorf("invalid dimension: %s", p.cur.Literal)
+			return nil, fmt.Errorf("invalid dimension: %s", p.cur.Literal)
 		}
 
 		if dim <= 0 {
-			return types.TypeVector, 0, fmt.Errorf("dimension must be positive, got %d", dim)
+			return nil, fmt.Errorf("dimension must be positive, got %d", dim)
 		}
+		info.VectorDim = dim
 
 		if !p.expectPeek(lexer.RPAREN) {
-			return types.TypeVector, 0, fmt.Errorf("expected ')' after dimension")
+			return nil, fmt.Errorf("expected ')' after dimension")
 		}
 
-		return types.TypeVector, dim, nil
+		return info, nil
+
 	default:
-		return types.TypeNull, 0, fmt.Errorf("expected type, got %s", p.cur.Literal)
+		return nil, fmt.Errorf("expected type, got %s", p.cur.Literal)
 	}
 }
 
