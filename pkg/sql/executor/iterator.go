@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"sort"
 
-	"tur/pkg/btree"
 	"tur/pkg/record"
 	"tur/pkg/schema"
 	"tur/pkg/sql/parser"
+	"tur/pkg/tree"
 	"tur/pkg/types"
 )
 
@@ -28,13 +28,13 @@ type RowIterator interface {
 
 // TableScanIterator iterates over a table using a B-tree cursor
 type TableScanIterator struct {
-	cursor *btree.Cursor
+	cursor tree.Cursor
 	table  *schema.TableDef // Optional: for type conversion (JSON columns)
 	val    []types.Value
 }
 
-func NewTableScanIterator(tree *btree.BTree) *TableScanIterator {
-	cursor := tree.Cursor()
+func NewTableScanIterator(t tree.Tree) *TableScanIterator {
+	cursor := t.Cursor()
 	cursor.First()
 	return &TableScanIterator{
 		cursor: cursor,
@@ -42,8 +42,8 @@ func NewTableScanIterator(tree *btree.BTree) *TableScanIterator {
 }
 
 // NewTableScanIteratorWithSchema creates a TableScanIterator with schema for type conversion
-func NewTableScanIteratorWithSchema(tree *btree.BTree, table *schema.TableDef) *TableScanIterator {
-	cursor := tree.Cursor()
+func NewTableScanIteratorWithSchema(t tree.Tree, table *schema.TableDef) *TableScanIterator {
+	cursor := t.Cursor()
 	cursor.First()
 	return &TableScanIterator{
 		cursor: cursor,

@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,6 +35,303 @@ func setupTestExecutor(t *testing.T) (*Executor, func()) {
 	}
 
 	return exec, cleanup
+}
+
+func setupTestExecutorWithCowTree(t *testing.T) (*Executor, func()) {
+	t.Helper()
+
+	dir, err := os.MkdirTemp("", "executor_cow_test")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+
+	dbPath := filepath.Join(dir, "test.db")
+	p, err := pager.Open(dbPath, pager.Options{})
+	if err != nil {
+		os.RemoveAll(dir)
+		t.Fatalf("pager.Open: %v", err)
+	}
+
+	exec := NewWithCowTree(p)
+	cleanup := func() {
+		exec.Close()
+		os.RemoveAll(dir)
+	}
+
+	return exec, cleanup
+}
+
+// Test MIN/MAX without persistence to isolate the bug
+func TestExecutor_MinMaxBasic(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE test (id INT PRIMARY KEY, value INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Insert 100 records starting from id=1 (like most other tests do)
+	for i := 1; i <= 100; i++ {
+		_, err = exec.Execute(fmt.Sprintf("INSERT INTO test VALUES (%d, %d)", i, i*7))
+		if err != nil {
+			t.Fatalf("INSERT %d: %v", i, err)
+		}
+	}
+
+	// Test MIN
+	result, err := exec.Execute("SELECT MIN(id) FROM test")
+	if err != nil {
+		t.Fatalf("MIN: %v", err)
+	}
+	minID := result.Rows[0][0].Int()
+	t.Logf("MIN(id) = %d (expected 1)", minID)
+	if minID != 1 {
+		t.Errorf("MIN(id) = %d, expected 1", minID)
+	}
+
+	// Test MAX
+	result, err = exec.Execute("SELECT MAX(id) FROM test")
+	if err != nil {
+		t.Fatalf("MAX: %v", err)
+	}
+	maxID := result.Rows[0][0].Int()
+	t.Logf("MAX(id) = %d (expected 100)", maxID)
+	if maxID != 100 {
+		t.Errorf("MAX(id) = %d, expected 100", maxID)
+	}
+
+	// Test WHERE on PK column
+	result, err = exec.Execute("SELECT value FROM test WHERE id = 50")
+	if err != nil {
+		t.Fatalf("WHERE id: %v", err)
+	}
+	if len(result.Rows) != 1 {
+		t.Errorf("WHERE id=50: expected 1 row, got %d", len(result.Rows))
+	} else {
+		value := result.Rows[0][0].Int()
+		t.Logf("WHERE id=50: value = %d (expected 350)", value)
+		if value != 350 {
+			t.Errorf("WHERE id=50: value = %d, expected 350", value)
+		}
+	}
+
+	// Test WHERE on non-PK column
+	result, err = exec.Execute("SELECT id FROM test WHERE value = 350")
+	if err != nil {
+		t.Fatalf("WHERE value: %v", err)
+	}
+	if len(result.Rows) != 1 {
+		t.Errorf("WHERE value=350: expected 1 row, got %d", len(result.Rows))
+	} else {
+		id := result.Rows[0][0].Int()
+		t.Logf("WHERE value=350: id = %d (expected 50)", id)
+		if id != 50 {
+			t.Errorf("WHERE value=350: id = %d, expected 50", id)
+		}
+	}
+
+	// Test full scan
+	result, err = exec.Execute("SELECT * FROM test ORDER BY id LIMIT 5")
+	if err != nil {
+		t.Fatalf("ORDER BY: %v", err)
+	}
+	t.Log("First 5 rows via ORDER BY:")
+	for i, row := range result.Rows {
+		t.Logf("  row %d: id=%d, value=%d", i, row[0].Int(), row[1].Int())
+	}
+}
+
+func TestExecutor_PersistenceWithReopen(t *testing.T) {
+	dir, err := os.MkdirTemp("", "executor_persist_test")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	dbPath := filepath.Join(dir, "test.db")
+
+	// Phase 1: Create and populate
+	{
+		p, err := pager.Open(dbPath, pager.Options{})
+		if err != nil {
+			t.Fatalf("pager.Open: %v", err)
+		}
+
+		exec := New(p)
+
+		_, err = exec.Execute("CREATE TABLE test (id INT PRIMARY KEY, value INT)")
+		if err != nil {
+			exec.Close()
+			t.Fatalf("CREATE TABLE: %v", err)
+		}
+
+		// Insert 10000 records
+		for i := 0; i < 10000; i++ {
+			_, err = exec.Execute(fmt.Sprintf("INSERT INTO test VALUES (%d, %d)", i, i*7))
+			if err != nil {
+				exec.Close()
+				t.Fatalf("INSERT %d: %v", i, err)
+			}
+		}
+
+		// Verify before close
+		result, err := exec.Execute("SELECT COUNT(*) FROM test")
+		if err != nil {
+			exec.Close()
+			t.Fatalf("COUNT before close: %v", err)
+		}
+		if result.Rows[0][0].Int() != 10000 {
+			exec.Close()
+			t.Fatalf("Expected 10000 rows, got %d", result.Rows[0][0].Int())
+		}
+
+		// Debug: Check root page before close
+		table := exec.catalog.GetTable("test")
+		if table != nil {
+			t.Logf("Table 'test' root page before close: %d", table.RootPage)
+			// Also check the actual tree root
+			if tree, ok := exec.trees["test"]; ok {
+				t.Logf("Actual btree root page: %d", tree.RootPage())
+			}
+		}
+
+		if err := exec.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	}
+
+	// Phase 2: Reopen and verify
+	{
+		p, err := pager.Open(dbPath, pager.Options{})
+		if err != nil {
+			t.Fatalf("pager.Open reopen: %v", err)
+		}
+
+		exec := New(p)
+		defer exec.Close()
+
+		// Debug: Check the table's root page
+		table := exec.catalog.GetTable("test")
+		if table != nil {
+			t.Logf("Table 'test' root page after reopen: %d", table.RootPage)
+		} else {
+			t.Log("Table 'test' not found in catalog!")
+		}
+
+		// Verify count
+		result, err := exec.Execute("SELECT COUNT(*) FROM test")
+		if err != nil {
+			t.Fatalf("COUNT after reopen: %v", err)
+		}
+		count := result.Rows[0][0].Int()
+		t.Logf("COUNT after reopen: %d", count)
+		if count != 10000 {
+			t.Fatalf("Expected 10000 rows after reopen, got %d", count)
+		}
+
+		// Debug: Check what's in the table
+		result, err = exec.Execute("SELECT id, value FROM test ORDER BY id LIMIT 5")
+		if err != nil {
+			t.Fatalf("DEBUG SELECT: %v", err)
+		}
+		t.Logf("First 5 rows after reopen:")
+		for i, row := range result.Rows {
+			t.Logf("  row %d: id=%v, value=%v", i, row[0].Int(), row[1].Int())
+		}
+
+		result, err = exec.Execute("SELECT MIN(id) FROM test")
+		if err != nil {
+			t.Fatalf("MIN SELECT: %v", err)
+		}
+		t.Logf("MIN(id)=%v", result.Rows[0][0].Int())
+
+		result, err = exec.Execute("SELECT MAX(id) FROM test")
+		if err != nil {
+			t.Fatalf("MAX SELECT: %v", err)
+		}
+		t.Logf("MAX(id)=%v", result.Rows[0][0].Int())
+
+		// Verify specific records
+		checkIDs := []int{0, 1, 100, 500, 1000, 5000, 9999}
+		for _, id := range checkIDs {
+			result, err = exec.Execute(fmt.Sprintf("SELECT value FROM test WHERE id = %d", id))
+			if err != nil {
+				t.Fatalf("SELECT for id=%d: %v", id, err)
+			}
+			if len(result.Rows) != 1 {
+				t.Errorf("Expected 1 row for id=%d, got %d rows", id, len(result.Rows))
+				continue
+			}
+			expectedValue := int64(id * 7)
+			gotValue := result.Rows[0][0].Int()
+			if gotValue != expectedValue {
+				t.Errorf("id=%d: expected value=%d, got %d", id, expectedValue, gotValue)
+			}
+		}
+	}
+}
+
+func TestExecutor_CowTree_BasicCRUD(t *testing.T) {
+	exec, cleanup := setupTestExecutorWithCowTree(t)
+	defer cleanup()
+
+	// Create table
+	_, err := exec.Execute("CREATE TABLE products (id INT PRIMARY KEY, name TEXT, price REAL)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Insert data
+	_, err = exec.Execute("INSERT INTO products VALUES (1, 'Widget', 9.99)")
+	if err != nil {
+		t.Fatalf("INSERT: %v", err)
+	}
+
+	_, err = exec.Execute("INSERT INTO products VALUES (2, 'Gadget', 19.99)")
+	if err != nil {
+		t.Fatalf("INSERT 2: %v", err)
+	}
+
+	// Select data
+	result, err := exec.Execute("SELECT * FROM products ORDER BY id")
+	if err != nil {
+		t.Fatalf("SELECT: %v", err)
+	}
+
+	if len(result.Rows) != 2 {
+		t.Fatalf("Expected 2 rows, got %d", len(result.Rows))
+	}
+
+	// Update data
+	_, err = exec.Execute("UPDATE products SET price = 12.99 WHERE id = 1")
+	if err != nil {
+		t.Fatalf("UPDATE: %v", err)
+	}
+
+	// Verify update
+	result, err = exec.Execute("SELECT price FROM products WHERE id = 1")
+	if err != nil {
+		t.Fatalf("SELECT after UPDATE: %v", err)
+	}
+	if len(result.Rows) != 1 || result.Rows[0][0].Float() != 12.99 {
+		t.Errorf("UPDATE verification failed: got %v", result.Rows)
+	}
+
+	// Delete data
+	_, err = exec.Execute("DELETE FROM products WHERE id = 2")
+	if err != nil {
+		t.Fatalf("DELETE: %v", err)
+	}
+
+	// Verify delete
+	result, err = exec.Execute("SELECT COUNT(*) FROM products")
+	if err != nil {
+		t.Fatalf("SELECT COUNT: %v", err)
+	}
+	if len(result.Rows) != 1 || result.Rows[0][0].Int() != 1 {
+		t.Errorf("DELETE verification failed: expected 1 row, got %v", result.Rows)
+	}
 }
 
 func TestExecutor_CreateTable(t *testing.T) {

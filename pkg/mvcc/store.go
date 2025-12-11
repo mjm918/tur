@@ -12,10 +12,19 @@ var (
 	ErrKeyNotFound = errors.New("key not found")
 )
 
+// TreeInterface defines the interface for B+ tree operations.
+// This allows VersionedStore to work with different tree implementations.
+type TreeInterface interface {
+	Insert(key, value []byte) error
+	Get(key []byte) ([]byte, error)
+	Delete(key []byte) error
+}
+
 // VersionedStore provides MVCC-based transactional access to a B-tree
 type VersionedStore struct {
 	mu               sync.RWMutex
-	btree            *btree.BTree
+	btree            *btree.BTree  // classic btree (backward compatibility)
+	tree             TreeInterface // generic tree interface (when using CoW tree)
 	txManager        *TransactionManager
 	conflictDetector *ConflictDetector
 	versionChains    map[string]*VersionChain // Key -> version chain
@@ -31,6 +40,18 @@ type StoreStats struct {
 func NewVersionedStore(bt *btree.BTree) *VersionedStore {
 	return &VersionedStore{
 		btree:            bt,
+		txManager:        NewTransactionManager(),
+		conflictDetector: NewConflictDetector(),
+		versionChains:    make(map[string]*VersionChain),
+	}
+}
+
+// NewVersionedStoreWithTree creates a new versioned store backed by a TreeInterface.
+// This allows using either the classic btree or the CoW btree with lock-free reads.
+// For CoW B+ tree, use cowbtree.PersistentCowBTree which implements TreeInterface.
+func NewVersionedStoreWithTree(t TreeInterface) *VersionedStore {
+	return &VersionedStore{
+		tree:             t,
 		txManager:        NewTransactionManager(),
 		conflictDetector: NewConflictDetector(),
 		versionChains:    make(map[string]*VersionChain),

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"tur/pkg/btree"
 	"tur/pkg/dbfile"
 	"tur/pkg/schema"
 	"tur/pkg/sql/parser"
+	"tur/pkg/tree"
 )
 
 // initSchemaBTree initializes or opens the schema metadata B-tree on page 1
@@ -16,19 +16,22 @@ func (e *Executor) initSchemaBTree() error {
 	// Check if this is an existing database (has pages beyond page 0)
 	if e.pager.PageCount() > 1 {
 		// Existing database - open schema B-tree from page 1
-		tree := btree.Open(e.pager, 1)
-		e.schemaBTree = tree
+		schemaTree, err := e.treeFactory.Open(1)
+		if err != nil {
+			return fmt.Errorf("failed to open schema B-tree: %w", err)
+		}
+		e.schemaBTree = schemaTree
 
 		// Load schema entries into catalog
 		return e.loadSchemaFromBTree()
 	}
 
 	// New database - create schema B-tree on page 1
-	tree, err := btree.CreateAtPage(e.pager, 1)
+	schemaTree, err := e.treeFactory.CreateAtPage(1)
 	if err != nil {
 		return err
 	}
-	e.schemaBTree = tree
+	e.schemaBTree = schemaTree
 	return nil
 }
 
@@ -57,7 +60,7 @@ func (e *Executor) getSchemaEntry(name string) (*dbfile.SchemaEntry, error) {
 	key := []byte(name)
 	value, err := e.schemaBTree.Get(key)
 	if err != nil {
-		if err == btree.ErrKeyNotFound {
+		if err == tree.ErrKeyNotFound {
 			return nil, fmt.Errorf("schema entry %s not found", name)
 		}
 		return nil, err
@@ -74,6 +77,106 @@ func (e *Executor) deleteSchemaEntry(name string) error {
 
 	key := []byte(name)
 	return e.schemaBTree.Delete(key)
+}
+
+// syncTableRootPage checks if a table's btree root page has changed and updates the schema
+// This must be called after any operation that might cause a btree split (Insert, Delete)
+func (e *Executor) syncTableRootPage(tableName string) error {
+	tableTree := e.trees[tableName]
+	if tableTree == nil {
+		return nil // No tree to sync
+	}
+
+	table := e.catalog.GetTable(tableName)
+	if table == nil {
+		return nil // Table not found
+	}
+
+	// Check if root page changed
+	currentRootPage := tableTree.RootPage()
+	if currentRootPage == table.RootPage {
+		return nil // No change
+	}
+
+	// Root page changed - update schema entry
+	entry, err := e.getSchemaEntry(tableName)
+	if err != nil {
+		return fmt.Errorf("failed to get schema entry for %s: %w", tableName, err)
+	}
+
+	// Update the root page in the entry
+	entry.RootPage = currentRootPage
+
+	// Write back to schema btree
+	if err := e.persistSchemaEntry(entry); err != nil {
+		return fmt.Errorf("failed to update schema root page for %s: %w", tableName, err)
+	}
+
+	// Update in-memory table definition
+	table.RootPage = currentRootPage
+
+	return nil
+}
+
+// syncIndexRootPage checks if an index's btree root page has changed and updates the schema
+func (e *Executor) syncIndexRootPage(indexName string, idx *schema.IndexDef) error {
+	idxTreeName := "idx_" + indexName
+	indexTree := e.trees[idxTreeName]
+	if indexTree == nil {
+		return nil // No tree to sync
+	}
+
+	// Check if root page changed
+	currentRootPage := indexTree.RootPage()
+	if currentRootPage == idx.RootPage {
+		return nil // No change
+	}
+
+	// Root page changed - update schema entry
+	entry, err := e.getSchemaEntry(indexName)
+	if err != nil {
+		return fmt.Errorf("failed to get schema entry for index %s: %w", indexName, err)
+	}
+
+	// Update the root page in the entry
+	entry.RootPage = currentRootPage
+
+	// Write back to schema btree
+	if err := e.persistSchemaEntry(entry); err != nil {
+		return fmt.Errorf("failed to update schema root page for index %s: %w", indexName, err)
+	}
+
+	// Update in-memory index definition
+	idx.RootPage = currentRootPage
+
+	return nil
+}
+
+// syncAllRootPages syncs root pages for all open trees to their schema entries
+func (e *Executor) syncAllRootPages() error {
+	// Sync all tables
+	for tableName := range e.trees {
+		// Skip index trees (they start with "idx_")
+		if len(tableName) > 4 && tableName[:4] == "idx_" {
+			continue
+		}
+		if err := e.syncTableRootPage(tableName); err != nil {
+			return err
+		}
+	}
+
+	// Sync all indexes
+	tables := e.catalog.ListTables()
+	for _, tableName := range tables {
+		indexes := e.catalog.GetIndexesForTable(tableName)
+		for _, idx := range indexes {
+			if err := e.syncIndexRootPage(idx.Name, idx); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // reconstructCreateTableSQL rebuilds CREATE TABLE SQL from parsed statement
@@ -368,12 +471,15 @@ func (e *Executor) loadTableSchema(entry *dbfile.SchemaEntry) error {
 	}
 
 	// Open existing B-tree for this table
-	tree := btree.Open(e.pager, entry.RootPage)
-	e.trees[entry.Name] = tree
+	tableTree, err := e.treeFactory.Open(entry.RootPage)
+	if err != nil {
+		return fmt.Errorf("failed to open table B-tree: %w", err)
+	}
+	e.trees[entry.Name] = tableTree
 
 	// Scan B-tree to find the maximum rowid for proper ID continuation on inserts
 	maxRowid := uint64(0)
-	cursor := tree.Cursor()
+	cursor := tableTree.Cursor()
 	for cursor.First(); cursor.Valid(); cursor.Next() {
 		key := cursor.Key()
 		if len(key) >= 8 {
@@ -419,9 +525,12 @@ func (e *Executor) loadIndexSchema(entry *dbfile.SchemaEntry) error {
 	}
 
 	// Open existing B-tree for this index
-	tree := btree.Open(e.pager, entry.RootPage)
+	indexTree, err := e.treeFactory.Open(entry.RootPage)
+	if err != nil {
+		return fmt.Errorf("failed to open index B-tree: %w", err)
+	}
 	idxTreeName := "index:" + entry.Name
-	e.trees[idxTreeName] = tree
+	e.trees[idxTreeName] = indexTree
 
 	return nil
 }
