@@ -380,8 +380,9 @@ func TestExecutor_Types(t *testing.T) {
 	}
 
 	row := result.Rows[0]
-	if row[0].Type() != types.TypeInt || row[0].Int() != 42 {
-		t.Errorf("Row[0] = %v, want Int(42)", row[0])
+	// INT now maps to strict TypeInt32
+	if row[0].Type() != types.TypeInt32 || row[0].Int() != 42 {
+		t.Errorf("Row[0] = %v (type=%v), want Int32(42)", row[0], row[0].Type())
 	}
 	if row[1].Type() != types.TypeFloat || row[1].Float() != 3.14 {
 		t.Errorf("Row[1] = %v, want Float(3.14)", row[1])

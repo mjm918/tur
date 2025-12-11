@@ -88,8 +88,13 @@ func (it *TableScanIterator) applyTypeConversions() {
 		return
 	}
 	for i, col := range it.table.Columns {
+		if col.Type == types.TypeJSON {
+			fmt.Printf("DEBUG applyTypeConversions: col[%d]=%s, val.Type()=%v, val.Text()='%s', val.JSON()='%s'\n",
+				i, col.Name, it.val[i].Type(), it.val[i].Text(), it.val[i].JSON())
+		}
 		if i < len(it.val) && col.Type == types.TypeJSON && it.val[i].Type() == types.TypeText {
 			it.val[i] = types.NewJSON(it.val[i].Text())
+			fmt.Printf("DEBUG after conversion: val.Type()=%v, val.JSON()='%s'\n", it.val[i].Type(), it.val[i].JSON())
 		}
 	}
 }
@@ -663,6 +668,24 @@ func (it *SortIterator) compare(a, b []types.Value) int {
 	return 0
 }
 
+// isIntegerTypeForSort returns true if the type is any integer type
+func isIntegerTypeForSort(t types.ValueType) bool {
+	switch t {
+	case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+		return true
+	}
+	return false
+}
+
+// isStringTypeForSort returns true if the type is any string type
+func isStringTypeForSort(t types.ValueType) bool {
+	switch t {
+	case types.TypeText, types.TypeVarchar, types.TypeChar:
+		return true
+	}
+	return false
+}
+
 // compareValuesForSort compares two types.Value for sorting
 func compareValuesForSort(a, b types.Value) int {
 	// Handle NULLs: NULL is considered less than any other value
@@ -676,9 +699,9 @@ func compareValuesForSort(a, b types.Value) int {
 		return 1
 	}
 
-	// Compare by type
-	switch a.Type() {
-	case types.TypeInt:
+	// Handle cross-type comparisons for compatible types
+	// All integer types can be compared with each other
+	if isIntegerTypeForSort(a.Type()) && isIntegerTypeForSort(b.Type()) {
 		ai, bi := a.Int(), b.Int()
 		if ai < bi {
 			return -1
@@ -686,21 +709,46 @@ func compareValuesForSort(a, b types.Value) int {
 			return 1
 		}
 		return 0
+	}
 
-	case types.TypeFloat:
-		af, bf := a.Float(), b.Float()
+	// All string types can be compared with each other
+	if isStringTypeForSort(a.Type()) && isStringTypeForSort(b.Type()) {
+		at, bt := a.Text(), b.Text()
+		if at < bt {
+			return -1
+		} else if at > bt {
+			return 1
+		}
+		return 0
+	}
+
+	// Integer and float comparison
+	if isIntegerTypeForSort(a.Type()) && b.Type() == types.TypeFloat {
+		af, bf := float64(a.Int()), b.Float()
 		if af < bf {
 			return -1
 		} else if af > bf {
 			return 1
 		}
 		return 0
-
-	case types.TypeText:
-		at, bt := a.Text(), b.Text()
-		if at < bt {
+	}
+	if a.Type() == types.TypeFloat && isIntegerTypeForSort(b.Type()) {
+		af, bf := a.Float(), float64(b.Int())
+		if af < bf {
 			return -1
-		} else if at > bt {
+		} else if af > bf {
+			return 1
+		}
+		return 0
+	}
+
+	// Same type comparisons
+	switch a.Type() {
+	case types.TypeFloat:
+		af, bf := a.Float(), b.Float()
+		if af < bf {
+			return -1
+		} else if af > bf {
 			return 1
 		}
 		return 0
