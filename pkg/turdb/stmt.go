@@ -3,13 +3,17 @@ package turdb
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
 
+	"tur/pkg/record"
+	"tur/pkg/schema"
 	"tur/pkg/sql/lexer"
 	"tur/pkg/sql/parser"
+	"tur/pkg/tree"
 	"tur/pkg/types"
 )
 
@@ -49,6 +53,11 @@ type Stmt struct {
 	isFastPathPK    bool   // True if this is a simple PK lookup query
 	fastPathTable   string // Table name for fast path
 	fastPathPKParam int    // Which parameter (0-indexed) is the PK value, -1 if literal
+
+	// Cached references for ultra-fast path (avoids map lookups)
+	fastPathTree     tree.ExtendedTree // Cached B-tree reference
+	fastPathTableDef *schema.TableDef  // Cached table definition
+	keyBuffer        [8]byte           // Reusable key buffer
 }
 
 // SQL returns the original SQL text of the prepared statement.
@@ -293,7 +302,43 @@ func (s *Stmt) QueryContext(ctx context.Context) (*Rows, error) {
 		return nil, ErrStmtClosed
 	}
 
-	// Lock the database and execute
+	// ULTRA-FAST PATH: Direct PK lookup with cached references (inlined for speed)
+	// Uses RLock since this is a read-only operation
+	if s.isFastPathPK && s.fastPathTree != nil && s.fastPathTableDef != nil {
+		pkValue := s.params[s.fastPathPKParam]
+		if isIntegerType(pkValue.Type()) {
+			// Use RLock for read operations
+			s.db.mu.RLock()
+			if s.db.closed {
+				s.db.mu.RUnlock()
+				return nil, ErrDatabaseClosed
+			}
+
+			// Build key using pre-allocated buffer
+			binary.BigEndian.PutUint64(s.keyBuffer[:], uint64(pkValue.Int()))
+
+			// Direct B-tree lookup
+			data, err := s.fastPathTree.Get(s.keyBuffer[:])
+			s.db.mu.RUnlock()
+
+			if err != nil {
+				// Key not found - return empty result with cached column names
+				columns := s.fastPathTableDef.GetCachedColumnNames()
+				return NewRows(columns, [][]types.Value{}), nil
+			}
+
+			// Use RecordView for zero-copy decoding
+			view := record.NewRecordView(data)
+			row := view.ToValues()
+
+			// Get cached column names (no allocation)
+			columns := s.fastPathTableDef.GetCachedColumnNames()
+
+			return NewRows(columns, [][]types.Value{row}), nil
+		}
+	}
+
+	// Regular path - needs write lock due to potential executor state changes
 	s.db.mu.Lock()
 	defer s.db.mu.Unlock()
 
@@ -304,19 +349,6 @@ func (s *Stmt) QueryContext(ctx context.Context) (*Rows, error) {
 
 	if s.db.closed {
 		return nil, ErrDatabaseClosed
-	}
-
-	// ULTRA-FAST PATH: Direct PK lookup bypassing executor
-	if s.isFastPathPK && s.fastPathPKParam >= 0 && s.fastPathPKParam < len(s.params) {
-		pkValue := s.params[s.fastPathPKParam]
-		if isIntegerType(pkValue.Type()) {
-			result, err := s.db.executor.DirectPKLookup(s.fastPathTable, pkValue.Int())
-			if err != nil {
-				// Fall through to regular path on error
-			} else {
-				return NewRows(result.Columns, result.Rows), nil
-			}
-		}
 	}
 
 	// Use cached AST with parameter substitution (faster path)
@@ -484,6 +516,10 @@ func (s *Stmt) detectFastPath(db *DB) {
 		s.isFastPathPK = true
 		s.fastPathTable = table.Name
 		s.fastPathPKParam = 0 // First (and only) parameter
+
+		// Cache tree and table definition for ultra-fast access
+		s.fastPathTableDef = tableDef
+		s.fastPathTree = db.executor.GetTableTree(table.Name)
 	}
 }
 

@@ -21,6 +21,13 @@ var (
 	ErrScanBeforeNext = errors.New("Scan called without calling Next")
 )
 
+// rowsPool provides pooled Rows objects to reduce allocations.
+var rowsPool = sync.Pool{
+	New: func() interface{} {
+		return &Rows{}
+	},
+}
+
 // Rows represents a result set from a query.
 // It provides methods to iterate over and access query results.
 // Rows is safe for concurrent use.
@@ -33,13 +40,14 @@ type Rows struct {
 }
 
 // NewRows creates a new Rows result set from columns and row data.
+// Uses pooling to reduce allocations.
 func NewRows(columns []string, rows [][]types.Value) *Rows {
-	return &Rows{
-		columns: columns,
-		rows:    rows,
-		index:   -1,
-		closed:  false,
-	}
+	r := rowsPool.Get().(*Rows)
+	r.columns = columns
+	r.rows = rows
+	r.index = -1
+	r.closed = false
+	return r
 }
 
 // Columns returns the column names of the result set.
@@ -330,7 +338,11 @@ func (r *Rows) Close() error {
 
 	r.closed = true
 	// Clear references to allow garbage collection
+	r.columns = nil
 	r.rows = nil
+
+	// Return to pool for reuse
+	rowsPool.Put(r)
 	return nil
 }
 
