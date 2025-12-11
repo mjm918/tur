@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"tur/pkg/sql/lexer"
 	"tur/pkg/sql/parser"
 	"tur/pkg/types"
 )
@@ -43,6 +44,11 @@ type Stmt struct {
 
 	// cachedAST is the pre-parsed AST for faster execution
 	cachedAST parser.Statement
+
+	// Fast path optimization fields (detected at Prepare time)
+	isFastPathPK    bool   // True if this is a simple PK lookup query
+	fastPathTable   string // Table name for fast path
+	fastPathPKParam int    // Which parameter (0-indexed) is the PK value, -1 if literal
 }
 
 // SQL returns the original SQL text of the prepared statement.
@@ -364,13 +370,17 @@ func (db *DB) Prepare(sql string) (*Stmt, error) {
 	numParams := p.PlaceholderCount()
 
 	stmt := &Stmt{
-		db:        db,
-		sql:       sql,
-		numParams: numParams,
-		params:    make([]types.Value, numParams),
-		closed:    false,
-		cachedAST: ast,
+		db:            db,
+		sql:           sql,
+		numParams:     numParams,
+		params:        make([]types.Value, numParams),
+		closed:        false,
+		cachedAST:     ast,
+		fastPathPKParam: -1,
 	}
+
+	// Detect fast path eligibility at prepare time
+	stmt.detectFastPath(db)
 
 	// Initialize all parameters to NULL
 	for i := range stmt.params {
@@ -378,6 +388,92 @@ func (db *DB) Prepare(sql string) (*Stmt, error) {
 	}
 
 	return stmt, nil
+}
+
+// detectFastPath checks if this statement is eligible for ultra-fast PK lookup.
+// Eligible queries: SELECT * FROM table WHERE pk = ?
+func (s *Stmt) detectFastPath(db *DB) {
+	selectStmt, ok := s.cachedAST.(*parser.SelectStmt)
+	if !ok {
+		return
+	}
+
+	// Requirements for fast path:
+	// 1. No CTEs, GROUP BY, HAVING, ORDER BY, LIMIT
+	// 2. Single table, no joins
+	// 3. WHERE is pk_column = ? (placeholder)
+	if selectStmt.With != nil || selectStmt.GroupBy != nil || selectStmt.Having != nil {
+		return
+	}
+	if selectStmt.OrderBy != nil || selectStmt.Limit != nil {
+		return
+	}
+	if selectStmt.Where == nil || selectStmt.From == nil {
+		return
+	}
+
+	// Check for single table
+	table, ok := selectStmt.From.(*parser.Table)
+	if !ok {
+		return
+	}
+
+	// Get table definition from catalog
+	tableDef := db.executor.GetCatalog().GetTable(table.Name)
+	if tableDef == nil {
+		return
+	}
+
+	// Find primary key column
+	pkColIndex := tableDef.GetPKColumnIndex()
+	if pkColIndex == -1 {
+		return
+	}
+	pkCol := &tableDef.Columns[pkColIndex]
+
+	// Only integer PK supported for fast path
+	if !isIntegerType(pkCol.Type) {
+		return
+	}
+
+	// Check WHERE clause: pk_column = ?
+	binExpr, ok := selectStmt.Where.(*parser.BinaryExpr)
+	if !ok {
+		return
+	}
+
+	// Must be equality
+	if binExpr.Op != lexer.EQ {
+		return
+	}
+
+	// Left side should be column reference
+	colRef, ok := binExpr.Left.(*parser.ColumnRef)
+	if !ok {
+		return
+	}
+
+	// Must reference the primary key column
+	if !strings.EqualFold(colRef.Name, pkCol.Name) {
+		return
+	}
+
+	// Right side should be a placeholder (parameter)
+	if _, ok := binExpr.Right.(*parser.Placeholder); ok {
+		// Fast path eligible!
+		s.isFastPathPK = true
+		s.fastPathTable = table.Name
+		s.fastPathPKParam = 0 // First (and only) parameter
+	}
+}
+
+// isIntegerType checks if a value type is an integer type
+func isIntegerType(t types.ValueType) bool {
+	switch t {
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+		return true
+	}
+	return false
 }
 
 // countParams counts the number of ? placeholders in the SQL string.

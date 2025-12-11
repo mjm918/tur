@@ -52,6 +52,8 @@ type Executor struct {
 	vdbeMaxRegisters int  // default register count for VDBE VMs
 	vdbeMaxCursors   int  // default cursor count for VDBE VMs
 	resultStreaming  bool // enable streaming result mode
+	// Reusable buffers to avoid allocations in hot paths
+	keyBuffer [8]byte // Reusable key buffer for PK lookups
 }
 
 // New creates a new Executor with classic B+ tree (default)
@@ -2654,26 +2656,19 @@ func (e *Executor) tryFastPathPKLookup(stmt *parser.SelectStmt) (*Result, bool) 
 		return nil, false
 	}
 
-	// Find primary key column
+	// Find primary key column using cached lookup
 	// IMPORTANT: Fast path only works for INT PRIMARY KEY (integer types) which is a rowid alias.
 	// For non-integer types, the rowid is separate from the column value,
 	// so we must fall back to the regular execution path.
-	var pkColName string
-	var pkColIndex int = -1
-	for i, col := range tableDef.Columns {
-		if col.PrimaryKey {
-			// Only use fast path if it's an integer PRIMARY KEY type
-			if !types.IsIntegerType(col.Type) {
-				return nil, false // Fall back to regular path for non-integer PRIMARY KEY
-			}
-			pkColName = col.Name
-			pkColIndex = i
-			break
-		}
-	}
+	pkColIndex := tableDef.GetPKColumnIndex()
 	if pkColIndex == -1 {
 		return nil, false
 	}
+	pkCol := &tableDef.Columns[pkColIndex]
+	if !types.IsIntegerType(pkCol.Type) {
+		return nil, false // Fall back to regular path for non-integer PRIMARY KEY
+	}
+	pkColName := pkCol.Name
 
 	// Check if WHERE is a simple equality: pk_column = literal
 	binExpr, ok := stmt.Where.(*parser.BinaryExpr)
@@ -2717,18 +2712,17 @@ func (e *Executor) tryFastPathPKLookup(stmt *parser.SelectStmt) (*Result, bool) 
 		e.trees[tableDef.Name] = tableTree
 	}
 
-	// Build the key for lookup
+	// Build the key for lookup using reusable buffer
 	// Key format: 8-byte big-endian rowid (which is the PK value for INT PRIMARY KEY)
-	var key []byte
 	switch lookupValue.Type() {
 	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
-		key = make([]byte, 8)
-		binary.BigEndian.PutUint64(key, uint64(lookupValue.Int()))
+		binary.BigEndian.PutUint64(e.keyBuffer[:], uint64(lookupValue.Int()))
 	default:
 		// For non-integer keys, we need to encode differently
 		// For now, fall back to regular path for non-integer PKs
 		return nil, false
 	}
+	key := e.keyBuffer[:]
 
 	// Direct B-tree lookup
 	data, err := tableTree.Get(key)
@@ -2803,7 +2797,12 @@ func (e *Executor) applyTypeConversions(row []types.Value, table *schema.TableDe
 
 // projectColumns projects specific columns from a full row
 func (e *Executor) projectColumns(selectCols []parser.SelectColumn, row []types.Value, allColumns []string, table *schema.TableDef) ([]types.Value, []string) {
-	// Build column index map
+	// Use pre-computed column cache if available
+	if table != nil && table.HasColumnCache() {
+		return e.projectColumnsOptimized(selectCols, row, allColumns, table)
+	}
+
+	// Fallback: Build column index map
 	colIndex := make(map[string]int)
 	for i, col := range allColumns {
 		// Store both full name and just column name (lowercase for case-insensitive lookup)
@@ -2828,6 +2827,40 @@ func (e *Executor) projectColumns(selectCols []parser.SelectColumn, row []types.
 		case *parser.ColumnRef:
 			key := strings.ToLower(expr.Name)
 			if idx, ok := colIndex[key]; ok && idx < len(row) {
+				projected = append(projected, row[idx])
+				name := expr.Name
+				if sc.Alias != "" {
+					name = sc.Alias
+				}
+				projectedNames = append(projectedNames, name)
+			} else {
+				return nil, nil // Column not found
+			}
+		default:
+			// Complex expression - fall back to regular path
+			return nil, nil
+		}
+	}
+
+	return projected, projectedNames
+}
+
+// projectColumnsOptimized uses pre-computed column cache for faster lookups.
+func (e *Executor) projectColumnsOptimized(selectCols []parser.SelectColumn, row []types.Value, allColumns []string, table *schema.TableDef) ([]types.Value, []string) {
+	projected := make([]types.Value, 0, len(selectCols))
+	projectedNames := make([]string, 0, len(selectCols))
+
+	for _, sc := range selectCols {
+		if sc.Star {
+			// SELECT * - return all columns
+			return row, allColumns
+		}
+
+		// Try to find the column using cached lookup
+		switch expr := sc.Expr.(type) {
+		case *parser.ColumnRef:
+			idx := table.GetColumnIndex(expr.Name)
+			if idx >= 0 && idx < len(row) {
 				projected = append(projected, row[idx])
 				name := expr.Name
 				if sc.Alias != "" {

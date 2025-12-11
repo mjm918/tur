@@ -257,6 +257,12 @@ type TableDef struct {
 	Columns          []ColumnDef
 	RootPage         uint32            // B-tree root page number
 	TableConstraints []TableConstraint // Table-level constraints
+
+	// Pre-computed lookup structures (built once for fast column access)
+	columnIndexByName map[string]int // "name" -> column index (lowercase)
+	columnIndexByFull map[string]int // "table.name" -> column index (lowercase)
+	pkColumnIndex     int            // Index of primary key column, -1 if none
+	pkColumnName      string         // Name of primary key column
 }
 
 // GetTableConstraint returns the first table constraint of the given type, or nil if not found
@@ -283,12 +289,106 @@ func (t *TableDef) GetColumn(name string) (*ColumnDef, int) {
 // PrimaryKeyColumn returns the primary key column definition and index
 // Returns (nil, -1) if no primary key
 func (t *TableDef) PrimaryKeyColumn() (*ColumnDef, int) {
+	// Use cached value if available
+	if t.columnIndexByName != nil {
+		if t.pkColumnIndex >= 0 && t.pkColumnIndex < len(t.Columns) {
+			return &t.Columns[t.pkColumnIndex], t.pkColumnIndex
+		}
+		return nil, -1
+	}
+	// Fallback to linear search
 	for i := range t.Columns {
 		if t.Columns[i].PrimaryKey {
 			return &t.Columns[i], i
 		}
 	}
 	return nil, -1
+}
+
+// BuildColumnCache pre-computes lookup structures for fast column access.
+// This should be called once when the table is loaded or created.
+func (t *TableDef) BuildColumnCache() {
+	t.columnIndexByName = make(map[string]int, len(t.Columns))
+	t.columnIndexByFull = make(map[string]int, len(t.Columns))
+	t.pkColumnIndex = -1
+	t.pkColumnName = ""
+
+	tableLower := strings.ToLower(t.Name)
+	for i, col := range t.Columns {
+		colLower := strings.ToLower(col.Name)
+		t.columnIndexByName[colLower] = i
+		t.columnIndexByFull[tableLower+"."+colLower] = i
+
+		if col.PrimaryKey {
+			t.pkColumnIndex = i
+			t.pkColumnName = col.Name
+		}
+	}
+}
+
+// GetColumnIndex returns the column index by name (case-insensitive).
+// Returns -1 if not found. Uses pre-computed cache if available.
+func (t *TableDef) GetColumnIndex(name string) int {
+	if t.columnIndexByName != nil {
+		if idx, ok := t.columnIndexByName[strings.ToLower(name)]; ok {
+			return idx
+		}
+		return -1
+	}
+	// Fallback to linear search
+	nameLower := strings.ToLower(name)
+	for i, col := range t.Columns {
+		if strings.ToLower(col.Name) == nameLower {
+			return i
+		}
+	}
+	return -1
+}
+
+// GetColumnIndexFull returns the column index by fully qualified name (table.column).
+// Returns -1 if not found. Uses pre-computed cache if available.
+func (t *TableDef) GetColumnIndexFull(fullName string) int {
+	if t.columnIndexByFull != nil {
+		if idx, ok := t.columnIndexByFull[strings.ToLower(fullName)]; ok {
+			return idx
+		}
+		return -1
+	}
+	// Fallback: try to parse and match
+	parts := strings.Split(fullName, ".")
+	if len(parts) == 2 && strings.EqualFold(parts[0], t.Name) {
+		return t.GetColumnIndex(parts[1])
+	}
+	return -1
+}
+
+// GetPKColumnIndex returns the primary key column index, or -1 if no PK.
+// Uses pre-computed cache if available.
+func (t *TableDef) GetPKColumnIndex() int {
+	if t.columnIndexByName != nil {
+		return t.pkColumnIndex
+	}
+	// Fallback
+	_, idx := t.PrimaryKeyColumn()
+	return idx
+}
+
+// GetPKColumnName returns the primary key column name, or empty string if no PK.
+func (t *TableDef) GetPKColumnName() string {
+	if t.columnIndexByName != nil {
+		return t.pkColumnName
+	}
+	// Fallback
+	col, _ := t.PrimaryKeyColumn()
+	if col != nil {
+		return col.Name
+	}
+	return ""
+}
+
+// HasColumnCache returns true if the column cache has been built.
+func (t *TableDef) HasColumnCache() bool {
+	return t.columnIndexByName != nil
 }
 
 // ColumnCount returns the number of columns
@@ -386,6 +486,9 @@ func (c *Catalog) CreateTable(table *TableDef) error {
 		return ErrTableExists
 	}
 
+	// Build column cache for fast lookups
+	table.BuildColumnCache()
+
 	c.tables[table.Name] = table
 	return nil
 }
@@ -422,6 +525,8 @@ func (c *Catalog) AddColumn(tableName string, column ColumnDef) error {
 	}
 
 	table.Columns = append(table.Columns, column)
+	// Rebuild column cache after modification
+	table.BuildColumnCache()
 	return nil
 }
 
@@ -451,6 +556,8 @@ func (c *Catalog) DropColumn(tableName, columnName string) error {
 	}
 
 	table.Columns = newColumns
+	// Rebuild column cache after modification
+	table.BuildColumnCache()
 	return nil
 }
 
@@ -470,6 +577,8 @@ func (c *Catalog) RenameTable(oldName, newName string) error {
 
 	// Update table name
 	table.Name = newName
+	// Rebuild column cache with new table name
+	table.BuildColumnCache()
 
 	// Update map
 	delete(c.tables, oldName)
