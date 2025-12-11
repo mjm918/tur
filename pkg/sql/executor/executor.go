@@ -3800,9 +3800,26 @@ func (e *Executor) evaluateLikeExpr(expr *parser.LikeExpr, rowValues []types.Val
 	return matched, nil
 }
 
+// asciiEqualFold compares two bytes for equality, ignoring ASCII case.
+// Zero allocations - just a simple comparison.
+func asciiEqualFold(a, b byte) bool {
+	if a == b {
+		return true
+	}
+	// Convert both to lowercase if they're ASCII letters
+	if a >= 'A' && a <= 'Z' {
+		a += 'a' - 'A'
+	}
+	if b >= 'A' && b <= 'Z' {
+		b += 'a' - 'A'
+	}
+	return a == b
+}
+
 // matchLikePattern matches a string against a SQL LIKE pattern
 // % matches any sequence of characters (including empty)
 // _ matches any single character
+// Case-insensitive for ASCII letters (SQLite-compatible behavior).
 // Uses a greedy two-pointer approach with backtracking for zero allocations.
 func matchLikePattern(str, pattern string) bool {
 	// Greedy matching with backtracking - O(n*m) worst case but O(n+m) for common patterns
@@ -3813,7 +3830,7 @@ func matchLikePattern(str, pattern string) bool {
 	sLen, pLen := len(str), len(pattern)
 
 	for si < sLen {
-		if pi < pLen && (pattern[pi] == '_' || pattern[pi] == str[si]) {
+		if pi < pLen && (pattern[pi] == '_' || asciiEqualFold(str[si], pattern[pi])) {
 			// Current characters match (or pattern has _)
 			si++
 			pi++

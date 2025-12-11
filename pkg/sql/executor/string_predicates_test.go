@@ -149,14 +149,18 @@ func TestWhereLike(t *testing.T) {
 		t.Errorf("Expected 2 rows for NOT LIKE 'Apple%%', got %d", len(result.Rows))
 	}
 
-	// Test case-insensitive LIKE (ILIKE style or case insensitive by default)
+	// Test case-insensitive LIKE (SQLite-compatible behavior)
 	result, err = exec.Execute("SELECT name FROM products WHERE name LIKE '%iphone%'")
 	if err != nil {
 		t.Fatalf("SELECT with LIKE (case insensitive): %v", err)
 	}
-	// Note: Standard SQL LIKE is case-sensitive, but we might want case-insensitive
-	// This test documents current behavior
-	t.Logf("Case insensitive LIKE returned %d rows", len(result.Rows))
+	// LIKE is case-insensitive for ASCII letters (SQLite behavior)
+	if len(result.Rows) != 1 {
+		t.Errorf("Expected 1 row for case-insensitive LIKE '%%iphone%%', got %d", len(result.Rows))
+	}
+	if len(result.Rows) > 0 && result.Rows[0][0].Text() != "Apple iPhone" {
+		t.Errorf("Expected 'Apple iPhone', got '%s'", result.Rows[0][0].Text())
+	}
 }
 
 // TestFindInSet tests the FIND_IN_SET function
