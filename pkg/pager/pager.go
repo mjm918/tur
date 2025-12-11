@@ -534,8 +534,18 @@ func (p *Pager) invalidateCache() {
 
 // evictIfNeeded removes unpinned pages from cache if over capacity
 func (p *Pager) evictIfNeeded() {
+	// Track iterations to avoid infinite loop when all pages are pinned
+	maxIterations := p.lru.Len()
+	iterations := 0
+
 	// Check both LRU cache size and memory budget pressure
 	for p.lru.Len() > p.cacheSize || p.shouldEvictForMemory() {
+		if iterations >= maxIterations {
+			// We've checked all pages, stop to avoid infinite loop
+			break
+		}
+		iterations++
+
 		// Get least recently used (back of list)
 		elem := p.lru.Back()
 		if elem == nil {
@@ -551,9 +561,9 @@ func (p *Pager) evictIfNeeded() {
 
 		// Don't evict pinned pages
 		if entry.page.IsPinned() {
-			// Move to front so we try other pages
+			// Move to front so we try other pages next iteration
 			p.lru.MoveToFront(elem)
-			break // All remaining pages are likely pinned
+			continue // Try other pages instead of breaking
 		}
 
 		// Release memory tracking
@@ -562,20 +572,32 @@ func (p *Pager) evictIfNeeded() {
 		// Remove from cache and LRU
 		p.lru.Remove(elem)
 		delete(p.cache, pageNo)
+
+		// Reset iteration counter after successful eviction
+		maxIterations = p.lru.Len()
+		iterations = 0
 	}
 }
 
-// shouldEvictForMemory returns true if memory budget is exceeded
+// shouldEvictForMemory returns true if memory budget requires eviction
 func (p *Pager) shouldEvictForMemory() bool {
 	if p.memoryBudget == nil {
 		return false
 	}
-	return p.memoryBudget.IsExceeded()
+	// Evict if exceeded OR if under memory pressure (approaching limit)
+	return p.memoryBudget.IsExceeded() || p.memoryBudget.IsUnderPressure()
 }
 
-// Release unpins a page
+// Release unpins a page and triggers eviction if needed
 func (p *Pager) Release(page *Page) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	page.Unpin()
+
+	// Trigger eviction check after unpinning
+	// This ensures pages are evicted promptly when no longer in use
+	p.evictIfNeeded()
 }
 
 // Sync flushes all changes to storage
