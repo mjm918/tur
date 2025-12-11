@@ -263,6 +263,7 @@ type TableDef struct {
 	columnIndexByFull map[string]int // "table.name" -> column index (lowercase)
 	pkColumnIndex     int            // Index of primary key column, -1 if none
 	pkColumnName      string         // Name of primary key column
+	cachedColumnNames []string       // Pre-computed "table.column" names
 }
 
 // GetTableConstraint returns the first table constraint of the given type, or nil if not found
@@ -310,6 +311,7 @@ func (t *TableDef) PrimaryKeyColumn() (*ColumnDef, int) {
 func (t *TableDef) BuildColumnCache() {
 	t.columnIndexByName = make(map[string]int, len(t.Columns))
 	t.columnIndexByFull = make(map[string]int, len(t.Columns))
+	t.cachedColumnNames = make([]string, len(t.Columns))
 	t.pkColumnIndex = -1
 	t.pkColumnName = ""
 
@@ -318,12 +320,19 @@ func (t *TableDef) BuildColumnCache() {
 		colLower := strings.ToLower(col.Name)
 		t.columnIndexByName[colLower] = i
 		t.columnIndexByFull[tableLower+"."+colLower] = i
+		t.cachedColumnNames[i] = t.Name + "." + col.Name
 
 		if col.PrimaryKey {
 			t.pkColumnIndex = i
 			t.pkColumnName = col.Name
 		}
 	}
+}
+
+// GetCachedColumnNames returns the pre-computed column names (table.column format).
+// Returns nil if cache hasn't been built.
+func (t *TableDef) GetCachedColumnNames() []string {
+	return t.cachedColumnNames
 }
 
 // GetColumnIndex returns the column index by name (case-insensitive).

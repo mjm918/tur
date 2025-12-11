@@ -2742,8 +2742,9 @@ func (e *Executor) tryFastPathPKLookup(stmt *parser.SelectStmt) (*Result, bool) 
 		}, true
 	}
 
-	// Decode the record
-	row := record.Decode(data)
+	// Use RecordView for zero-copy decoding
+	view := record.NewRecordView(data)
+	row := view.ToValues()
 
 	// Build column list
 	columns := e.buildColumnNames(tableDef, table.Alias)
@@ -2769,6 +2770,62 @@ func (e *Executor) tryFastPathPKLookup(stmt *parser.SelectStmt) (*Result, bool) 
 		Columns: columns,
 		Rows:    [][]types.Value{row},
 	}, true
+}
+
+// DirectPKLookup performs an ultra-fast primary key lookup, bypassing SQL parsing.
+// This is the fastest possible path for simple PK queries.
+// Returns (result, nil) on success, (nil, error) on failure, (nil, nil) if not found.
+func (e *Executor) DirectPKLookup(tableName string, pkValue int64) (*Result, error) {
+	// Get table definition
+	tableDef := e.catalog.GetTable(tableName)
+	if tableDef == nil {
+		return nil, fmt.Errorf("table not found: %s", tableName)
+	}
+
+	// Get the B-tree for this table
+	tableTree := e.trees[tableDef.Name]
+	if tableTree == nil {
+		if tableDef.RootPage == 0 {
+			return nil, fmt.Errorf("table has no root page")
+		}
+		var err error
+		tableTree, err = e.treeFactory.Open(tableDef.RootPage)
+		if err != nil {
+			return nil, err
+		}
+		e.trees[tableDef.Name] = tableTree
+	}
+
+	// Build the key using reusable buffer
+	binary.BigEndian.PutUint64(e.keyBuffer[:], uint64(pkValue))
+
+	// Get cached column names (avoids allocation)
+	columns := tableDef.GetCachedColumnNames()
+	if columns == nil {
+		columns = e.buildColumnNames(tableDef, "")
+	}
+
+	// Direct B-tree lookup
+	data, err := tableTree.Get(e.keyBuffer[:])
+	if err != nil {
+		// Key not found - return empty result
+		return &Result{
+			Columns: columns,
+			Rows:    [][]types.Value{},
+		}, nil
+	}
+
+	// Use RecordView for zero-copy decoding
+	view := record.NewRecordView(data)
+	row := view.ToValues()
+
+	// Apply type conversions (like JSON parsing)
+	e.applyTypeConversions(row, tableDef)
+
+	return &Result{
+		Columns: columns,
+		Rows:    [][]types.Value{row},
+	}, nil
 }
 
 // buildColumnNames builds column names with optional alias prefix

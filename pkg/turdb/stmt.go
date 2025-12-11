@@ -306,6 +306,19 @@ func (s *Stmt) QueryContext(ctx context.Context) (*Rows, error) {
 		return nil, ErrDatabaseClosed
 	}
 
+	// ULTRA-FAST PATH: Direct PK lookup bypassing executor
+	if s.isFastPathPK && s.fastPathPKParam >= 0 && s.fastPathPKParam < len(s.params) {
+		pkValue := s.params[s.fastPathPKParam]
+		if isIntegerType(pkValue.Type()) {
+			result, err := s.db.executor.DirectPKLookup(s.fastPathTable, pkValue.Int())
+			if err != nil {
+				// Fall through to regular path on error
+			} else {
+				return NewRows(result.Columns, result.Rows), nil
+			}
+		}
+	}
+
 	// Use cached AST with parameter substitution (faster path)
 	if s.cachedAST != nil {
 		result, err := s.db.executor.ExecuteAST(s.cachedAST, s.params)
@@ -399,9 +412,16 @@ func (s *Stmt) detectFastPath(db *DB) {
 	}
 
 	// Requirements for fast path:
-	// 1. No CTEs, GROUP BY, HAVING, ORDER BY, LIMIT
-	// 2. Single table, no joins
-	// 3. WHERE is pk_column = ? (placeholder)
+	// 1. Must be SELECT * (star)
+	// 2. No CTEs, GROUP BY, HAVING, ORDER BY, LIMIT
+	// 3. Single table, no joins
+	// 4. WHERE is pk_column = ? (placeholder)
+
+	// Check for SELECT * (must have exactly one column and it must be a star)
+	if selectStmt.Columns == nil || len(selectStmt.Columns) != 1 || !selectStmt.Columns[0].Star {
+		return
+	}
+
 	if selectStmt.With != nil || selectStmt.GroupBy != nil || selectStmt.Having != nil {
 		return
 	}
