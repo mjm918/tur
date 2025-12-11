@@ -78,6 +78,11 @@ type ColumnDef struct {
 	DefaultExpr Expression     // For DEFAULT constraint
 	CheckExpr   Expression     // For CHECK constraint
 	ForeignKey  *ForeignKeyRef // For REFERENCES constraint
+
+	// Type parameters for strict types
+	MaxLength int // Maximum length for VARCHAR and CHAR types
+	Precision int // Total number of digits for DECIMAL type
+	Scale     int // Number of digits after decimal point for DECIMAL type
 }
 
 // InsertStmt represents an INSERT statement

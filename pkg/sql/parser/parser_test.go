@@ -28,9 +28,9 @@ func TestParser_CreateTable_Simple(t *testing.T) {
 		t.Fatalf("Columns count = %d, want 2", len(create.Columns))
 	}
 
-	// Check first column
-	if create.Columns[0].Name != "id" || create.Columns[0].Type != types.TypeInt {
-		t.Errorf("Column[0] = %+v, want {Name: 'id', Type: TypeInt}", create.Columns[0])
+	// Check first column (INT now maps to TypeInt32 for strict types)
+	if create.Columns[0].Name != "id" || create.Columns[0].Type != types.TypeInt32 {
+		t.Errorf("Column[0] = %+v, want {Name: 'id', Type: TypeInt32}", create.Columns[0])
 	}
 
 	// Check second column
@@ -68,7 +68,7 @@ func TestParser_CreateTable_AllTypes(t *testing.T) {
 
 	create := stmt.(*CreateTableStmt)
 	expectedTypes := []types.ValueType{
-		types.TypeInt, types.TypeInt, types.TypeText, types.TypeFloat,
+		types.TypeInt32, types.TypeInt, types.TypeText, types.TypeFloat, // INT->TypeInt32, INTEGER->TypeInt (legacy)
 		types.TypeFloat, types.TypeBlob, types.TypeVector,
 	}
 
@@ -1473,8 +1473,8 @@ func TestParser_AlterTable_AddColumn_WithConstraints(t *testing.T) {
 		t.Errorf("NewColumn.Name = %q, want 'age'", alter.NewColumn.Name)
 	}
 
-	if alter.NewColumn.Type != types.TypeInt {
-		t.Errorf("NewColumn.Type = %v, want TypeInt", alter.NewColumn.Type)
+	if alter.NewColumn.Type != types.TypeInt32 {
+		t.Errorf("NewColumn.Type = %v, want TypeInt32", alter.NewColumn.Type)
 	}
 
 	if !alter.NewColumn.NotNull {
@@ -3707,8 +3707,8 @@ func TestParser_CreateProcedure_WithINParam(t *testing.T) {
 	if param.Mode != ParamModeIn {
 		t.Errorf("Parameter mode = %v, want ParamModeIn", param.Mode)
 	}
-	if param.Type != types.TypeInt {
-		t.Errorf("Parameter type = %v, want TypeInt", param.Type)
+	if param.Type != types.TypeInt32 {
+		t.Errorf("Parameter type = %v, want TypeInt32", param.Type)
 	}
 }
 
@@ -3737,8 +3737,8 @@ func TestParser_CreateProcedure_WithOUTParam(t *testing.T) {
 	if param.Mode != ParamModeOut {
 		t.Errorf("Parameter mode = %v, want ParamModeOut", param.Mode)
 	}
-	if param.Type != types.TypeInt {
-		t.Errorf("Parameter type = %v, want TypeInt", param.Type)
+	if param.Type != types.TypeInt32 {
+		t.Errorf("Parameter type = %v, want TypeInt32", param.Type)
 	}
 }
 
@@ -3793,10 +3793,10 @@ func TestParser_CreateProcedure_MultipleParams(t *testing.T) {
 		mode     ParamMode
 		dataType types.ValueType
 	}{
-		{"from_id", ParamModeIn, types.TypeInt},
-		{"to_id", ParamModeIn, types.TypeInt},
+		{"from_id", ParamModeIn, types.TypeInt32},
+		{"to_id", ParamModeIn, types.TypeInt32},
 		{"amount", ParamModeIn, types.TypeFloat},
-		{"success", ParamModeOut, types.TypeInt},
+		{"success", ParamModeOut, types.TypeInt32},
 	}
 
 	for i, exp := range expected {
@@ -3969,8 +3969,8 @@ func TestParser_DeclareVariable(t *testing.T) {
 	if decl.Name != "counter" {
 		t.Errorf("Name = %q, want 'counter'", decl.Name)
 	}
-	if decl.Type != types.TypeInt {
-		t.Errorf("Type = %v, want TypeInt", decl.Type)
+	if decl.Type != types.TypeInt32 {
+		t.Errorf("Type = %v, want TypeInt32", decl.Type)
 	}
 	if decl.DefaultValue == nil {
 		t.Fatal("DefaultValue should not be nil")

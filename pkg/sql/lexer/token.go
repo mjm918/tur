@@ -218,6 +218,18 @@ const (
 
 	// PRAGMA keyword
 	PRAGMA
+
+	// Strict data type keywords
+	SMALLINT_TYPE
+	BIGINT_TYPE
+	SERIAL_TYPE
+	BIGSERIAL_TYPE
+	GUID_TYPE
+	UUID_TYPE
+	DECIMAL_TYPE
+	NUMERIC_TYPE
+	VARCHAR_TYPE
+	CHAR_TYPE
 )
 
 // Token represents a lexical token
@@ -536,6 +548,26 @@ func (t TokenType) String() string {
 		return "]"
 	case PRAGMA:
 		return "PRAGMA"
+	case SMALLINT_TYPE:
+		return "SMALLINT"
+	case BIGINT_TYPE:
+		return "BIGINT"
+	case SERIAL_TYPE:
+		return "SERIAL"
+	case BIGSERIAL_TYPE:
+		return "BIGSERIAL"
+	case GUID_TYPE:
+		return "GUID"
+	case UUID_TYPE:
+		return "UUID"
+	case DECIMAL_TYPE:
+		return "DECIMAL"
+	case NUMERIC_TYPE:
+		return "NUMERIC"
+	case VARCHAR_TYPE:
+		return "VARCHAR"
+	case CHAR_TYPE:
+		return "CHAR"
 	default:
 		return "UNKNOWN"
 	}
@@ -668,6 +700,16 @@ var keywords = map[string]TokenType{
 	"SQLSTATE":     SQLSTATE,
 	"JSON":         JSON_TYPE_KW,
 	"PRAGMA":       PRAGMA,
+	"SMALLINT":     SMALLINT_TYPE,
+	"BIGINT":       BIGINT_TYPE,
+	"SERIAL":       SERIAL_TYPE,
+	"BIGSERIAL":    BIGSERIAL_TYPE,
+	"GUID":         GUID_TYPE,
+	"UUID":         UUID_TYPE,
+	"DECIMAL":      DECIMAL_TYPE,
+	"NUMERIC":      NUMERIC_TYPE,
+	"VARCHAR":      VARCHAR_TYPE,
+	"CHAR":         CHAR_TYPE,
 }
 
 // LookupIdent checks if ident is a keyword, returns keyword token type or IDENT
