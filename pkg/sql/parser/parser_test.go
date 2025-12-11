@@ -4185,3 +4185,110 @@ func TestParser_DeclareHandler(t *testing.T) {
 		t.Errorf("Handler body[0] = %T, want *SetStmt", handler.Body[0])
 	}
 }
+
+func TestParser_BacktickEscapedKeywords(t *testing.T) {
+	// Test that reserved keywords can be used as identifiers when backtick-escaped
+	input := "CREATE TABLE `index` (`order` INT, `select` TEXT)"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	create, ok := stmt.(*CreateTableStmt)
+	if !ok {
+		t.Fatalf("Expected *CreateTableStmt, got %T", stmt)
+	}
+
+	if create.TableName != "index" {
+		t.Errorf("TableName = %q, want 'index'", create.TableName)
+	}
+
+	if len(create.Columns) != 2 {
+		t.Fatalf("Columns count = %d, want 2", len(create.Columns))
+	}
+
+	if create.Columns[0].Name != "order" {
+		t.Errorf("Column[0].Name = %q, want 'order'", create.Columns[0].Name)
+	}
+
+	if create.Columns[1].Name != "select" {
+		t.Errorf("Column[1].Name = %q, want 'select'", create.Columns[1].Name)
+	}
+}
+
+func TestParser_BacktickSelect(t *testing.T) {
+	// Test SELECT with backtick-escaped column names
+	input := "SELECT `index`, `order` FROM `table`"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	sel, ok := stmt.(*SelectStmt)
+	if !ok {
+		t.Fatalf("Expected *SelectStmt, got %T", stmt)
+	}
+
+	// Check table name from FROM clause
+	table, ok := sel.From.(*Table)
+	if !ok {
+		t.Fatalf("From = %T, want *Table", sel.From)
+	}
+	if table.Name != "table" {
+		t.Errorf("TableName = %q, want 'table'", table.Name)
+	}
+
+	if len(sel.Columns) != 2 {
+		t.Fatalf("Columns count = %d, want 2", len(sel.Columns))
+	}
+
+	// Check column names - they should be plain identifiers (with column references)
+	col0, ok := sel.Columns[0].Expr.(*ColumnRef)
+	if !ok {
+		t.Fatalf("Column[0].Expr = %T, want *ColumnRef", sel.Columns[0].Expr)
+	}
+	if col0.Name != "index" {
+		t.Errorf("Column[0].Name = %q, want 'index'", col0.Name)
+	}
+
+	col1, ok := sel.Columns[1].Expr.(*ColumnRef)
+	if !ok {
+		t.Fatalf("Column[1].Expr = %T, want *ColumnRef", sel.Columns[1].Expr)
+	}
+	if col1.Name != "order" {
+		t.Errorf("Column[1].Name = %q, want 'order'", col1.Name)
+	}
+}
+
+func TestParser_BacktickInsert(t *testing.T) {
+	// Test INSERT with backtick-escaped identifiers
+	input := "INSERT INTO `from` (`select`, `where`) VALUES (1, 2)"
+	p := New(input)
+	stmt, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	insert, ok := stmt.(*InsertStmt)
+	if !ok {
+		t.Fatalf("Expected *InsertStmt, got %T", stmt)
+	}
+
+	if insert.TableName != "from" {
+		t.Errorf("TableName = %q, want 'from'", insert.TableName)
+	}
+
+	if len(insert.Columns) != 2 {
+		t.Fatalf("Columns count = %d, want 2", len(insert.Columns))
+	}
+
+	if insert.Columns[0] != "select" {
+		t.Errorf("Columns[0] = %q, want 'select'", insert.Columns[0])
+	}
+
+	if insert.Columns[1] != "where" {
+		t.Errorf("Columns[1] = %q, want 'where'", insert.Columns[1])
+	}
+}

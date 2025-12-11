@@ -618,3 +618,85 @@ func TestLexer_TruncateKeyword(t *testing.T) {
 		}
 	}
 }
+
+func TestLexer_BacktickIdentifier(t *testing.T) {
+	// Backtick-quoted identifiers should be treated as IDENT, not keywords
+	input := "`SELECT` `FROM` `index` `normal_name`"
+	expected := []struct {
+		typ     TokenType
+		literal string
+	}{
+		{IDENT, "SELECT"},
+		{IDENT, "FROM"},
+		{IDENT, "index"},
+		{IDENT, "normal_name"},
+		{EOF, ""},
+	}
+
+	l := New(input)
+	for i, exp := range expected {
+		tok := l.NextToken()
+		if tok.Type != exp.typ {
+			t.Errorf("token[%d]: type = %v, want %v (literal=%q)", i, tok.Type, exp.typ, tok.Literal)
+		}
+		if tok.Literal != exp.literal {
+			t.Errorf("token[%d]: literal = %q, want %q", i, tok.Literal, exp.literal)
+		}
+	}
+}
+
+func TestLexer_BacktickInStatement(t *testing.T) {
+	// Test backtick identifiers in a full SQL statement
+	input := "SELECT `index`, `order` FROM `table`"
+	expected := []struct {
+		typ     TokenType
+		literal string
+	}{
+		{SELECT, "SELECT"},
+		{IDENT, "index"},
+		{COMMA, ","},
+		{IDENT, "order"},
+		{FROM, "FROM"},
+		{IDENT, "table"},
+		{EOF, ""},
+	}
+
+	l := New(input)
+	for i, exp := range expected {
+		tok := l.NextToken()
+		if tok.Type != exp.typ {
+			t.Errorf("token[%d]: type = %v, want %v (literal=%q)", i, tok.Type, exp.typ, tok.Literal)
+		}
+		if tok.Literal != exp.literal {
+			t.Errorf("token[%d]: literal = %q, want %q", i, tok.Literal, exp.literal)
+		}
+	}
+}
+
+func TestLexer_BacktickEscapedBacktick(t *testing.T) {
+	// MySQL-style: double backtick inside backtick-quoted identifier escapes to single backtick
+	input := "`column``name`"
+	l := New(input)
+
+	tok := l.NextToken()
+	if tok.Type != IDENT {
+		t.Errorf("expected IDENT, got %v", tok.Type)
+	}
+	if tok.Literal != "column`name" {
+		t.Errorf("expected 'column`name', got %q", tok.Literal)
+	}
+}
+
+func TestLexer_BacktickEmpty(t *testing.T) {
+	// Empty backtick identifier (edge case)
+	input := "``"
+	l := New(input)
+
+	tok := l.NextToken()
+	if tok.Type != IDENT {
+		t.Errorf("expected IDENT, got %v", tok.Type)
+	}
+	if tok.Literal != "" {
+		t.Errorf("expected empty string, got %q", tok.Literal)
+	}
+}

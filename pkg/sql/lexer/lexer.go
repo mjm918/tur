@@ -120,6 +120,10 @@ func (l *Lexer) NextToken() Token {
 		tok.Literal = l.readString()
 		tok.Type = STRING
 		return tok
+	case '`':
+		tok.Literal = l.readBacktickIdentifier()
+		tok.Type = IDENT
+		return tok
 	case 0:
 		tok.Type = EOF
 		tok.Literal = ""
@@ -228,6 +232,34 @@ func (l *Lexer) readString() string {
 	}
 
 	l.readChar() // skip closing quote
+	return result.String()
+}
+
+// readBacktickIdentifier reads a backtick-quoted identifier (MySQL-style)
+func (l *Lexer) readBacktickIdentifier() string {
+	var result strings.Builder
+
+	l.readChar() // skip opening backtick
+
+	for {
+		if l.ch == 0 {
+			break
+		}
+		if l.ch == '`' {
+			// Check for escaped backtick (``)
+			if l.peekChar() == '`' {
+				result.WriteByte('`')
+				l.readChar()
+				l.readChar()
+				continue
+			}
+			break
+		}
+		result.WriteByte(l.ch)
+		l.readChar()
+	}
+
+	l.readChar() // skip closing backtick
 	return result.String()
 }
 
