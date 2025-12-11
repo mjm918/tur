@@ -343,3 +343,71 @@ func TestTransaction_NestedSavepointModifications(t *testing.T) {
 		t.Errorf("expected 1 modification after rollback to sp1, got %d", len(allMods))
 	}
 }
+
+// Test: Transaction has UndoLog
+func TestTransaction_HasUndoLog(t *testing.T) {
+	tx := NewTransaction(1, 100)
+
+	undoLog := tx.UndoLog()
+	if undoLog == nil {
+		t.Fatal("expected UndoLog to be initialized, got nil")
+	}
+
+	// Should be empty initially
+	if undoLog.Len() != 0 {
+		t.Errorf("expected empty UndoLog, got %d operations", undoLog.Len())
+	}
+}
+
+// Test: UndoLog operations work through Transaction
+func TestTransaction_UndoLogOperations(t *testing.T) {
+	tx := NewTransaction(1, 100)
+
+	// Add operations via UndoLog
+	tx.UndoLog().Add(UndoOperation{
+		Type:      UndoInsert,
+		TableName: "users",
+		Key:       []byte{1},
+	})
+	tx.UndoLog().Add(UndoOperation{
+		Type:      UndoDelete,
+		TableName: "users",
+		Key:       []byte{2},
+		OldData:   []byte("old data"),
+	})
+
+	if tx.UndoLog().Len() != 2 {
+		t.Errorf("expected 2 operations, got %d", tx.UndoLog().Len())
+	}
+}
+
+// Test: UndoLog cleared on commit
+func TestTransaction_UndoLogClearedOnCommit(t *testing.T) {
+	tx := NewTransaction(1, 100)
+
+	tx.UndoLog().Add(UndoOperation{Type: UndoInsert, TableName: "t", Key: []byte{1}})
+	tx.UndoLog().Add(UndoOperation{Type: UndoInsert, TableName: "t", Key: []byte{2}})
+
+	if tx.UndoLog().Len() != 2 {
+		t.Fatal("expected 2 operations before commit")
+	}
+
+	tx.Commit(200)
+
+	if tx.UndoLog().Len() != 0 {
+		t.Errorf("expected UndoLog to be cleared after commit, got %d operations", tx.UndoLog().Len())
+	}
+}
+
+// Test: UndoLog cleared on abort
+func TestTransaction_UndoLogClearedOnAbort(t *testing.T) {
+	tx := NewTransaction(1, 100)
+
+	tx.UndoLog().Add(UndoOperation{Type: UndoInsert, TableName: "t", Key: []byte{1}})
+
+	tx.Abort()
+
+	if tx.UndoLog().Len() != 0 {
+		t.Errorf("expected UndoLog to be cleared after abort, got %d operations", tx.UndoLog().Len())
+	}
+}

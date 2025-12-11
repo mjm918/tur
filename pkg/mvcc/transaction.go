@@ -50,6 +50,7 @@ type Transaction struct {
 	state         TxState      // Current state of the transaction
 	savepoints    []Savepoint  // Stack of savepoints (newest at end)
 	modifications []string     // Keys modified in this transaction
+	undoLog       *UndoLog     // Undo log for rollback support
 }
 
 // NewTransaction creates a new transaction with the given ID and start timestamp
@@ -61,7 +62,13 @@ func NewTransaction(id, startTS uint64) *Transaction {
 		state:         TxStateActive,
 		savepoints:    nil,
 		modifications: nil,
+		undoLog:       NewUndoLog(),
 	}
+}
+
+// UndoLog returns the transaction's undo log for recording reversible operations
+func (tx *Transaction) UndoLog() *UndoLog {
+	return tx.undoLog
 }
 
 // ID returns the transaction ID
@@ -125,6 +132,7 @@ func (tx *Transaction) Commit(commitTS uint64) error {
 	tx.commitTS = commitTS
 	tx.state = TxStateCommitted
 	tx.savepoints = nil // Clear all savepoints on commit
+	tx.undoLog.Clear()  // Clear undo log - changes are now permanent
 	return nil
 }
 
@@ -136,6 +144,7 @@ func (tx *Transaction) Abort() {
 	if tx.state == TxStateActive {
 		tx.state = TxStateAborted
 		tx.savepoints = nil // Clear all savepoints on abort
+		tx.undoLog.Clear()  // Clear undo log on abort
 	}
 }
 

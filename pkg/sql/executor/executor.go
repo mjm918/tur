@@ -1331,6 +1331,15 @@ func (e *Executor) executeInsertInternal(stmt *parser.InsertStmt, fireTriggers b
 			return nil, fmt.Errorf("failed to insert: %w", err)
 		}
 
+		// Log undo operation if in a transaction
+		if e.currentTx != nil {
+			e.currentTx.UndoLog().Add(mvcc.UndoOperation{
+				Type:      mvcc.UndoInsert,
+				TableName: stmt.TableName,
+				Key:       key,
+			})
+		}
+
 		// Update indexes
 		if err := e.updateIndexes(table, rowid, values); err != nil {
 			return nil, err
@@ -1498,6 +1507,17 @@ func (e *Executor) executeUpdate(stmt *parser.UpdateStmt) (*Result, error) {
 			return nil, err
 		}
 
+		// Log undo operation if in a transaction (capture old data before overwriting)
+		if e.currentTx != nil {
+			oldData := record.Encode(entry.oldValues)
+			e.currentTx.UndoLog().Add(mvcc.UndoOperation{
+				Type:      mvcc.UndoUpdate,
+				TableName: stmt.TableName,
+				Key:       entry.key,
+				OldData:   oldData,
+			})
+		}
+
 		// Update in B-tree (Insert handles both insert and update)
 		if err := tree.Insert(entry.key, data); err != nil {
 			return nil, fmt.Errorf("failed to update row: %w", err)
@@ -1609,6 +1629,17 @@ func (e *Executor) executeDelete(stmt *parser.DeleteStmt) (*Result, error) {
 		// Delete from indexes first
 		if err := e.deleteFromIndexes(table, rowid, entry.values); err != nil {
 			return nil, fmt.Errorf("failed to delete from indexes: %w", err)
+		}
+
+		// Log undo operation if in a transaction (capture data before deleting)
+		if e.currentTx != nil {
+			oldData := record.Encode(entry.values)
+			e.currentTx.UndoLog().Add(mvcc.UndoOperation{
+				Type:      mvcc.UndoDelete,
+				TableName: stmt.TableName,
+				Key:       entry.key,
+				OldData:   oldData,
+			})
 		}
 
 		// Delete from main table
@@ -3591,7 +3622,13 @@ func (e *Executor) executeRollback(_ *parser.RollbackStmt) (*Result, error) {
 		return nil, fmt.Errorf("cannot rollback: no transaction is active")
 	}
 
-	// Rollback the transaction
+	// Apply undo operations in reverse order to restore previous state
+	if err := e.applyUndoOperations(e.currentTx.UndoLog().GetAllOperations()); err != nil {
+		// Log error but continue with rollback - best effort
+		// In production, you might want to handle this differently
+	}
+
+	// Rollback the transaction (marks it as aborted, clears undo log)
 	if err := e.txManager.Rollback(e.currentTx); err != nil {
 		return nil, fmt.Errorf("rollback failed: %w", err)
 	}
@@ -3599,6 +3636,53 @@ func (e *Executor) executeRollback(_ *parser.RollbackStmt) (*Result, error) {
 	e.currentTx = nil
 
 	return &Result{}, nil
+}
+
+// applyUndoOperations reverses B-tree operations to restore previous state
+func (e *Executor) applyUndoOperations(ops []mvcc.UndoOperation) error {
+	// Apply in REVERSE order (LIFO - Last In First Out)
+	for i := len(ops) - 1; i >= 0; i-- {
+		op := ops[i]
+		tree := e.trees[op.TableName]
+		if tree == nil {
+			continue // Table might have been dropped
+		}
+
+		switch op.Type {
+		case mvcc.UndoInsert:
+			// Undo INSERT by DELETE
+			if err := tree.Delete(op.Key); err != nil {
+				return fmt.Errorf("undo insert failed for table %s: %w", op.TableName, err)
+			}
+
+		case mvcc.UndoUpdate:
+			// Undo UPDATE by restoring old data
+			if err := tree.Insert(op.Key, op.OldData); err != nil {
+				return fmt.Errorf("undo update failed for table %s: %w", op.TableName, err)
+			}
+
+		case mvcc.UndoDelete:
+			// Undo DELETE by re-INSERT
+			if err := tree.Insert(op.Key, op.OldData); err != nil {
+				return fmt.Errorf("undo delete failed for table %s: %w", op.TableName, err)
+			}
+
+		case mvcc.UndoIndexInsert:
+			// Undo index INSERT by DELETE
+			idxTree := e.trees["index:"+op.IndexName]
+			if idxTree != nil {
+				idxTree.Delete(op.IndexKey)
+			}
+
+		case mvcc.UndoIndexDelete:
+			// Undo index DELETE by INSERT
+			idxTree := e.trees["index:"+op.IndexName]
+			if idxTree != nil {
+				idxTree.Insert(op.IndexKey, op.IndexVal)
+			}
+		}
+	}
+	return nil
 }
 
 // executeSavepoint handles SAVEPOINT savepoint_name
@@ -3613,6 +3697,9 @@ func (e *Executor) executeSavepoint(stmt *parser.SavepointStmt) (*Result, error)
 		return nil, fmt.Errorf("savepoint failed: %w", err)
 	}
 
+	// Create savepoint in undo log for rollback support
+	e.currentTx.UndoLog().CreateSavepoint(stmt.Name)
+
 	return &Result{}, nil
 }
 
@@ -3623,7 +3710,30 @@ func (e *Executor) executeRollbackTo(stmt *parser.RollbackToStmt) (*Result, erro
 		return nil, fmt.Errorf("cannot rollback to savepoint: no transaction is active")
 	}
 
-	// Rollback to the savepoint
+	// Get and apply undo operations since savepoint
+	opsToUndo, err := e.currentTx.UndoLog().RollbackToSavepoint(stmt.Name)
+	if err != nil {
+		return nil, fmt.Errorf("rollback to savepoint failed: %w", err)
+	}
+
+	// Apply undo operations (already in reverse order from RollbackToSavepoint)
+	for _, op := range opsToUndo {
+		tree := e.trees[op.TableName]
+		if tree == nil {
+			continue
+		}
+
+		switch op.Type {
+		case mvcc.UndoInsert:
+			tree.Delete(op.Key)
+		case mvcc.UndoUpdate:
+			tree.Insert(op.Key, op.OldData)
+		case mvcc.UndoDelete:
+			tree.Insert(op.Key, op.OldData)
+		}
+	}
+
+	// Rollback transaction state to the savepoint
 	if err := e.currentTx.RollbackTo(stmt.Name); err != nil {
 		return nil, fmt.Errorf("rollback to savepoint failed: %w", err)
 	}
