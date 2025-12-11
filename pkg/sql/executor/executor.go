@@ -211,6 +211,10 @@ func (e *Executor) executeCreateTable(stmt *parser.CreateTableStmt) (*Result, er
 			NotNull:     col.NotNull,
 			VectorDim:   col.VectorDim,
 			NoNormalize: col.NoNormalize,
+			// Copy strict type parameters
+			MaxLength:   col.MaxLength,
+			Precision:   col.Precision,
+			Scale:       col.Scale,
 		}
 
 		// Build column constraints
@@ -1313,6 +1317,17 @@ func (e *Executor) executeInsertInternal(stmt *parser.InsertStmt, fireTriggers b
 					vec.Normalize()
 					values[idx] = types.NewBlob(vec.ToBytes())
 				}
+				// Skip strict type validation for VECTOR columns (already handled)
+				continue
+			}
+
+			// Strict type validation and conversion for non-VECTOR, non-JSON columns
+			if !values[idx].IsNull() && colDef.Type != types.TypeJSON {
+				convertedVal, err := e.validateAndConvertStrictType(values[idx], colDef)
+				if err != nil {
+					return nil, fmt.Errorf("column %s: %w", colDef.Name, err)
+				}
+				values[idx] = convertedVal
 			}
 		}
 
@@ -2080,7 +2095,7 @@ func (e *Executor) checkForeignKeyOnUpdate(table *schema.TableDef, oldValues, ne
 	return nil
 }
 
-// valuesEqual compares two values for equality (used in FK checks)
+// valuesEqual compares two values for equality (used in FK checks, CASE expressions, etc.)
 func valuesEqual(a, b types.Value) bool {
 	if a.IsNull() && b.IsNull() {
 		return true
@@ -2088,20 +2103,31 @@ func valuesEqual(a, b types.Value) bool {
 	if a.IsNull() || b.IsNull() {
 		return false
 	}
+
+	// Handle cross-type comparisons for compatible types
 	if a.Type() != b.Type() {
-		// Try numeric comparison
+		// All integer types can be compared with each other
 		if isNumeric(a) && isNumeric(b) {
+			// For integer-to-integer comparison, use integer comparison for exactness
+			if isIntegerType(a.Type()) && isIntegerType(b.Type()) {
+				return a.Int() == b.Int()
+			}
+			// For mixed int/float, use float comparison
 			return toFloat(a) == toFloat(b)
+		}
+		// All string types can be compared with each other
+		if isStringLike(a) && isStringLike(b) {
+			return a.Text() == b.Text()
 		}
 		return false
 	}
 
 	switch a.Type() {
-	case types.TypeInt:
+	case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return a.Int() == b.Int()
 	case types.TypeFloat:
 		return a.Float() == b.Float()
-	case types.TypeText:
+	case types.TypeText, types.TypeVarchar, types.TypeChar:
 		return a.Text() == b.Text()
 	case types.TypeBlob:
 		aBlob, bBlob := a.Blob(), b.Blob()
@@ -2119,13 +2145,27 @@ func valuesEqual(a, b types.Value) bool {
 	}
 }
 
+// isNumeric returns true if the value is any numeric type (integer or float)
 func isNumeric(v types.Value) bool {
-	return v.Type() == types.TypeInt || v.Type() == types.TypeFloat
+	switch v.Type() {
+	case types.TypeInt, types.TypeFloat, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+		return true
+	}
+	return false
+}
+
+// isStringLike returns true if the value is any string type
+func isStringLike(v types.Value) bool {
+	switch v.Type() {
+	case types.TypeText, types.TypeVarchar, types.TypeChar:
+		return true
+	}
+	return false
 }
 
 func toFloat(v types.Value) float64 {
 	switch v.Type() {
-	case types.TypeInt:
+	case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return float64(v.Int())
 	case types.TypeFloat:
 		return v.Float()
@@ -3241,10 +3281,13 @@ func (e *Executor) evaluateFunctionCall(expr *parser.FunctionCall, rowValues []t
 // Helper functions for arithmetic
 
 func (e *Executor) addValues(left, right types.Value) (types.Value, error) {
-	if left.Type() == types.TypeInt && right.Type() == types.TypeInt {
+	// All integer types can be added together
+	if isIntegerType(left.Type()) && isIntegerType(right.Type()) {
 		return types.NewInt(left.Int() + right.Int()), nil
 	}
-	if left.Type() == types.TypeFloat || right.Type() == types.TypeFloat {
+	// Float operations (or mixed int/float)
+	if left.Type() == types.TypeFloat || right.Type() == types.TypeFloat ||
+		isIntegerType(left.Type()) || isIntegerType(right.Type()) {
 		l := e.toFloat(left)
 		r := e.toFloat(right)
 		return types.NewFloat(l + r), nil
@@ -3253,10 +3296,13 @@ func (e *Executor) addValues(left, right types.Value) (types.Value, error) {
 }
 
 func (e *Executor) subtractValues(left, right types.Value) (types.Value, error) {
-	if left.Type() == types.TypeInt && right.Type() == types.TypeInt {
+	// All integer types can be subtracted
+	if isIntegerType(left.Type()) && isIntegerType(right.Type()) {
 		return types.NewInt(left.Int() - right.Int()), nil
 	}
-	if left.Type() == types.TypeFloat || right.Type() == types.TypeFloat {
+	// Float operations (or mixed int/float)
+	if left.Type() == types.TypeFloat || right.Type() == types.TypeFloat ||
+		isIntegerType(left.Type()) || isIntegerType(right.Type()) {
 		l := e.toFloat(left)
 		r := e.toFloat(right)
 		return types.NewFloat(l - r), nil
@@ -3265,10 +3311,13 @@ func (e *Executor) subtractValues(left, right types.Value) (types.Value, error) 
 }
 
 func (e *Executor) multiplyValues(left, right types.Value) (types.Value, error) {
-	if left.Type() == types.TypeInt && right.Type() == types.TypeInt {
+	// All integer types can be multiplied
+	if isIntegerType(left.Type()) && isIntegerType(right.Type()) {
 		return types.NewInt(left.Int() * right.Int()), nil
 	}
-	if left.Type() == types.TypeFloat || right.Type() == types.TypeFloat {
+	// Float operations (or mixed int/float)
+	if left.Type() == types.TypeFloat || right.Type() == types.TypeFloat ||
+		isIntegerType(left.Type()) || isIntegerType(right.Type()) {
 		l := e.toFloat(left)
 		r := e.toFloat(right)
 		return types.NewFloat(l * r), nil
@@ -3277,6 +3326,7 @@ func (e *Executor) multiplyValues(left, right types.Value) (types.Value, error) 
 }
 
 func (e *Executor) divideValues(left, right types.Value) (types.Value, error) {
+	// Float division (or mixed int/float)
 	if left.Type() == types.TypeFloat || right.Type() == types.TypeFloat {
 		l := e.toFloat(left)
 		r := e.toFloat(right)
@@ -3285,7 +3335,8 @@ func (e *Executor) divideValues(left, right types.Value) (types.Value, error) {
 		}
 		return types.NewFloat(l / r), nil
 	}
-	if left.Type() == types.TypeInt && right.Type() == types.TypeInt {
+	// Integer division
+	if isIntegerType(left.Type()) && isIntegerType(right.Type()) {
 		if right.Int() == 0 {
 			return types.NewNull(), nil
 		}
@@ -3296,13 +3347,31 @@ func (e *Executor) divideValues(left, right types.Value) (types.Value, error) {
 
 func (e *Executor) toFloat(v types.Value) float64 {
 	switch v.Type() {
-	case types.TypeInt:
+	case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return float64(v.Int())
 	case types.TypeFloat:
 		return v.Float()
 	default:
 		return 0
 	}
+}
+
+// isIntegerType returns true if the type is any integer type (legacy or strict)
+func isIntegerType(t types.ValueType) bool {
+	switch t {
+	case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+		return true
+	}
+	return false
+}
+
+// isStringType returns true if the type is any string type
+func isStringType(t types.ValueType) bool {
+	switch t {
+	case types.TypeText, types.TypeVarchar, types.TypeChar:
+		return true
+	}
+	return false
 }
 
 // compareValues compares two values, returns -1, 0, or 1
@@ -3321,7 +3390,7 @@ func (e *Executor) compareValues(left, right types.Value) int {
 	// Same type comparisons
 	if left.Type() == right.Type() {
 		switch left.Type() {
-		case types.TypeInt:
+		case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 			l, r := left.Int(), right.Int()
 			if l < r {
 				return -1
@@ -3339,7 +3408,7 @@ func (e *Executor) compareValues(left, right types.Value) int {
 				return 1
 			}
 			return 0
-		case types.TypeText:
+		case types.TypeText, types.TypeVarchar, types.TypeChar:
 			l, r := left.Text(), right.Text()
 			if l < r {
 				return -1
@@ -3351,11 +3420,47 @@ func (e *Executor) compareValues(left, right types.Value) int {
 		}
 	}
 
-	// Mixed numeric types
-	if (left.Type() == types.TypeInt || left.Type() == types.TypeFloat) &&
-		(right.Type() == types.TypeInt || right.Type() == types.TypeFloat) {
-		l := e.toFloat(left)
-		r := e.toFloat(right)
+	// Cross-type comparisons for compatible types
+
+	// All integer types can compare with each other
+	if isIntegerType(left.Type()) && isIntegerType(right.Type()) {
+		l, r := left.Int(), right.Int()
+		if l < r {
+			return -1
+		}
+		if l > r {
+			return 1
+		}
+		return 0
+	}
+
+	// All string types can compare with each other
+	if isStringType(left.Type()) && isStringType(right.Type()) {
+		l, r := left.Text(), right.Text()
+		if l < r {
+			return -1
+		}
+		if l > r {
+			return 1
+		}
+		return 0
+	}
+
+	// Mixed numeric types (integer and float)
+	if isIntegerType(left.Type()) && right.Type() == types.TypeFloat {
+		l := float64(left.Int())
+		r := right.Float()
+		if l < r {
+			return -1
+		}
+		if l > r {
+			return 1
+		}
+		return 0
+	}
+	if left.Type() == types.TypeFloat && isIntegerType(right.Type()) {
+		l := left.Float()
+		r := float64(right.Int())
 		if l < r {
 			return -1
 		}
@@ -3809,6 +3914,7 @@ func (e *Executor) executeSetOperation(stmt *parser.SetOperation) (*Result, erro
 }
 
 // rowKey creates a string key for a row for use in maps
+// Compatible types (e.g., all integer types, all string types) generate the same key format
 func rowKey(row []types.Value) string {
 	var key string
 	for i, val := range row {
@@ -3818,14 +3924,16 @@ func rowKey(row []types.Value) string {
 		if val.IsNull() {
 			key += "NULL"
 		} else {
-			switch val.Type() {
-			case types.TypeInt:
+			switch {
+			// All integer types share the same key format
+			case isIntegerType(val.Type()):
 				key += fmt.Sprintf("I:%d", val.Int())
-			case types.TypeFloat:
+			case val.Type() == types.TypeFloat:
 				key += fmt.Sprintf("F:%f", val.Float())
-			case types.TypeText:
+			// All string types share the same key format
+			case isStringType(val.Type()):
 				key += fmt.Sprintf("T:%s", val.Text())
-			case types.TypeBlob:
+			case val.Type() == types.TypeBlob:
 				key += fmt.Sprintf("B:%x", val.Blob())
 			default:
 				key += "?"
@@ -4386,9 +4494,15 @@ func (e *Executor) executeExplainAnalyze(stmt *parser.ExplainStmt) (*Result, err
 
 // findIntegerPrimaryKeyColumn returns the index of an INTEGER PRIMARY KEY column,
 // or -1 if no such column exists. This is used for AUTOINCREMENT behavior.
+// Also detects SERIAL and BIGSERIAL columns which are auto-incrementing by definition.
 func (e *Executor) findIntegerPrimaryKeyColumn(table *schema.TableDef) int {
 	for i, col := range table.Columns {
+		// Traditional INTEGER PRIMARY KEY
 		if col.PrimaryKey && col.Type == types.TypeInt {
+			return i
+		}
+		// SERIAL and BIGSERIAL are auto-incrementing by definition
+		if col.Type == types.TypeSerial || col.Type == types.TypeBigSerial {
 			return i
 		}
 	}
@@ -4456,6 +4570,139 @@ func (e *Executor) getNextAutoIncrementID(tableName string) int64 {
 func (e *Executor) trackMaxRowID(tableName string, id int64) {
 	if id > e.maxRowid[tableName] {
 		e.maxRowid[tableName] = id
+	}
+}
+
+// validateAndConvertStrictType validates a value against a column's strict type
+// and converts/transforms it as needed. Returns the (possibly modified) value.
+func (e *Executor) validateAndConvertStrictType(val types.Value, colDef schema.ColumnDef) (types.Value, error) {
+	switch colDef.Type {
+	case types.TypeSmallInt:
+		// SMALLINT: 2-byte signed integer (-32768 to 32767)
+		var intVal int64
+		switch val.Type() {
+		case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt:
+			intVal = val.Int()
+		case types.TypeFloat:
+			intVal = int64(val.Float())
+		default:
+			return val, nil // Let type coercion handle other cases
+		}
+		if err := types.ValidateSmallInt(intVal); err != nil {
+			return types.Value{}, err
+		}
+		return types.NewSmallInt(int16(intVal)), nil
+
+	case types.TypeInt32:
+		// INT: 4-byte signed integer (-2147483648 to 2147483647)
+		var intVal int64
+		switch val.Type() {
+		case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt:
+			intVal = val.Int()
+		case types.TypeFloat:
+			intVal = int64(val.Float())
+		default:
+			return val, nil
+		}
+		if err := types.ValidateInt32(intVal); err != nil {
+			return types.Value{}, err
+		}
+		return types.NewInt32(int32(intVal)), nil
+
+	case types.TypeSerial:
+		// SERIAL: Auto-incrementing 4-byte integer (validated as INT)
+		var intVal int64
+		switch val.Type() {
+		case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial:
+			intVal = val.Int()
+		default:
+			return val, nil
+		}
+		if err := types.ValidateInt32(intVal); err != nil {
+			return types.Value{}, err
+		}
+		return types.NewSerial(int32(intVal)), nil
+
+	case types.TypeBigSerial:
+		// BIGSERIAL: Auto-incrementing 8-byte integer
+		var intVal int64
+		switch val.Type() {
+		case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeBigSerial:
+			intVal = val.Int()
+		default:
+			return val, nil
+		}
+		return types.NewBigSerial(intVal), nil
+
+	case types.TypeVarchar:
+		// VARCHAR(n): Variable-length string with max length
+		var strVal string
+		switch val.Type() {
+		case types.TypeText, types.TypeVarchar, types.TypeChar:
+			strVal = val.Text()
+		default:
+			return val, nil
+		}
+		if err := types.ValidateVarchar(strVal, colDef.MaxLength); err != nil {
+			return types.Value{}, err
+		}
+		return types.NewVarchar(strVal, colDef.MaxLength), nil
+
+	case types.TypeChar:
+		// CHAR(n): Fixed-length string with padding/truncation
+		var strVal string
+		switch val.Type() {
+		case types.TypeText, types.TypeVarchar, types.TypeChar:
+			strVal = val.Text()
+		default:
+			return val, nil
+		}
+		// NewChar handles padding and truncation automatically
+		return types.NewChar(strVal, colDef.MaxLength), nil
+
+	case types.TypeDecimal:
+		// DECIMAL(p,s): Exact numeric with precision and scale
+		var strVal string
+		switch val.Type() {
+		case types.TypeText:
+			strVal = val.Text()
+		case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt:
+			strVal = fmt.Sprintf("%d", val.Int())
+		case types.TypeFloat:
+			strVal = fmt.Sprintf("%f", val.Float())
+		case types.TypeDecimal:
+			// Already a decimal, validate precision matches
+			return val, nil
+		default:
+			return val, nil
+		}
+		// NewDecimal validates precision/scale
+		decVal, err := types.NewDecimal(strVal, colDef.Precision, colDef.Scale)
+		if err != nil {
+			return types.Value{}, err
+		}
+		return decVal, nil
+
+	case types.TypeGUID:
+		// GUID: 128-bit UUID
+		var strVal string
+		switch val.Type() {
+		case types.TypeText, types.TypeVarchar:
+			strVal = val.Text()
+		case types.TypeGUID:
+			return val, nil // Already a GUID
+		default:
+			return val, nil
+		}
+		guidVal, err := types.NewGUIDFromString(strVal)
+		if err != nil {
+			return types.Value{}, fmt.Errorf("invalid GUID format: %w", err)
+		}
+		return guidVal, nil
+
+	default:
+		// Non-strict types pass through unchanged
+		return val, nil
 	}
 }
 

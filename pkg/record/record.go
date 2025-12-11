@@ -3,6 +3,7 @@ package record
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
 	"math/big"
 	"strings"
@@ -189,6 +190,13 @@ func Encode(values []types.Value) []byte {
 		return []byte{1}
 	}
 
+	// DEBUG
+	for i, v := range values {
+		if v.Type() == types.TypeJSON {
+			fmt.Printf("DEBUG Encode: values[%d].Type()=%v, JSON()='%s'\n", i, v.Type(), v.JSON())
+		}
+	}
+
 	// Calculate serial types and sizes
 	serialTypes := make([]uint64, len(values))
 	dataSize := 0
@@ -329,6 +337,7 @@ func encodeValue(buf []byte, v types.Value, st uint64) int {
 
 // Decode decodes a record into values
 func Decode(data []byte) []types.Value {
+	fmt.Printf("DEBUG Decode: data len=%d, data=%v\n", len(data), data)
 	if len(data) == 0 {
 		return nil
 	}

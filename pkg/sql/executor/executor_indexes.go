@@ -263,25 +263,32 @@ func evaluateExpr(expr parser.Expression, valMap map[string]types.Value, funcReg
 	}
 }
 
+// isIntegerTypeForIndex checks if a type is an integer type (for index arithmetic)
+func isIntegerTypeForIndex(t types.ValueType) bool {
+	switch t {
+	case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+		return true
+	}
+	return false
+}
+
 // evalArithmetic performs arithmetic operations on two values
 func evalArithmetic(left, right types.Value, op string) (types.Value, error) {
 	// Convert to float if either operand is float
 	if left.Type() == types.TypeFloat || right.Type() == types.TypeFloat {
 		var l, r float64
-		switch left.Type() {
-		case types.TypeInt:
+		if isIntegerTypeForIndex(left.Type()) {
 			l = float64(left.Int())
-		case types.TypeFloat:
+		} else if left.Type() == types.TypeFloat {
 			l = left.Float()
-		default:
+		} else {
 			return types.NewNull(), nil
 		}
-		switch right.Type() {
-		case types.TypeInt:
+		if isIntegerTypeForIndex(right.Type()) {
 			r = float64(right.Int())
-		case types.TypeFloat:
+		} else if right.Type() == types.TypeFloat {
 			r = right.Float()
-		default:
+		} else {
 			return types.NewNull(), nil
 		}
 
@@ -300,8 +307,8 @@ func evalArithmetic(left, right types.Value, op string) (types.Value, error) {
 		}
 	}
 
-	// Integer arithmetic
-	if left.Type() == types.TypeInt && right.Type() == types.TypeInt {
+	// Integer arithmetic (all integer types)
+	if isIntegerTypeForIndex(left.Type()) && isIntegerTypeForIndex(right.Type()) {
 		l, r := left.Int(), right.Int()
 		switch op {
 		case "+":

@@ -263,6 +263,24 @@ func (t ValueType) String() string {
 	}
 }
 
+// isIntegerType returns true if the type is any integer type (legacy or strict)
+func isIntegerType(t ValueType) bool {
+	switch t {
+	case TypeInt, TypeSmallInt, TypeInt32, TypeBigInt, TypeSerial, TypeBigSerial:
+		return true
+	}
+	return false
+}
+
+// isStringType returns true if the type is any string type
+func isStringType(t ValueType) bool {
+	switch t {
+	case TypeText, TypeVarchar, TypeChar:
+		return true
+	}
+	return false
+}
+
 // Compare compares two Values and returns:
 // -1 if a < b
 //
@@ -270,7 +288,8 @@ func (t ValueType) String() string {
 //	1 if a > b
 //
 // NULL values are considered less than non-NULL values.
-// Different types are compared by their type order.
+// Different types are compared by type order, except for compatible types
+// (e.g., all integer types can be compared with each other).
 func Compare(a, b Value) int {
 	// Handle NULL cases
 	if a.IsNull() && b.IsNull() {
@@ -283,8 +302,49 @@ func Compare(a, b Value) int {
 		return 1
 	}
 
-	// Different types - compare by type order
+	// Handle cross-type comparisons for compatible types
 	if a.typ != b.typ {
+		// All integer types can be compared with each other
+		if isIntegerType(a.typ) && isIntegerType(b.typ) {
+			if a.intVal < b.intVal {
+				return -1
+			} else if a.intVal > b.intVal {
+				return 1
+			}
+			return 0
+		}
+
+		// All string types can be compared with each other
+		if isStringType(a.typ) && isStringType(b.typ) {
+			if a.textVal < b.textVal {
+				return -1
+			} else if a.textVal > b.textVal {
+				return 1
+			}
+			return 0
+		}
+
+		// Integer and float can be compared
+		if isIntegerType(a.typ) && b.typ == TypeFloat {
+			aFloat := float64(a.intVal)
+			if aFloat < b.floatVal {
+				return -1
+			} else if aFloat > b.floatVal {
+				return 1
+			}
+			return 0
+		}
+		if a.typ == TypeFloat && isIntegerType(b.typ) {
+			bFloat := float64(b.intVal)
+			if a.floatVal < bFloat {
+				return -1
+			} else if a.floatVal > bFloat {
+				return 1
+			}
+			return 0
+		}
+
+		// Different incompatible types - compare by type order
 		if a.typ < b.typ {
 			return -1
 		}

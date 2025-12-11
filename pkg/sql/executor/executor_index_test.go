@@ -120,22 +120,23 @@ func TestCreateIndex_PopulatesExistingData(t *testing.T) {
 
 	// Verify all three rows are in the index
 	// Non-unique index: Key = Columns + RowID
+	// Note: INT columns now store values as TypeInt32
 	// Check entry for price=100, rowid=1
-	key1 := record.Encode([]types.Value{types.NewInt(100), types.NewInt(1)})
+	key1 := record.Encode([]types.Value{types.NewInt32(100), types.NewInt(1)})
 	_, err = tree.Get(key1)
 	if err != nil {
 		t.Errorf("Index entry for price=100, rowid=1 not found: %v", err)
 	}
 
 	// Check entry for price=50, rowid=2
-	key2 := record.Encode([]types.Value{types.NewInt(50), types.NewInt(2)})
+	key2 := record.Encode([]types.Value{types.NewInt32(50), types.NewInt(2)})
 	_, err = tree.Get(key2)
 	if err != nil {
 		t.Errorf("Index entry for price=50, rowid=2 not found: %v", err)
 	}
 
 	// Check entry for price=200, rowid=3
-	key3 := record.Encode([]types.Value{types.NewInt(200), types.NewInt(3)})
+	key3 := record.Encode([]types.Value{types.NewInt32(200), types.NewInt(3)})
 	_, err = tree.Get(key3)
 	if err != nil {
 		t.Errorf("Index entry for price=200, rowid=3 not found: %v", err)
