@@ -36,6 +36,7 @@ const (
 	LPAREN    // (
 	RPAREN    // )
 	DOT       // .
+	QUESTION  // ? (parameter placeholder)
 
 	// Keywords
 	SELECT

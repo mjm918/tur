@@ -355,10 +355,11 @@ func (p *Pager) Allocate() (*Page, error) {
 		if err := storage.Grow(newSize); err != nil {
 			return nil, err
 		}
-		// After grow, cached page data slices may be invalid (for mmap)
-		// Clear the cache to force re-fetching
+		// After grow, cached page data slices point to unmapped memory (for mmap)
+		// CRITICAL: We must update all cached pages with new data slices
+		// to prevent SIGSEGV when accessing pinned pages
 		if !p.inMemory {
-			p.invalidateCache()
+			p.refreshCacheAfterGrow()
 		}
 	}
 
@@ -495,8 +496,28 @@ func (p *Pager) Get(pageNo uint32) (*Page, error) {
 	return page, nil
 }
 
+// refreshCacheAfterGrow updates all cached pages with new data slices after mmap regrowth.
+// This is necessary because the underlying memory region changes after remap.
+// CRITICAL: We must update pinned pages - they are actively being used by other code.
+func (p *Pager) refreshCacheAfterGrow() {
+	storage := p.getStorage()
+	if storage == nil {
+		return
+	}
+
+	// Update data slices for all cached pages
+	for pageNo, entry := range p.cache {
+		offset := int(pageNo) * p.pageSize
+		newData := storage.Slice(offset, p.pageSize)
+		if newData != nil {
+			entry.page.UpdateData(newData)
+		}
+	}
+}
+
 // invalidateCache clears all cached pages after mmap regrowth
 // This is necessary because the underlying memory region changes after remap
+// DEPRECATED: Use refreshCacheAfterGrow instead to avoid dangling pointers in pinned pages
 func (p *Pager) invalidateCache() {
 	// Release memory for all cached pages
 	if p.memoryBudget != nil {

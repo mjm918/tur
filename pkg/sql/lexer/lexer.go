@@ -107,6 +107,8 @@ func (l *Lexer) NextToken() Token {
 		tok = l.newToken(LBRACKET, "[")
 	case ']':
 		tok = l.newToken(RBRACKET, "]")
+	case '?':
+		tok = l.newToken(QUESTION, "?")
 	case '.':
 		if isDigit(l.peekChar()) {
 			tok.Literal = l.readNumber()

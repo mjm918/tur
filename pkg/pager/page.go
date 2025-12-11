@@ -51,6 +51,14 @@ func (p *Page) Data() []byte {
 	return p.data
 }
 
+// UpdateData updates the underlying data slice.
+// This is used when mmap region changes after a grow operation.
+func (p *Page) UpdateData(data []byte) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.data = data
+}
+
 // IsDirty returns whether the page has been modified
 func (p *Page) IsDirty() bool {
 	p.mu.RLock()

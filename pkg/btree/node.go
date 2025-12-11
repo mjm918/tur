@@ -45,6 +45,13 @@ type Node struct {
 	data []byte
 }
 
+// RefreshData updates the node's data slice.
+// This is needed after pager.Allocate() which may trigger storage growth
+// that invalidates existing memory mappings.
+func (n *Node) RefreshData(data []byte) {
+	n.data = data
+}
+
 // NewNode creates a new node, initializing the header
 func NewNode(data []byte, isLeaf bool) *Node {
 	n := &Node{data: data}
@@ -73,6 +80,12 @@ func NewNode(data []byte, isLeaf bool) *Node {
 
 // LoadNode loads an existing node from page data
 func LoadNode(data []byte) *Node {
+	if data == nil || len(data) < nodeHeaderSize {
+		// Return a node with minimal valid data to prevent panics
+		// This is a defensive measure - callers should ensure data is valid
+		safeData := make([]byte, nodeHeaderSize)
+		return &Node{data: safeData}
+	}
 	return &Node{data: data}
 }
 
@@ -205,7 +218,21 @@ func (n *Node) RightChild() uint32 {
 // Split splits the node at midpoint, moving upper half to rightNode
 // Returns the median key that should be promoted to the parent
 func (n *Node) Split(rightData []byte) ([]byte, *Node) {
+	// Validate inputs - only check for nil/empty data which would cause panics
+	if rightData == nil || len(rightData) < nodeHeaderSize {
+		// This should never happen - return nil to signal error
+		return nil, nil
+	}
+	if n.data == nil || len(n.data) < nodeHeaderSize {
+		return nil, nil
+	}
+
 	count := n.CellCount()
+	// Allow splitting with 1 cell (mid=0), though unusual
+	// Only reject truly empty nodes
+	if count == 0 {
+		return nil, nil
+	}
 	mid := count / 2
 
 	// Create right node with same type (leaf or interior)
