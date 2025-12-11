@@ -188,6 +188,212 @@ func (e *Executor) Execute(sql string) (*Result, error) {
 	}
 }
 
+// ExecuteAST executes a pre-parsed AST with parameter values.
+// This is used by prepared statements to skip the parsing step.
+func (e *Executor) ExecuteAST(stmt parser.Statement, params []types.Value) (*Result, error) {
+	// Substitute placeholder values in the AST
+	substitutedStmt := e.substituteParams(stmt, params)
+
+	switch s := substitutedStmt.(type) {
+	case *parser.CreateTableStmt:
+		return e.executeCreateTable(s)
+	case *parser.DropTableStmt:
+		return e.executeDropTable(s)
+	case *parser.CreateIndexStmt:
+		return e.executeCreateIndex(s)
+	case *parser.DropIndexStmt:
+		return e.executeDropIndex(s)
+	case *parser.InsertStmt:
+		return e.executeInsert(s)
+	case *parser.SelectStmt:
+		return e.executeSelect(s)
+	case *parser.UpdateStmt:
+		return e.executeUpdate(s)
+	case *parser.DeleteStmt:
+		return e.executeDelete(s)
+	case *parser.TruncateStmt:
+		return e.executeTruncate(s)
+	case *parser.AnalyzeStmt:
+		return e.executeAnalyze(s)
+	case *parser.AlterTableStmt:
+		return e.executeAlterTable(s)
+	case *parser.BeginStmt:
+		return e.executeBegin(s)
+	case *parser.CommitStmt:
+		return e.executeCommit(s)
+	case *parser.RollbackStmt:
+		return e.executeRollback(s)
+	case *parser.SavepointStmt:
+		return e.executeSavepoint(s)
+	case *parser.RollbackToStmt:
+		return e.executeRollbackTo(s)
+	case *parser.ReleaseStmt:
+		return e.executeRelease(s)
+	case *parser.SetOperation:
+		return e.executeSetOperation(s)
+	case *parser.CreateViewStmt:
+		return e.executeCreateView(s)
+	case *parser.DropViewStmt:
+		return e.executeDropView(s)
+	case *parser.ExplainStmt:
+		return e.executeExplain(s)
+	case *parser.CreateTriggerStmt:
+		return e.executeCreateTrigger(s)
+	case *parser.DropTriggerStmt:
+		return e.executeDropTrigger(s)
+	case *parser.IfStmt:
+		return e.executeIfStmt(s)
+	case *parser.CreateProcedureStmt:
+		return e.executeCreateProcedure(s)
+	case *parser.DropProcedureStmt:
+		return e.executeDropProcedure(s)
+	case *parser.CallStmt:
+		return e.executeCall(s)
+	case *parser.SetStmt:
+		return e.executeSetStmt(s)
+	case *parser.PragmaStmt:
+		return e.executePragma(s)
+	default:
+		return nil, fmt.Errorf("unsupported statement type: %T", stmt)
+	}
+}
+
+// substituteParams creates a copy of the statement with Placeholder nodes replaced by Literal nodes
+func (e *Executor) substituteParams(stmt parser.Statement, params []types.Value) parser.Statement {
+	switch s := stmt.(type) {
+	case *parser.SelectStmt:
+		return e.substituteSelectParams(s, params)
+	case *parser.InsertStmt:
+		return e.substituteInsertParams(s, params)
+	case *parser.UpdateStmt:
+		return e.substituteUpdateParams(s, params)
+	case *parser.DeleteStmt:
+		return e.substituteDeleteParams(s, params)
+	default:
+		// For other statements, return as-is (no parameter substitution needed)
+		return stmt
+	}
+}
+
+// substituteSelectParams substitutes placeholders in a SELECT statement
+func (e *Executor) substituteSelectParams(stmt *parser.SelectStmt, params []types.Value) *parser.SelectStmt {
+	result := *stmt // shallow copy
+	if stmt.Where != nil {
+		result.Where = e.substituteExprParams(stmt.Where, params)
+	}
+	if stmt.Limit != nil {
+		result.Limit = e.substituteExprParams(stmt.Limit, params)
+	}
+	if stmt.Offset != nil {
+		result.Offset = e.substituteExprParams(stmt.Offset, params)
+	}
+	return &result
+}
+
+// substituteInsertParams substitutes placeholders in an INSERT statement
+func (e *Executor) substituteInsertParams(stmt *parser.InsertStmt, params []types.Value) *parser.InsertStmt {
+	result := *stmt // shallow copy
+	if stmt.Values != nil {
+		result.Values = make([][]parser.Expression, len(stmt.Values))
+		for i, row := range stmt.Values {
+			result.Values[i] = make([]parser.Expression, len(row))
+			for j, expr := range row {
+				result.Values[i][j] = e.substituteExprParams(expr, params)
+			}
+		}
+	}
+	return &result
+}
+
+// substituteUpdateParams substitutes placeholders in an UPDATE statement
+func (e *Executor) substituteUpdateParams(stmt *parser.UpdateStmt, params []types.Value) *parser.UpdateStmt {
+	result := *stmt // shallow copy
+	if stmt.Where != nil {
+		result.Where = e.substituteExprParams(stmt.Where, params)
+	}
+	if stmt.Assignments != nil {
+		result.Assignments = make([]parser.Assignment, len(stmt.Assignments))
+		for i, assign := range stmt.Assignments {
+			result.Assignments[i] = parser.Assignment{
+				Column: assign.Column,
+				Value:  e.substituteExprParams(assign.Value, params),
+			}
+		}
+	}
+	return &result
+}
+
+// substituteDeleteParams substitutes placeholders in a DELETE statement
+func (e *Executor) substituteDeleteParams(stmt *parser.DeleteStmt, params []types.Value) *parser.DeleteStmt {
+	result := *stmt // shallow copy
+	if stmt.Where != nil {
+		result.Where = e.substituteExprParams(stmt.Where, params)
+	}
+	return &result
+}
+
+// substituteExprParams recursively substitutes Placeholder nodes with Literal nodes
+func (e *Executor) substituteExprParams(expr parser.Expression, params []types.Value) parser.Expression {
+	if expr == nil {
+		return nil
+	}
+
+	switch ex := expr.(type) {
+	case *parser.Placeholder:
+		// Replace placeholder with literal value
+		if ex.Index > 0 && ex.Index <= len(params) {
+			return &parser.Literal{Value: params[ex.Index-1]}
+		}
+		// If index out of range, return NULL
+		return &parser.Literal{Value: types.NewNull()}
+	case *parser.BinaryExpr:
+		return &parser.BinaryExpr{
+			Left:  e.substituteExprParams(ex.Left, params),
+			Op:    ex.Op,
+			Right: e.substituteExprParams(ex.Right, params),
+		}
+	case *parser.UnaryExpr:
+		return &parser.UnaryExpr{
+			Op:    ex.Op,
+			Right: e.substituteExprParams(ex.Right, params),
+		}
+	case *parser.FunctionCall:
+		args := make([]parser.Expression, len(ex.Args))
+		for i, arg := range ex.Args {
+			args[i] = e.substituteExprParams(arg, params)
+		}
+		return &parser.FunctionCall{
+			Name: ex.Name,
+			Args: args,
+		}
+	case *parser.InExpr:
+		values := make([]parser.Expression, len(ex.Values))
+		for i, val := range ex.Values {
+			values[i] = e.substituteExprParams(val, params)
+		}
+		return &parser.InExpr{
+			Left:   e.substituteExprParams(ex.Left, params),
+			Not:    ex.Not,
+			Values: values,
+		}
+	case *parser.CaseExpr:
+		result := &parser.CaseExpr{
+			Operand: e.substituteExprParams(ex.Operand, params),
+			Else:    e.substituteExprParams(ex.Else, params),
+		}
+		for _, when := range ex.Whens {
+			result.Whens = append(result.Whens, &parser.WhenClause{
+				Condition: e.substituteExprParams(when.Condition, params),
+				Then:      e.substituteExprParams(when.Then, params),
+			})
+		}
+		return result
+	default:
+		// For Literal, ColumnRef, and other nodes, return as-is
+		return expr
+	}
+}
+
 // executeCreateTable handles CREATE TABLE
 func (e *Executor) executeCreateTable(stmt *parser.CreateTableStmt) (*Result, error) {
 	// Check if table already exists

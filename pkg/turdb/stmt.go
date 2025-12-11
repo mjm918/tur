@@ -40,6 +40,9 @@ type Stmt struct {
 
 	// closed indicates if the statement has been closed
 	closed bool
+
+	// cachedAST is the pre-parsed AST for faster execution
+	cachedAST parser.Statement
 }
 
 // SQL returns the original SQL text of the prepared statement.
@@ -172,9 +175,6 @@ func (s *Stmt) ExecContext(ctx context.Context) (ExecResult, error) {
 		return ExecResult{}, ErrStmtClosed
 	}
 
-	// Build the SQL with bound parameters substituted
-	sqlWithParams := s.substituteParams()
-
 	// Lock the database and execute
 	s.db.mu.Lock()
 	defer s.db.mu.Unlock()
@@ -188,7 +188,19 @@ func (s *Stmt) ExecContext(ctx context.Context) (ExecResult, error) {
 		return ExecResult{}, ErrDatabaseClosed
 	}
 
-	// Execute using the database's executor
+	// Use cached AST with parameter substitution (faster path)
+	if s.cachedAST != nil {
+		result, err := s.db.executor.ExecuteAST(s.cachedAST, s.params)
+		if err != nil {
+			return ExecResult{}, err
+		}
+		return ExecResult{
+			rowsAffected: result.RowsAffected,
+		}, nil
+	}
+
+	// Fallback: Build the SQL with bound parameters substituted
+	sqlWithParams := s.substituteParams()
 	result, err := s.db.executor.Execute(sqlWithParams)
 	if err != nil {
 		return ExecResult{}, err
@@ -275,9 +287,6 @@ func (s *Stmt) QueryContext(ctx context.Context) (*Rows, error) {
 		return nil, ErrStmtClosed
 	}
 
-	// Build the SQL with bound parameters substituted
-	sqlWithParams := s.substituteParams()
-
 	// Lock the database and execute
 	s.db.mu.Lock()
 	defer s.db.mu.Unlock()
@@ -291,7 +300,17 @@ func (s *Stmt) QueryContext(ctx context.Context) (*Rows, error) {
 		return nil, ErrDatabaseClosed
 	}
 
-	// Execute using the database's executor
+	// Use cached AST with parameter substitution (faster path)
+	if s.cachedAST != nil {
+		result, err := s.db.executor.ExecuteAST(s.cachedAST, s.params)
+		if err != nil {
+			return nil, err
+		}
+		return NewRows(result.Columns, result.Rows), nil
+	}
+
+	// Fallback: Build the SQL with bound parameters substituted
+	sqlWithParams := s.substituteParams()
 	result, err := s.db.executor.Execute(sqlWithParams)
 	if err != nil {
 		return nil, err
@@ -325,6 +344,7 @@ func valueToSQL(v types.Value) string {
 
 // Prepare prepares a SQL statement for execution.
 // The statement can contain parameter placeholders (?) which are bound later.
+// The SQL is parsed once during Prepare and the AST is cached for faster execution.
 func (db *DB) Prepare(sql string) (*Stmt, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
@@ -333,16 +353,15 @@ func (db *DB) Prepare(sql string) (*Stmt, error) {
 		return nil, ErrDatabaseClosed
 	}
 
-	// Count parameter placeholders
-	numParams := countParams(sql)
-
-	// Validate the SQL by attempting to parse it
-	// We use the executor's ability to parse to validate
-	// For now, we just do basic validation by checking it's not empty
-	// and doesn't have obvious syntax errors
-	if err := validateSQL(sql); err != nil {
-		return nil, err
+	// Parse the SQL once and cache the AST
+	p := parser.New(sql)
+	ast, err := p.Parse()
+	if err != nil {
+		return nil, fmt.Errorf("prepare error: %w", err)
 	}
+
+	// Get the placeholder count from the parser
+	numParams := p.PlaceholderCount()
 
 	stmt := &Stmt{
 		db:        db,
@@ -350,6 +369,7 @@ func (db *DB) Prepare(sql string) (*Stmt, error) {
 		numParams: numParams,
 		params:    make([]types.Value, numParams),
 		closed:    false,
+		cachedAST: ast,
 	}
 
 	// Initialize all parameters to NULL
