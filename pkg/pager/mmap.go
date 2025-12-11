@@ -87,6 +87,14 @@ func (m *MmapFile) Grow(newSize int64) error {
 		return nil
 	}
 
+	// CRITICAL: Sync dirty pages to disk before unmapping.
+	// With MAP_SHARED, writes go to the kernel page cache but may not be
+	// flushed to disk yet. We must sync to ensure data is persisted before
+	// we unmap and remap the region.
+	if err := unix.Msync(m.data, unix.MS_SYNC); err != nil {
+		return err
+	}
+
 	// Unmap current mapping
 	if err := syscall.Munmap(m.data); err != nil {
 		return err

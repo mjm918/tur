@@ -158,14 +158,23 @@ func (bt *BTree) insertIntoLeaf(page *pager.Page, node *Node, key, value []byte)
 // splitLeaf splits a full leaf node
 func (bt *BTree) splitLeaf(page *pager.Page, node *Node, key, value []byte, pos int) (*splitResult, uint32, error) {
 	// Allocate new page for right sibling
+	// CRITICAL: Allocate() may trigger storage growth which invalidates existing
+	// memory mappings. The Page objects are updated by refreshCacheAfterGrow(),
+	// but our local node reference still holds the old data slice.
 	rightPage, err := bt.pager.Allocate()
 	if err != nil {
 		return nil, 0, err
 	}
 	defer bt.pager.Release(rightPage)
 
+	// Refresh node data from page after potential storage growth
+	node.RefreshData(page.Data())
+
 	// Split the node
 	medianKey, rightNode := node.Split(rightPage.Data())
+	if medianKey == nil || rightNode == nil {
+		return nil, 0, errors.New("failed to split node: invalid data")
+	}
 	rightPage.SetDirty(true)
 	// Note: Don't use SetType here - the node header already contains type info
 
@@ -201,10 +210,15 @@ func (bt *BTree) insertIntoInterior(page *pager.Page, node *Node, key, value []b
 	childPageNo, childIdx := bt.findChildPageWithIndex(node, key)
 
 	// Recursively insert
+	// CRITICAL: This recursive call may trigger storage growth which invalidates
+	// memory mappings. After return, we must refresh node.data from page.Data().
 	split, newRootPage, err := bt.insertRecursive(childPageNo, key, value)
 	if err != nil {
 		return nil, 0, err
 	}
+
+	// Refresh node data after potential storage growth during recursive insert
+	node.RefreshData(page.Data())
 
 	// If a new root was created below us, propagate it up
 	if newRootPage != 0 {
@@ -270,14 +284,21 @@ func (bt *BTree) insertIntoInterior(page *pager.Page, node *Node, key, value []b
 // splitInteriorFromRightChild handles splitting an interior node when the split originated from rightChild
 func (bt *BTree) splitInteriorFromRightChild(page *pager.Page, node *Node, promotedKey []byte, leftChild, rightChild uint32) (*splitResult, uint32, error) {
 	// Allocate new page for right sibling
+	// CRITICAL: Allocate() may trigger storage growth - see splitLeaf comment
 	newRightPage, err := bt.pager.Allocate()
 	if err != nil {
 		return nil, 0, err
 	}
 	defer bt.pager.Release(newRightPage)
 
+	// Refresh node data from page after potential storage growth
+	node.RefreshData(page.Data())
+
 	// Split the interior node
 	medianKey, newRightNode := node.Split(newRightPage.Data())
+	if medianKey == nil || newRightNode == nil {
+		return nil, 0, errors.New("failed to split interior node: invalid data")
+	}
 	newRightPage.SetDirty(true)
 
 	// Now insert the promoted key into the appropriate side
@@ -315,14 +336,21 @@ func (bt *BTree) splitInteriorFromRightChild(page *pager.Page, node *Node, promo
 // splitInteriorFromCell handles splitting an interior node when the split originated from a cell pointer
 func (bt *BTree) splitInteriorFromCell(page *pager.Page, node *Node, promotedKey []byte, leftChild, rightChild uint32, origCellIdx int) (*splitResult, uint32, error) {
 	// Allocate new page for right sibling
+	// CRITICAL: Allocate() may trigger storage growth - see splitLeaf comment
 	newRightPage, err := bt.pager.Allocate()
 	if err != nil {
 		return nil, 0, err
 	}
 	defer bt.pager.Release(newRightPage)
 
+	// Refresh node data from page after potential storage growth
+	node.RefreshData(page.Data())
+
 	// Split the interior node
 	medianKey, newRightNode := node.Split(newRightPage.Data())
+	if medianKey == nil || newRightNode == nil {
+		return nil, 0, errors.New("failed to split interior node from cell: invalid data")
+	}
 	newRightPage.SetDirty(true)
 
 	// Insert the promoted key into the appropriate side

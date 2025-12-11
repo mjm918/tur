@@ -2281,8 +2281,263 @@ func (e *Executor) executeSelect(stmt *parser.SelectStmt) (*Result, error) {
 	return e.executeSelectWithCTEs(stmt, nil)
 }
 
+// tryFastPathPKLookup attempts to execute a simple PRIMARY KEY lookup without
+// going through the full planning and iteration process. This provides significant
+// performance improvements for point queries like:
+//   SELECT * FROM table WHERE pk_column = value
+//
+// Returns (result, true) if fast path was used, (nil, false) otherwise.
+func (e *Executor) tryFastPathPKLookup(stmt *parser.SelectStmt) (*Result, bool) {
+	// Fast path requirements:
+	// 1. No CTEs (WITH clause)
+	// 2. Single table (no joins)
+	// 3. No GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET
+	// 4. WHERE clause is a simple equality on PRIMARY KEY
+	// 5. SELECT * or all columns (no computed expressions)
+
+	if stmt.With != nil {
+		return nil, false
+	}
+	if stmt.GroupBy != nil || stmt.Having != nil {
+		return nil, false
+	}
+	if stmt.OrderBy != nil || stmt.Limit != nil {
+		return nil, false
+	}
+	if stmt.Where == nil {
+		return nil, false
+	}
+	if stmt.From == nil {
+		return nil, false
+	}
+
+	// Check for single table reference (not a join)
+	table, ok := stmt.From.(*parser.Table)
+	if !ok {
+		return nil, false
+	}
+
+	// Get table definition
+	tableDef := e.catalog.GetTable(table.Name)
+	if tableDef == nil {
+		return nil, false
+	}
+
+	// Find primary key column
+	var pkColName string
+	var pkColIndex int = -1
+	for i, col := range tableDef.Columns {
+		if col.PrimaryKey {
+			pkColName = col.Name
+			pkColIndex = i
+			break
+		}
+	}
+	if pkColIndex == -1 {
+		return nil, false
+	}
+
+	// Check if WHERE is a simple equality: pk_column = literal
+	binExpr, ok := stmt.Where.(*parser.BinaryExpr)
+	if !ok || binExpr.Op != lexer.EQ {
+		return nil, false
+	}
+
+	// Left side should be the column
+	var colName string
+	var lookupValue types.Value
+
+	if colRef, ok := binExpr.Left.(*parser.ColumnRef); ok {
+		colName = colRef.Name
+	} else {
+		return nil, false
+	}
+
+	// Normalize column name comparison
+	if !strings.EqualFold(colName, pkColName) {
+		return nil, false
+	}
+
+	// Right side should be a literal value
+	if lit, ok := binExpr.Right.(*parser.Literal); ok {
+		lookupValue = lit.Value
+	} else {
+		return nil, false
+	}
+
+	// Get the B-tree for this table
+	tree := e.trees[tableDef.Name]
+	if tree == nil {
+		if tableDef.RootPage == 0 {
+			return nil, false
+		}
+		tree = btree.Open(e.pager, tableDef.RootPage)
+		e.trees[tableDef.Name] = tree
+	}
+
+	// Build the key for lookup
+	// Key format: 8-byte big-endian rowid (which is the PK value for INTEGER PRIMARY KEY)
+	var key []byte
+	switch lookupValue.Type() {
+	case types.TypeInt:
+		key = make([]byte, 8)
+		binary.BigEndian.PutUint64(key, uint64(lookupValue.Int()))
+	default:
+		// For non-integer keys, we need to encode differently
+		// For now, fall back to regular path for non-integer PKs
+		return nil, false
+	}
+
+	// Direct B-tree lookup
+	data, err := tree.Get(key)
+	if err != nil {
+		// Key not found or error - return empty result
+		// Use column names from SELECT clause if specific columns are requested
+		columns := e.buildColumnNames(tableDef, table.Alias)
+		if stmt.Columns != nil && len(stmt.Columns) > 0 {
+			projectedCols := e.getProjectedColumnNames(stmt.Columns)
+			if projectedCols != nil {
+				columns = projectedCols
+			}
+		}
+		return &Result{
+			Columns: columns,
+			Rows:    [][]types.Value{},
+		}, true
+	}
+
+	// Decode the record
+	row := record.Decode(data)
+
+	// Build column list
+	columns := e.buildColumnNames(tableDef, table.Alias)
+
+	// Apply type conversions (like JSON parsing)
+	e.applyTypeConversions(row, tableDef)
+
+	// Check if we need all columns or specific ones
+	if stmt.Columns != nil && len(stmt.Columns) > 0 {
+		// Project only requested columns
+		projectedRow, projectedCols := e.projectColumns(stmt.Columns, row, columns, tableDef)
+		if projectedRow != nil {
+			return &Result{
+				Columns: projectedCols,
+				Rows:    [][]types.Value{projectedRow},
+			}, true
+		}
+		// Fall back if projection fails
+		return nil, false
+	}
+
+	return &Result{
+		Columns: columns,
+		Rows:    [][]types.Value{row},
+	}, true
+}
+
+// buildColumnNames builds column names with optional alias prefix
+func (e *Executor) buildColumnNames(table *schema.TableDef, alias string) []string {
+	prefix := table.Name
+	if alias != "" {
+		prefix = alias
+	}
+	columns := make([]string, len(table.Columns))
+	for i, col := range table.Columns {
+		columns[i] = prefix + "." + col.Name
+	}
+	return columns
+}
+
+// applyTypeConversions applies necessary type conversions to a row
+func (e *Executor) applyTypeConversions(row []types.Value, table *schema.TableDef) {
+	for i := 0; i < len(row) && i < len(table.Columns); i++ {
+		col := table.Columns[i]
+		if col.Type == types.TypeJSON && row[i].Type() == types.TypeText {
+			// Convert TEXT to JSON type
+			row[i] = types.NewJSON(row[i].Text())
+		}
+	}
+}
+
+// projectColumns projects specific columns from a full row
+func (e *Executor) projectColumns(selectCols []parser.SelectColumn, row []types.Value, allColumns []string, table *schema.TableDef) ([]types.Value, []string) {
+	// Build column index map
+	colIndex := make(map[string]int)
+	for i, col := range allColumns {
+		// Store both full name and just column name (lowercase for case-insensitive lookup)
+		colIndex[strings.ToLower(col)] = i
+		parts := strings.Split(col, ".")
+		if len(parts) == 2 {
+			colIndex[strings.ToLower(parts[1])] = i
+		}
+	}
+
+	projected := make([]types.Value, 0, len(selectCols))
+	projectedNames := make([]string, 0, len(selectCols))
+
+	for _, sc := range selectCols {
+		if sc.Star {
+			// SELECT * - return all columns
+			return row, allColumns
+		}
+
+		// Try to find the column
+		switch expr := sc.Expr.(type) {
+		case *parser.ColumnRef:
+			key := strings.ToLower(expr.Name)
+			if idx, ok := colIndex[key]; ok && idx < len(row) {
+				projected = append(projected, row[idx])
+				name := expr.Name
+				if sc.Alias != "" {
+					name = sc.Alias
+				}
+				projectedNames = append(projectedNames, name)
+			} else {
+				return nil, nil // Column not found
+			}
+		default:
+			// Complex expression - fall back to regular path
+			return nil, nil
+		}
+	}
+
+	return projected, projectedNames
+}
+
+// getProjectedColumnNames extracts column names from SELECT columns
+// This is used when we need column names without having row data (e.g., empty result)
+func (e *Executor) getProjectedColumnNames(selectCols []parser.SelectColumn) []string {
+	var names []string
+	for _, sc := range selectCols {
+		if sc.Star {
+			// SELECT * - we can't determine column names without table info
+			return nil
+		}
+		switch expr := sc.Expr.(type) {
+		case *parser.ColumnRef:
+			name := expr.Name
+			if sc.Alias != "" {
+				name = sc.Alias
+			}
+			names = append(names, name)
+		default:
+			// Complex expression - return nil to fall back
+			return nil
+		}
+	}
+	return names
+}
+
 // executeSelectWithCTEs handles SELECT with optional CTE context
 func (e *Executor) executeSelectWithCTEs(stmt *parser.SelectStmt, cteData map[string]*cteResult) (*Result, error) {
+	// FAST PATH: Try direct PRIMARY KEY lookup for simple point queries.
+	// This bypasses the full planning/iteration pipeline for significant speedup.
+	if cteData == nil {
+		if result, ok := e.tryFastPathPKLookup(stmt); ok {
+			return result, nil
+		}
+	}
+
 	// Handle WITH clause (CTEs)
 	if stmt.With != nil {
 		// Materialize each CTE
