@@ -59,7 +59,7 @@ func TestParser_CreateTable_WithConstraints(t *testing.T) {
 }
 
 func TestParser_CreateTable_AllTypes(t *testing.T) {
-	input := "CREATE TABLE data (a INT, b INTEGER, c TEXT, d FLOAT, e REAL, f BLOB, g VECTOR(3))"
+	input := "CREATE TABLE data (a INT, b BIGINT, c TEXT, d FLOAT, e REAL, f BLOB, g VECTOR(3))"
 	p := New(input)
 	stmt, err := p.Parse()
 	if err != nil {
@@ -68,7 +68,7 @@ func TestParser_CreateTable_AllTypes(t *testing.T) {
 
 	create := stmt.(*CreateTableStmt)
 	expectedTypes := []types.ValueType{
-		types.TypeInt32, types.TypeInt, types.TypeText, types.TypeFloat, // INT->TypeInt32, INTEGER->TypeInt (legacy)
+		types.TypeInt32, types.TypeBigInt, types.TypeText, types.TypeFloat, // INT->TypeInt32, BIGINT->TypeBigInt
 		types.TypeFloat, types.TypeBlob, types.TypeVector,
 	}
 
@@ -370,13 +370,33 @@ func TestParser_Select_WhereComparisons(t *testing.T) {
 func TestParser_Literals(t *testing.T) {
 	tests := []struct {
 		input    string
-		checkVal func(*Literal) bool
+		checkVal func(Expression) bool
 	}{
-		{"INSERT INTO t VALUES (NULL)", func(l *Literal) bool { return l.Value.IsNull() }},
-		{"INSERT INTO t VALUES (42)", func(l *Literal) bool { return l.Value.Int() == 42 }},
-		{"INSERT INTO t VALUES (-42)", func(l *Literal) bool { return l.Value.Int() == -42 }},
-		{"INSERT INTO t VALUES (3.14)", func(l *Literal) bool { return l.Value.Float() == 3.14 }},
-		{"INSERT INTO t VALUES ('hello')", func(l *Literal) bool { return l.Value.Text() == "hello" }},
+		{"INSERT INTO t VALUES (NULL)", func(e Expression) bool {
+			l := e.(*Literal)
+			return l.Value.IsNull()
+		}},
+		{"INSERT INTO t VALUES (42)", func(e Expression) bool {
+			l := e.(*Literal)
+			return l.Value.Int() == 42
+		}},
+		{"INSERT INTO t VALUES (-42)", func(e Expression) bool {
+			// Negative numbers are parsed as UnaryExpr with minus operator
+			u := e.(*UnaryExpr)
+			if u.Op != lexer.MINUS {
+				return false
+			}
+			l := u.Right.(*Literal)
+			return l.Value.Int() == 42
+		}},
+		{"INSERT INTO t VALUES (3.14)", func(e Expression) bool {
+			l := e.(*Literal)
+			return l.Value.Float() == 3.14
+		}},
+		{"INSERT INTO t VALUES ('hello')", func(e Expression) bool {
+			l := e.(*Literal)
+			return l.Value.Text() == "hello"
+		}},
 	}
 
 	for _, tt := range tests {
@@ -388,10 +408,10 @@ func TestParser_Literals(t *testing.T) {
 		}
 
 		insert := stmt.(*InsertStmt)
-		lit := insert.Values[0][0].(*Literal)
+		expr := insert.Values[0][0]
 
-		if !tt.checkVal(lit) {
-			t.Errorf("Parse(%q): unexpected value %+v", tt.input, lit.Value)
+		if !tt.checkVal(expr) {
+			t.Errorf("Parse(%q): unexpected value %+v", tt.input, expr)
 		}
 	}
 }

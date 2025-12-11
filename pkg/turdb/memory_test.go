@@ -28,7 +28,7 @@ func TestOpenMemoryDatabase(t *testing.T) {
 	}
 
 	// Verify database is functional
-	result, err := db.Exec("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)")
+	result, err := db.Exec("CREATE TABLE test (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("Failed to create table: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestMemoryDatabaseNoFilesCreated(t *testing.T) {
 	}
 
 	// Create a table to ensure database is actually used
-	_, err = db.Exec("CREATE TABLE test (id INTEGER)")
+	_, err = db.Exec("CREATE TABLE test (id INT)")
 	if err != nil {
 		t.Fatalf("Failed to create table: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestMemoryDatabaseDataLostOnClose(t *testing.T) {
 		t.Fatalf("Failed to open in-memory database: %v", err)
 	}
 
-	_, err = db1.Exec("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
+	_, err = db1.Exec("CREATE TABLE test (id INT PRIMARY KEY, value TEXT)")
 	if err != nil {
 		t.Fatalf("Failed to create table: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestMemoryDatabaseMultipleInstances(t *testing.T) {
 	defer db2.Close()
 
 	// Create table in first database
-	_, err = db1.Exec("CREATE TABLE users (id INTEGER, name TEXT)")
+	_, err = db1.Exec("CREATE TABLE users (id INT, name TEXT)")
 	if err != nil {
 		t.Fatalf("Failed to create table in db1: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestMemoryDatabaseMultipleInstances(t *testing.T) {
 	}
 
 	// Create different table in second database
-	_, err = db2.Exec("CREATE TABLE products (id INTEGER, name TEXT)")
+	_, err = db2.Exec("CREATE TABLE products (id INT, name TEXT)")
 	if err != nil {
 		t.Fatalf("Failed to create table in db2: %v", err)
 	}

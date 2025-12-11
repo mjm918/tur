@@ -255,6 +255,12 @@ func evaluateExpr(expr parser.Expression, valMap map[string]types.Value, funcReg
 			switch right.Type() {
 			case types.TypeInt:
 				return types.NewInt(-right.Int()), nil
+			case types.TypeInt32:
+				return types.NewInt32(int32(-right.Int())), nil
+			case types.TypeSmallInt:
+				return types.NewSmallInt(int16(-right.Int())), nil
+			case types.TypeBigInt:
+				return types.NewBigInt(-right.Int()), nil
 			case types.TypeFloat:
 				return types.NewFloat(-right.Float()), nil
 			}

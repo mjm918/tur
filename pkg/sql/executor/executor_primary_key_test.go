@@ -131,13 +131,14 @@ func TestPrimaryKey_RejectsDuplicateCompositeKey(t *testing.T) {
 	}
 }
 
-// Test Task 3: AUTOINCREMENT for INTEGER PRIMARY KEY
+// Test Task 3: AUTOINCREMENT for SERIAL column
 
 func TestPrimaryKey_AutoIncrement_GeneratesRowID(t *testing.T) {
 	exec, cleanup := setupTestExecutor(t)
 	defer cleanup()
 
-	_, err := exec.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	// Use SERIAL for auto-increment behavior (not INTEGER which no longer auto-increments)
+	_, err := exec.Execute("CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE: %v", err)
 	}
@@ -181,7 +182,8 @@ func TestPrimaryKey_AutoIncrement_ContinuesAfterExplicitID(t *testing.T) {
 	exec, cleanup := setupTestExecutor(t)
 	defer cleanup()
 
-	_, err := exec.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	// Use SERIAL for auto-increment behavior
+	_, err := exec.Execute("CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE: %v", err)
 	}
@@ -217,12 +219,13 @@ func TestPrimaryKey_AutoIncrement_WithNULL(t *testing.T) {
 	exec, cleanup := setupTestExecutor(t)
 	defer cleanup()
 
-	_, err := exec.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	// Use SERIAL for auto-increment behavior
+	_, err := exec.Execute("CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE: %v", err)
 	}
 
-	// Insert with NULL id - should auto-generate (SQLite behavior)
+	// Insert with NULL id - should auto-generate for SERIAL column
 	_, err = exec.Execute("INSERT INTO users VALUES (NULL, 'Alice')")
 	if err != nil {
 		t.Fatalf("INSERT with NULL id: %v", err)
@@ -243,13 +246,14 @@ func TestPrimaryKey_AutoIncrement_WithNULL(t *testing.T) {
 	}
 }
 
-// Test Task 4: Track max rowid in table metadata
+// Test Task 4: Track max rowid in table metadata for SERIAL columns
 
 func TestPrimaryKey_MaxRowID_TrackedAcrossInserts(t *testing.T) {
 	exec, cleanup := setupTestExecutor(t)
 	defer cleanup()
 
-	_, err := exec.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	// Use SERIAL for auto-increment behavior
+	_, err := exec.Execute("CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE: %v", err)
 	}
@@ -293,7 +297,7 @@ func TestPrimaryKey_ImpliesNotNull(t *testing.T) {
 	exec, cleanup := setupTestExecutor(t)
 	defer cleanup()
 
-	// Note: For non-INTEGER PRIMARY KEY, NULL should be rejected
+	// Note: For non-INT PRIMARY KEY, NULL should be rejected
 	_, err := exec.Execute("CREATE TABLE products (sku TEXT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE: %v", err)

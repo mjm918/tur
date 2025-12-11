@@ -306,7 +306,7 @@ func TestTx_Exec_CreateTable(t *testing.T) {
 	}
 
 	// Act: execute CREATE TABLE in transaction
-	result, err := tx.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	result, err := tx.Exec("CREATE TABLE users (id INT PRIMARY KEY, name TEXT)")
 
 	// Assert: execution succeeds
 	if err != nil {
@@ -338,7 +338,7 @@ func TestTx_Exec_InsertAndSelect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Begin() failed: %v", err)
 	}
-	if _, err := tx1.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
+	if _, err := tx1.Exec("CREATE TABLE users (id INT PRIMARY KEY, name TEXT)"); err != nil {
 		t.Fatalf("CREATE TABLE failed: %v", err)
 	}
 	if err := tx1.Commit(); err != nil {
@@ -393,7 +393,7 @@ func TestTx_Exec_OnDoneTransaction_ReturnsError(t *testing.T) {
 	}
 
 	// Act: try to execute on committed transaction
-	_, err = tx.Exec("CREATE TABLE foo (id INTEGER)")
+	_, err = tx.Exec("CREATE TABLE foo (id INT)")
 
 	// Assert: should return error
 	if err == nil {
@@ -416,7 +416,7 @@ func TestDB_Exec_OutsideTransaction(t *testing.T) {
 	defer db.Close()
 
 	// Act: execute SQL directly on DB (auto-commit mode)
-	result, err := db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	result, err := db.Exec("CREATE TABLE users (id INT PRIMARY KEY, name TEXT)")
 
 	// Assert: execution succeeds
 	if err != nil {
@@ -439,7 +439,7 @@ func TestDB_Exec_InsertOutsideTransaction(t *testing.T) {
 	defer db.Close()
 
 	// Create table
-	if _, err := db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
+	if _, err := db.Exec("CREATE TABLE users (id INT PRIMARY KEY, name TEXT)"); err != nil {
 		t.Fatalf("CREATE TABLE failed: %v", err)
 	}
 
@@ -476,7 +476,7 @@ func TestDB_Exec_OnClosedDatabase_ReturnsError(t *testing.T) {
 	db.Close()
 
 	// Act: try to execute on closed database
-	_, err = db.Exec("CREATE TABLE foo (id INTEGER)")
+	_, err = db.Exec("CREATE TABLE foo (id INT)")
 
 	// Assert: should return error
 	if err == nil {
@@ -567,7 +567,7 @@ func TestTx_AutoRollbackPattern(t *testing.T) {
 	defer db.Close()
 
 	// Create table
-	_, err = db.Exec("CREATE TABLE test (id INTEGER PRIMARY KEY, val TEXT)")
+	_, err = db.Exec("CREATE TABLE test (id INT PRIMARY KEY, val TEXT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE failed: %v", err)
 	}
@@ -617,7 +617,7 @@ func TestTx_SuccessfulCommitPattern(t *testing.T) {
 	defer db.Close()
 
 	// Create table
-	_, err = db.Exec("CREATE TABLE test (id INTEGER PRIMARY KEY, val TEXT)")
+	_, err = db.Exec("CREATE TABLE test (id INT PRIMARY KEY, val TEXT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE failed: %v", err)
 	}

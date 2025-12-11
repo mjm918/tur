@@ -11,13 +11,13 @@ func TestScalarSubquery(t *testing.T) {
 	defer cleanup()
 
 	// Create users table
-	_, err := exec.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)")
+	_, err := exec.Execute("CREATE TABLE users (id INT PRIMARY KEY, name TEXT, age INT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE users failed: %v", err)
 	}
 
 	// Create settings table for a scalar subquery source
-	_, err = exec.Execute("CREATE TABLE settings (name TEXT PRIMARY KEY, val INTEGER)")
+	_, err = exec.Execute("CREATE TABLE settings (name TEXT PRIMARY KEY, val INT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE settings failed: %v", err)
 	}
@@ -62,11 +62,11 @@ func TestScalarSubquery_ReturnsMultipleRows_Error(t *testing.T) {
 	defer cleanup()
 
 	// Create tables
-	_, err := exec.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	_, err := exec.Execute("CREATE TABLE users (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE failed: %v", err)
 	}
-	_, err = exec.Execute("CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER)")
+	_, err = exec.Execute("CREATE TABLE orders (id INT PRIMARY KEY, user_id INT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE failed: %v", err)
 	}
@@ -100,11 +100,11 @@ func TestInSubquery(t *testing.T) {
 	defer cleanup()
 
 	// Create tables
-	_, err := exec.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	_, err := exec.Execute("CREATE TABLE users (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE failed: %v", err)
 	}
-	_, err = exec.Execute("CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER)")
+	_, err = exec.Execute("CREATE TABLE orders (id INT PRIMARY KEY, user_id INT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE failed: %v", err)
 	}
@@ -156,11 +156,11 @@ func TestNotInSubquery(t *testing.T) {
 	defer cleanup()
 
 	// Create tables
-	_, err := exec.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	_, err := exec.Execute("CREATE TABLE users (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE failed: %v", err)
 	}
-	_, err = exec.Execute("CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER)")
+	_, err = exec.Execute("CREATE TABLE orders (id INT PRIMARY KEY, user_id INT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE failed: %v", err)
 	}
@@ -206,11 +206,11 @@ func TestExistsSubquery(t *testing.T) {
 	defer cleanup()
 
 	// Create tables
-	_, err := exec.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	_, err := exec.Execute("CREATE TABLE users (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE failed: %v", err)
 	}
-	_, err = exec.Execute("CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER)")
+	_, err = exec.Execute("CREATE TABLE orders (id INT PRIMARY KEY, user_id INT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE failed: %v", err)
 	}
@@ -249,11 +249,11 @@ func TestNotExistsSubquery(t *testing.T) {
 	defer cleanup()
 
 	// Create tables
-	_, err := exec.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	_, err := exec.Execute("CREATE TABLE users (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE failed: %v", err)
 	}
-	_, err = exec.Execute("CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER)")
+	_, err = exec.Execute("CREATE TABLE orders (id INT PRIMARY KEY, user_id INT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE failed: %v", err)
 	}
@@ -291,7 +291,7 @@ func TestInValueList(t *testing.T) {
 	defer cleanup()
 
 	// Create table
-	_, err := exec.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	_, err := exec.Execute("CREATE TABLE users (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE failed: %v", err)
 	}

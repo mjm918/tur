@@ -34,7 +34,7 @@ func main() {
 	printMemStats("After opening database (default settings)")
 
 	// Create a test table
-	_, err = db.Exec("CREATE TABLE test (id INTEGER, data TEXT)")
+	_, err = db.Exec("CREATE TABLE test (id INT, data TEXT)")
 	if err != nil {
 		fmt.Printf("Failed to create table: %v\n", err)
 		return

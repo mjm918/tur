@@ -333,8 +333,8 @@ func TestMillionRecordsWithPersistence(t *testing.T) {
 	}
 
 	// Create table with multiple columns to simulate real workload
-	// Using INTEGER PRIMARY KEY (not INT) to enable fast rowid-based lookups
-	_, err = db.Exec("CREATE TABLE records (id INTEGER PRIMARY KEY, hash TEXT, value INT, category INT, timestamp INT)")
+	// Using INT PRIMARY KEY (not INT) to enable fast rowid-based lookups
+	_, err = db.Exec("CREATE TABLE records (id INT PRIMARY KEY, hash TEXT, value INT, category INT, timestamp INT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE failed: %v", err)
 	}
@@ -660,8 +660,8 @@ func TestMillionRecordsCompareWithSQLite(t *testing.T) {
 		t.Fatalf("Failed to open TurDB: %v", err)
 	}
 
-	// Using INTEGER PRIMARY KEY (not INT) to enable fast rowid-based lookups
-	_, err = db.Exec("CREATE TABLE bench (id INTEGER PRIMARY KEY, data TEXT, value INT)")
+	// Using INT PRIMARY KEY (not INT) to enable fast rowid-based lookups
+	_, err = db.Exec("CREATE TABLE bench (id INT PRIMARY KEY, data TEXT, value INT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE failed: %v", err)
 	}

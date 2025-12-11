@@ -49,7 +49,7 @@ type DB struct {
 	// rowid tracks next rowid for each table
 	rowid map[string]uint64
 
-	// maxRowid tracks max INTEGER PRIMARY KEY value per table (for AUTOINCREMENT)
+	// maxRowid tracks max INT PRIMARY KEY value per table (for AUTOINCREMENT)
 	maxRowid map[string]int64
 
 	// txManager handles MVCC transactions
@@ -419,7 +419,7 @@ func valueToGo(v types.Value) interface{} {
 	switch v.Type() {
 	case types.TypeNull:
 		return nil
-	case types.TypeInt:
+	case types.TypeInt, types.TypeInt32, types.TypeSmallInt, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return v.Int()
 	case types.TypeFloat:
 		return v.Float()

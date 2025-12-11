@@ -26,7 +26,7 @@ func TestFindConflictingRowByPrimaryKey(t *testing.T) {
 	exec := New(p)
 	defer exec.Close()
 
-	_, err = exec.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	_, err = exec.Execute("CREATE TABLE users (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -42,7 +42,8 @@ func TestFindConflictingRowByPrimaryKey(t *testing.T) {
 	}
 
 	// Test: Find conflict with existing key
-	values := []types.Value{types.NewInt(1), types.NewText("Bob")}
+	// Note: Use NewInt32 since INT PRIMARY KEY maps to TypeInt32
+	values := []types.Value{types.NewInt32(1), types.NewText("Bob")}
 	rowID, err := exec.findConflictingRow(table, values)
 	if err != nil {
 		t.Fatalf("findConflictingRow error: %v", err)
@@ -52,7 +53,7 @@ func TestFindConflictingRowByPrimaryKey(t *testing.T) {
 	}
 
 	// Test: No conflict with new key
-	values = []types.Value{types.NewInt(2), types.NewText("Charlie")}
+	values = []types.Value{types.NewInt32(2), types.NewText("Charlie")}
 	rowID, err = exec.findConflictingRow(table, values)
 	if err != nil {
 		t.Fatalf("findConflictingRow error: %v", err)
@@ -78,7 +79,7 @@ func TestFindConflictingRowByUniqueIndex(t *testing.T) {
 	exec := New(p)
 	defer exec.Close()
 
-	_, err = exec.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT UNIQUE, name TEXT)")
+	_, err = exec.Execute("CREATE TABLE users (id INT PRIMARY KEY, email TEXT UNIQUE, name TEXT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -127,7 +128,7 @@ func TestFindConflictingRowNullAllowed(t *testing.T) {
 	exec := New(p)
 	defer exec.Close()
 
-	_, err = exec.Execute("CREATE TABLE items (id INTEGER PRIMARY KEY, code TEXT UNIQUE)")
+	_, err = exec.Execute("CREATE TABLE items (id INT PRIMARY KEY, code TEXT UNIQUE)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -166,7 +167,7 @@ func TestGetRowByID(t *testing.T) {
 	exec := New(p)
 	defer exec.Close()
 
-	_, err = exec.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)")
+	_, err = exec.Execute("CREATE TABLE users (id INT PRIMARY KEY, name TEXT, age INT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -257,7 +258,7 @@ func TestExecuteOnDuplicateUpdate(t *testing.T) {
 	exec := New(p)
 	defer exec.Close()
 
-	_, err = exec.Execute("CREATE TABLE counter (id INTEGER PRIMARY KEY, count INTEGER, name TEXT)")
+	_, err = exec.Execute("CREATE TABLE counter (id INT PRIMARY KEY, count INT, name TEXT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -332,7 +333,7 @@ func TestInsertOnDuplicateKeyUpdateBasic(t *testing.T) {
 	defer exec.Close()
 
 	// Create table
-	_, err = exec.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, visits INTEGER)")
+	_, err = exec.Execute("CREATE TABLE users (id INT PRIMARY KEY, name TEXT, visits INT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -407,7 +408,7 @@ func TestInsertOnDuplicateKeyUpdateNoChange(t *testing.T) {
 	exec := New(p)
 	defer exec.Close()
 
-	_, err = exec.Execute("CREATE TABLE items (id INTEGER PRIMARY KEY, value INTEGER)")
+	_, err = exec.Execute("CREATE TABLE items (id INT PRIMARY KEY, value INT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -444,7 +445,7 @@ func TestBulkInsertOnDuplicateKeyUpdate(t *testing.T) {
 	exec := New(p)
 	defer exec.Close()
 
-	_, err = exec.Execute("CREATE TABLE inventory (product_id INTEGER PRIMARY KEY, qty INTEGER, name TEXT)")
+	_, err = exec.Execute("CREATE TABLE inventory (product_id INT PRIMARY KEY, qty INT, name TEXT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -521,7 +522,7 @@ func TestOnDuplicateKeyUpdateWithUniqueIndex(t *testing.T) {
 	defer exec.Close()
 
 	// Create table with both PRIMARY KEY and UNIQUE constraint
-	_, err = exec.Execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT UNIQUE, name TEXT)")
+	_, err = exec.Execute("CREATE TABLE users (id INT PRIMARY KEY, email TEXT UNIQUE, name TEXT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -579,7 +580,7 @@ func TestOnDuplicateKeyUpdateExpressions(t *testing.T) {
 	exec := New(p)
 	defer exec.Close()
 
-	_, err = exec.Execute("CREATE TABLE stats (id INTEGER PRIMARY KEY, count INTEGER, total REAL)")
+	_, err = exec.Execute("CREATE TABLE stats (id INT PRIMARY KEY, count INT, total REAL)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}

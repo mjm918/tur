@@ -24,12 +24,12 @@ func TestFullFeatureSet(t *testing.T) {
 
 	// Test 1: CREATE TABLE
 	t.Log("1. Creating tables...")
-	_, err = db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT, age INTEGER)")
+	_, err = db.Exec("CREATE TABLE users (id INT PRIMARY KEY, name TEXT, email TEXT, age INT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE users failed: %v", err)
 	}
 
-	_, err = db.Exec("CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER, amount REAL, status TEXT)")
+	_, err = db.Exec("CREATE TABLE orders (id INT PRIMARY KEY, user_id INT, amount REAL, status TEXT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE orders failed: %v", err)
 	}

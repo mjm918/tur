@@ -1672,7 +1672,7 @@ func (it *WindowFunctionIterator) computeLag(
 	// Get offset if provided
 	if len(funcCall.Args) >= 2 {
 		offsetVal, err := it.executor.evaluateExpr(funcCall.Args[1], nil, nil)
-		if err == nil && offsetVal.Type() == types.TypeInt {
+		if err == nil && types.IsIntegerType(offsetVal.Type()) {
 			offset = offsetVal.Int()
 		}
 	}
@@ -1750,7 +1750,7 @@ func (it *WindowFunctionIterator) computeLead(
 	// Get offset if provided
 	if len(funcCall.Args) >= 2 {
 		offsetVal, err := it.executor.evaluateExpr(funcCall.Args[1], nil, nil)
-		if err == nil && offsetVal.Type() == types.TypeInt {
+		if err == nil && types.IsIntegerType(offsetVal.Type()) {
 			offset = offsetVal.Int()
 		}
 	}

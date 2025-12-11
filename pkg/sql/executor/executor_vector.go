@@ -233,8 +233,8 @@ func (e *Executor) executeVectorQuantizeScan(args []parser.Expression) (RowItera
 		return nil, nil, fmt.Errorf("vector_quantize_scan: invalid query vector: %w", err)
 	}
 
-	// Extract k (fourth argument)
-	if argValues[3].Type() != types.TypeInt {
+	// Extract k (fourth argument) - accept all integer types
+	if !types.IsIntegerType(argValues[3].Type()) {
 		return nil, nil, fmt.Errorf("vector_quantize_scan: k must be an integer")
 	}
 	k := int(argValues[3].Int())

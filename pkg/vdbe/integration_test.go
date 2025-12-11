@@ -32,9 +32,9 @@ func TestVDBEEndToEnd(t *testing.T) {
 	catalog.CreateTable(&schema.TableDef{
 		Name: "products",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt, PrimaryKey: true},
+			{Name: "id", Type: types.TypeInt32, PrimaryKey: true},
 			{Name: "name", Type: types.TypeText},
-			{Name: "price", Type: types.TypeInt},
+			{Name: "price", Type: types.TypeInt32},
 		},
 		RootPage: bt.RootPage(),
 	})
@@ -121,7 +121,7 @@ func TestVDBEBytecodeInspection(t *testing.T) {
 	catalog := schema.NewCatalog()
 	catalog.CreateTable(&schema.TableDef{
 		Name:     "test",
-		Columns:  []schema.ColumnDef{{Name: "x", Type: types.TypeInt}},
+		Columns:  []schema.ColumnDef{{Name: "x", Type: types.TypeInt32}},
 		RootPage: bt.RootPage(),
 	})
 
@@ -181,8 +181,8 @@ func TestVDBEComplexQuery(t *testing.T) {
 	catalog.CreateTable(&schema.TableDef{
 		Name: "numbers",
 		Columns: []schema.ColumnDef{
-			{Name: "n", Type: types.TypeInt},
-			{Name: "n10", Type: types.TypeInt},
+			{Name: "n", Type: types.TypeInt32},
+			{Name: "n10", Type: types.TypeInt32},
 		},
 		RootPage: bt.RootPage(),
 	})
@@ -242,8 +242,8 @@ func TestVDBEExpressionEvaluation(t *testing.T) {
 	catalog.CreateTable(&schema.TableDef{
 		Name: "calc",
 		Columns: []schema.ColumnDef{
-			{Name: "a", Type: types.TypeInt},
-			{Name: "b", Type: types.TypeInt},
+			{Name: "a", Type: types.TypeInt32},
+			{Name: "b", Type: types.TypeInt32},
 		},
 		RootPage: bt.RootPage(),
 	})
@@ -287,7 +287,7 @@ func TestVDBEDeleteCompilation(t *testing.T) {
 	catalog.CreateTable(&schema.TableDef{
 		Name: "items",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt, PrimaryKey: true},
+			{Name: "id", Type: types.TypeInt32, PrimaryKey: true},
 			{Name: "name", Type: types.TypeText},
 		},
 		RootPage: bt.RootPage(),
@@ -373,7 +373,7 @@ func TestVDBEDeleteAll(t *testing.T) {
 	catalog.CreateTable(&schema.TableDef{
 		Name: "temp",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt, PrimaryKey: true},
+			{Name: "id", Type: types.TypeInt32, PrimaryKey: true},
 		},
 		RootPage: bt.RootPage(),
 	})
@@ -450,9 +450,9 @@ func TestVDBEUpdateCompilation(t *testing.T) {
 	catalog.CreateTable(&schema.TableDef{
 		Name: "products",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt, PrimaryKey: true},
+			{Name: "id", Type: types.TypeInt32, PrimaryKey: true},
 			{Name: "name", Type: types.TypeText},
-			{Name: "price", Type: types.TypeInt},
+			{Name: "price", Type: types.TypeInt32},
 		},
 		RootPage: bt.RootPage(),
 	})
@@ -525,7 +525,7 @@ func TestVDBEUpdateAll(t *testing.T) {
 	catalog.CreateTable(&schema.TableDef{
 		Name: "items",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt, PrimaryKey: true},
+			{Name: "id", Type: types.TypeInt32, PrimaryKey: true},
 			{Name: "status", Type: types.TypeText},
 		},
 		RootPage: bt.RootPage(),
@@ -591,9 +591,9 @@ func TestVDBEUpdateMultipleColumns(t *testing.T) {
 	catalog.CreateTable(&schema.TableDef{
 		Name: "records",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt, PrimaryKey: true},
-			{Name: "a", Type: types.TypeInt},
-			{Name: "b", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32, PrimaryKey: true},
+			{Name: "a", Type: types.TypeInt32},
+			{Name: "b", Type: types.TypeInt32},
 		},
 		RootPage: bt.RootPage(),
 	})
@@ -664,7 +664,7 @@ func TestVDBEInsertSelect(t *testing.T) {
 	catalog.CreateTable(&schema.TableDef{
 		Name: "source",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt, PrimaryKey: true},
+			{Name: "id", Type: types.TypeInt32, PrimaryKey: true},
 			{Name: "name", Type: types.TypeText},
 		},
 		RootPage: btSrc.RootPage(),
@@ -673,7 +673,7 @@ func TestVDBEInsertSelect(t *testing.T) {
 	catalog.CreateTable(&schema.TableDef{
 		Name: "dest",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt, PrimaryKey: true},
+			{Name: "id", Type: types.TypeInt32, PrimaryKey: true},
 			{Name: "name", Type: types.TypeText},
 		},
 		RootPage: btDest.RootPage(),
@@ -753,7 +753,7 @@ func TestVDBEInsertSelectWithWhere(t *testing.T) {
 	catalog.CreateTable(&schema.TableDef{
 		Name: "numbers",
 		Columns: []schema.ColumnDef{
-			{Name: "n", Type: types.TypeInt, PrimaryKey: true},
+			{Name: "n", Type: types.TypeInt32, PrimaryKey: true},
 		},
 		RootPage: btSrc.RootPage(),
 	})
@@ -761,7 +761,7 @@ func TestVDBEInsertSelectWithWhere(t *testing.T) {
 	catalog.CreateTable(&schema.TableDef{
 		Name: "even",
 		Columns: []schema.ColumnDef{
-			{Name: "n", Type: types.TypeInt, PrimaryKey: true},
+			{Name: "n", Type: types.TypeInt32, PrimaryKey: true},
 		},
 		RootPage: btDest.RootPage(),
 	})

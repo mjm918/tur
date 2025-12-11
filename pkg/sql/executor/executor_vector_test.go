@@ -22,7 +22,7 @@ func TestVectorQuantize_Basic(t *testing.T) {
 	defer cleanup()
 
 	// Create a table with a VECTOR column
-	_, err := exec.Execute("CREATE TABLE embeddings (id INTEGER PRIMARY KEY, embedding VECTOR(3))")
+	_, err := exec.Execute("CREATE TABLE embeddings (id INT PRIMARY KEY, embedding VECTOR(3))")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestVectorQuantize_EmptyTable(t *testing.T) {
 	defer cleanup()
 
 	// Create a table with a VECTOR column
-	_, err := exec.Execute("CREATE TABLE embeddings (id INTEGER PRIMARY KEY, embedding VECTOR(3))")
+	_, err := exec.Execute("CREATE TABLE embeddings (id INT PRIMARY KEY, embedding VECTOR(3))")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestVectorQuantize_InvalidColumn(t *testing.T) {
 	defer cleanup()
 
 	// Create a table with a VECTOR column
-	_, err := exec.Execute("CREATE TABLE embeddings (id INTEGER PRIMARY KEY, embedding VECTOR(3))")
+	_, err := exec.Execute("CREATE TABLE embeddings (id INT PRIMARY KEY, embedding VECTOR(3))")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestVectorQuantize_NonVectorColumn(t *testing.T) {
 	defer cleanup()
 
 	// Create a table with a non-VECTOR column
-	_, err := exec.Execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)")
+	_, err := exec.Execute("CREATE TABLE items (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestVectorQuantizeScan_Basic(t *testing.T) {
 	defer cleanup()
 
 	// Create a table with a VECTOR column
-	_, err := exec.Execute("CREATE TABLE embeddings (id INTEGER PRIMARY KEY, embedding VECTOR(3))")
+	_, err := exec.Execute("CREATE TABLE embeddings (id INT PRIMARY KEY, embedding VECTOR(3))")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestVectorQuantize_WithDistanceMetric(t *testing.T) {
 	defer cleanup()
 
 	// Create a table with a VECTOR column
-	_, err := exec.Execute("CREATE TABLE embeddings (id INTEGER PRIMARY KEY, embedding VECTOR(3))")
+	_, err := exec.Execute("CREATE TABLE embeddings (id INT PRIMARY KEY, embedding VECTOR(3))")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -307,7 +307,7 @@ func TestVectorQuantize_InvalidMetric(t *testing.T) {
 	defer cleanup()
 
 	// Create a table with a VECTOR column
-	_, err := exec.Execute("CREATE TABLE embeddings (id INTEGER PRIMARY KEY, embedding VECTOR(3))")
+	_, err := exec.Execute("CREATE TABLE embeddings (id INT PRIMARY KEY, embedding VECTOR(3))")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -328,7 +328,7 @@ func TestVectorQuantizeScan_NoIndex(t *testing.T) {
 	defer cleanup()
 
 	// Create a table with a VECTOR column
-	_, err := exec.Execute("CREATE TABLE embeddings (id INTEGER PRIMARY KEY, embedding VECTOR(3))")
+	_, err := exec.Execute("CREATE TABLE embeddings (id INT PRIMARY KEY, embedding VECTOR(3))")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -356,7 +356,7 @@ func TestVectorInsert_NoNormalize(t *testing.T) {
 	defer cleanup()
 
 	// Create a table with a VECTOR column with NONORMALIZE option
-	_, err := exec.Execute("CREATE TABLE embeddings (id INTEGER PRIMARY KEY, embedding VECTOR(3) NONORMALIZE)")
+	_, err := exec.Execute("CREATE TABLE embeddings (id INT PRIMARY KEY, embedding VECTOR(3) NONORMALIZE)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -406,7 +406,7 @@ func TestVectorInsert_NormalizeByDefault(t *testing.T) {
 	defer cleanup()
 
 	// Create a table with a VECTOR column WITHOUT NONORMALIZE
-	_, err := exec.Execute("CREATE TABLE embeddings (id INTEGER PRIMARY KEY, embedding VECTOR(3))")
+	_, err := exec.Execute("CREATE TABLE embeddings (id INT PRIMARY KEY, embedding VECTOR(3))")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}

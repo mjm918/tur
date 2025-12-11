@@ -20,7 +20,7 @@ func TestStmt_HasRequiredFields(t *testing.T) {
 	defer db.Close()
 
 	// Create a simple table for testing
-	_, err = db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	_, err = db.Exec("CREATE TABLE users (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestStmt_Close(t *testing.T) {
 	}
 	defer db.Close()
 
-	_, err = db.Exec("CREATE TABLE test (id INTEGER)")
+	_, err = db.Exec("CREATE TABLE test (id INT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestPrepare_MultipleParameters(t *testing.T) {
 	}
 	defer db.Close()
 
-	_, err = db.Exec("CREATE TABLE users (id INTEGER, name TEXT, age INTEGER)")
+	_, err = db.Exec("CREATE TABLE users (id INT, name TEXT, age INT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestStmt_BindInt(t *testing.T) {
 	}
 	defer db.Close()
 
-	_, err = db.Exec("CREATE TABLE test (id INTEGER)")
+	_, err = db.Exec("CREATE TABLE test (id INT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestStmt_Bind_OutOfRange(t *testing.T) {
 	}
 	defer db.Close()
 
-	_, err = db.Exec("CREATE TABLE test (id INTEGER)")
+	_, err = db.Exec("CREATE TABLE test (id INT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -306,7 +306,7 @@ func TestStmt_ClearBindings(t *testing.T) {
 	}
 	defer db.Close()
 
-	_, err = db.Exec("CREATE TABLE test (id INTEGER)")
+	_, err = db.Exec("CREATE TABLE test (id INT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -339,7 +339,7 @@ func TestStmt_Reset(t *testing.T) {
 	}
 	defer db.Close()
 
-	_, err = db.Exec("CREATE TABLE test (id INTEGER)")
+	_, err = db.Exec("CREATE TABLE test (id INT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -367,7 +367,7 @@ func TestStmt_Exec(t *testing.T) {
 	}
 	defer db.Close()
 
-	_, err = db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)")
+	_, err = db.Exec("CREATE TABLE users (id INT PRIMARY KEY, name TEXT, age INT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -406,7 +406,7 @@ func TestStmt_Exec_MultipleExecutions(t *testing.T) {
 	}
 	defer db.Close()
 
-	_, err = db.Exec("CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)")
+	_, err = db.Exec("CREATE TABLE items (id INT PRIMARY KEY, value TEXT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -449,7 +449,7 @@ func TestStmt_Exec_Update(t *testing.T) {
 	defer db.Close()
 
 	// Setup
-	_, err = db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	_, err = db.Exec("CREATE TABLE users (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -491,7 +491,7 @@ func TestStmt_Exec_Delete(t *testing.T) {
 	defer db.Close()
 
 	// Setup
-	_, err = db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	_, err = db.Exec("CREATE TABLE users (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -531,7 +531,7 @@ func TestStmt_Exec_ClosedStmt(t *testing.T) {
 	}
 	defer db.Close()
 
-	_, err = db.Exec("CREATE TABLE test (id INTEGER)")
+	_, err = db.Exec("CREATE TABLE test (id INT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -562,7 +562,7 @@ func TestStmt_Query(t *testing.T) {
 	defer db.Close()
 
 	// Setup
-	_, err = db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)")
+	_, err = db.Exec("CREATE TABLE users (id INT PRIMARY KEY, name TEXT, age INT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -615,7 +615,7 @@ func TestStmt_Query_NoResults(t *testing.T) {
 	}
 	defer db.Close()
 
-	_, err = db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	_, err = db.Exec("CREATE TABLE users (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -657,7 +657,7 @@ func TestStmt_Query_Scan(t *testing.T) {
 	}
 	defer db.Close()
 
-	_, err = db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)")
+	_, err = db.Exec("CREATE TABLE users (id INT PRIMARY KEY, name TEXT, age INT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -716,7 +716,7 @@ func TestStmt_Query_Columns(t *testing.T) {
 	}
 	defer db.Close()
 
-	_, err = db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)")
+	_, err = db.Exec("CREATE TABLE users (id INT PRIMARY KEY, name TEXT, email TEXT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -759,7 +759,7 @@ func TestStmt_Query_ClosedStmt(t *testing.T) {
 	}
 	defer db.Close()
 
-	_, err = db.Exec("CREATE TABLE test (id INTEGER)")
+	_, err = db.Exec("CREATE TABLE test (id INT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -789,7 +789,7 @@ func TestDB_PrepareCache(t *testing.T) {
 	}
 	defer db.Close()
 
-	_, err = db.Exec("CREATE TABLE test (id INTEGER)")
+	_, err = db.Exec("CREATE TABLE test (id INT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -828,7 +828,7 @@ func TestDB_PrepareCache_DifferentSQL(t *testing.T) {
 	}
 	defer db.Close()
 
-	_, err = db.Exec("CREATE TABLE test (id INTEGER, name TEXT)")
+	_, err = db.Exec("CREATE TABLE test (id INT, name TEXT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -862,7 +862,7 @@ func TestDB_ClearStmtCache(t *testing.T) {
 	}
 	defer db.Close()
 
-	_, err = db.Exec("CREATE TABLE test (id INTEGER)")
+	_, err = db.Exec("CREATE TABLE test (id INT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}

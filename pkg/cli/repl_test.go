@@ -24,7 +24,7 @@ func TestREPL_ExecuteStatement(t *testing.T) {
 	defer repl.Close()
 
 	// Execute CREATE TABLE
-	err = repl.ExecuteStatement("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT);")
+	err = repl.ExecuteStatement("CREATE TABLE test (id INT PRIMARY KEY, name TEXT);")
 	if err != nil {
 		t.Fatalf("CREATE TABLE failed: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestREPL_DisplayResult(t *testing.T) {
 	defer repl.Close()
 
 	// Create a table with data
-	repl.ExecuteStatement("CREATE TABLE users (id INTEGER, name TEXT, age INTEGER);")
+	repl.ExecuteStatement("CREATE TABLE users (id INT, name TEXT, age INT);")
 	repl.ExecuteStatement("INSERT INTO users VALUES (1, 'Alice', 30);")
 	repl.ExecuteStatement("INSERT INTO users VALUES (2, 'Bob', 25);")
 
@@ -119,7 +119,7 @@ func TestREPL_Run(t *testing.T) {
 	dbPath := filepath.Join(tmpDir, "test.db")
 
 	// Simulate user input
-	input := strings.NewReader("CREATE TABLE t (x INTEGER);\nINSERT INTO t VALUES (1);\nSELECT * FROM t;\n.exit\n")
+	input := strings.NewReader("CREATE TABLE t (x INT);\nINSERT INTO t VALUES (1);\nSELECT * FROM t;\n.exit\n")
 	output := &bytes.Buffer{}
 	errOutput := &bytes.Buffer{}
 
@@ -184,7 +184,7 @@ func TestREPL_MemoryDatabase(t *testing.T) {
 	defer repl.Close()
 
 	// Should work just like file-based
-	err = repl.ExecuteStatement("CREATE TABLE test (id INTEGER);")
+	err = repl.ExecuteStatement("CREATE TABLE test (id INT);")
 	if err != nil {
 		t.Fatalf("CREATE TABLE failed: %v", err)
 	}

@@ -575,13 +575,8 @@ func (p *Parser) parseColumnTypeInfo() (*TypeInfo, error) {
 
 	switch p.cur.Type {
 	case lexer.INT_TYPE:
-		// INT keyword now maps to strict TypeInt32
+		// INT keyword maps to strict TypeInt32
 		info.Type = types.TypeInt32
-		return info, nil
-
-	case lexer.INTEGER:
-		// INTEGER keyword maps to legacy TypeInt for backwards compatibility
-		info.Type = types.TypeInt
 		return info, nil
 
 	case lexer.TEXT_TYPE:
@@ -2448,12 +2443,20 @@ func (p *Parser) parseInExpression(left Expression, notIn bool) (Expression, err
 }
 
 // parseIntLiteral parses an integer literal
+// Integer literals are parsed as TypeInt32 (4-byte signed integer) by default.
+// This ensures consistency with INT/INTEGER column types which also use TypeInt32.
 func (p *Parser) parseIntLiteral() (*Literal, error) {
 	val, err := strconv.ParseInt(p.cur.Literal, 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid integer: %s", p.cur.Literal)
 	}
-	return &Literal{Value: types.NewInt(val)}, nil
+	// Use TypeInt32 for consistency with INT column type
+	// For values outside int32 range, still use TypeInt for flexibility
+	if val >= -2147483648 && val <= 2147483647 {
+		return &Literal{Value: types.NewInt32(int32(val))}, nil
+	}
+	// Fall back to TypeBigInt for larger values
+	return &Literal{Value: types.NewBigInt(val)}, nil
 }
 
 // parseFloatLiteral parses a float literal
