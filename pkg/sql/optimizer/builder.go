@@ -137,9 +137,13 @@ func extractAggregates(columns []parser.SelectColumn) []AggregateExpr {
 		// Check if the column expression is a function call
 		if funcCall, ok := col.Expr.(*parser.FunctionCall); ok {
 			if aggregateFuncs[funcCall.Name] {
+				var arg parser.Expression
+				if len(funcCall.Args) > 0 {
+					arg = funcCall.Args[0]
+				}
 				aggregates = append(aggregates, AggregateExpr{
 					FuncName: funcCall.Name,
-					Arg:      nil, // Arg would be extracted from funcCall.Args
+					Arg:      arg,
 				})
 			}
 		}

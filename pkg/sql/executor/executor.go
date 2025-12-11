@@ -3291,15 +3291,23 @@ func (e *Executor) executePlanWithCTEs(plan optimizer.PlanNode, cteData map[stri
 				outputCols = append(outputCols, "?")
 			}
 		}
-		// Add a column for COUNT(*) as placeholder
-		outputCols = append(outputCols, "COUNT(*)")
+		// Add column names for each aggregate function
+		if len(node.Aggregates) == 0 {
+			// Add implicit COUNT(*) when no explicit aggregates
+			outputCols = append(outputCols, "COUNT(*)")
+		} else {
+			for _, agg := range node.Aggregates {
+				outputCols = append(outputCols, agg.FuncName)
+			}
+		}
 
 		return &HashGroupByIterator{
-			child:    inputIter,
-			groupBy:  node.GroupBy,
-			having:   node.Having,
-			colMap:   colMap,
-			executor: e,
+			child:      inputIter,
+			groupBy:    node.GroupBy,
+			aggregates: node.Aggregates,
+			having:     node.Having,
+			colMap:     colMap,
+			executor:   e,
 		}, outputCols, nil
 
 	case *optimizer.DualNode:
