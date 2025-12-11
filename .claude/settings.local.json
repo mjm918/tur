@@ -43,7 +43,9 @@
       "Bash(do echo \"=== Run $i ===\")",
       "Bash(done)",
       "Bash(go mod download:*)",
-      "Skill(superpowers:systematic-debugging)"
+      "Skill(superpowers:systematic-debugging)",
+      "WebFetch(domain:github.com)",
+      "Bash(go tool pprof:*)"
     ],
     "deny": [],
     "ask": []
