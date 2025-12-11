@@ -2202,10 +2202,9 @@ func (it *WindowFunctionIterator) computeFrameAggregate(
 
 		switch aggFunc {
 		case "SUM", "AVG":
-			switch val.Type() {
-			case types.TypeInt:
+			if isIntegerTypeForSort(val.Type()) {
 				sum += float64(val.Int())
-			case types.TypeFloat:
+			} else if val.Type() == types.TypeFloat {
 				sum += val.Float()
 			}
 		case "MIN":
