@@ -1189,6 +1189,7 @@ func builtinPosition(args []types.Value) types.Value {
 // Returns 0 if str is not found.
 // If any argument is NULL, returns NULL.
 // This is MySQL-compatible behavior.
+// Zero allocation implementation - iterates without creating a slice.
 func builtinFindInSet(args []types.Value) types.Value {
 	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
 		return types.NewNull()
@@ -1201,11 +1202,17 @@ func builtinFindInSet(args []types.Value) types.Value {
 		return types.NewInt(0)
 	}
 
-	// Split the comma-separated list and search
-	parts := strings.Split(haystack, ",")
-	for i, part := range parts {
-		if part == needle {
-			return types.NewInt(int64(i + 1)) // 1-indexed
+	// Zero-allocation search through comma-separated list
+	position := 1
+	start := 0
+	for i := 0; i <= len(haystack); i++ {
+		if i == len(haystack) || haystack[i] == ',' {
+			// Found a segment from start to i
+			if haystack[start:i] == needle {
+				return types.NewInt(int64(position))
+			}
+			position++
+			start = i + 1
 		}
 	}
 

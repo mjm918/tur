@@ -3780,42 +3780,42 @@ func (e *Executor) evaluateLikeExpr(expr *parser.LikeExpr, rowValues []types.Val
 // matchLikePattern matches a string against a SQL LIKE pattern
 // % matches any sequence of characters (including empty)
 // _ matches any single character
+// Uses a greedy two-pointer approach with backtracking for zero allocations.
 func matchLikePattern(str, pattern string) bool {
-	// Use dynamic programming approach for LIKE matching
-	// This is more efficient than converting to regex for simple patterns
-	s := len(str)
-	p := len(pattern)
+	// Greedy matching with backtracking - O(n*m) worst case but O(n+m) for common patterns
+	// Zero allocations
+	si, pi := 0, 0          // string index, pattern index
+	starIdx := -1           // last seen '%' in pattern
+	matchIdx := 0           // string index when we last matched a '%'
+	sLen, pLen := len(str), len(pattern)
 
-	// dp[i][j] = true if str[0..i-1] matches pattern[0..j-1]
-	dp := make([][]bool, s+1)
-	for i := range dp {
-		dp[i] = make([]bool, p+1)
-	}
-
-	// Empty pattern matches empty string
-	dp[0][0] = true
-
-	// Handle patterns starting with % (can match empty string)
-	for j := 1; j <= p; j++ {
-		if pattern[j-1] == '%' {
-			dp[0][j] = dp[0][j-1]
+	for si < sLen {
+		if pi < pLen && (pattern[pi] == '_' || pattern[pi] == str[si]) {
+			// Current characters match (or pattern has _)
+			si++
+			pi++
+		} else if pi < pLen && pattern[pi] == '%' {
+			// Found %, mark position and try to match zero characters
+			starIdx = pi
+			matchIdx = si
+			pi++
+		} else if starIdx != -1 {
+			// No match, but we have a previous %, backtrack
+			pi = starIdx + 1
+			matchIdx++
+			si = matchIdx
+		} else {
+			// No match and no % to backtrack to
+			return false
 		}
 	}
 
-	// Fill the DP table
-	for i := 1; i <= s; i++ {
-		for j := 1; j <= p; j++ {
-			if pattern[j-1] == '%' {
-				// % can match empty sequence (dp[i][j-1]) or any character (dp[i-1][j])
-				dp[i][j] = dp[i][j-1] || dp[i-1][j]
-			} else if pattern[j-1] == '_' || pattern[j-1] == str[i-1] {
-				// _ matches any single character, or exact character match
-				dp[i][j] = dp[i-1][j-1]
-			}
-		}
+	// Check remaining pattern characters (must all be %)
+	for pi < pLen && pattern[pi] == '%' {
+		pi++
 	}
 
-	return dp[s][p]
+	return pi == pLen
 }
 
 // evaluateExistsExpr evaluates an EXISTS expression
