@@ -1557,8 +1557,25 @@ func (e *Executor) executeInsertInternal(stmt *parser.InsertStmt, fireTriggers b
 		data := record.Encode(values)
 
 		// Generate rowid key
-		rowid := e.rowid[stmt.TableName]
-		e.rowid[stmt.TableName]++
+		// For INTEGER PRIMARY KEY, use the PK value as the rowid (SQLite behavior)
+		// For other types, use internal counter
+		var rowid uint64
+		if intPKColIdx >= 0 && table.Columns[intPKColIdx].Type == types.TypeInt {
+			// INTEGER PRIMARY KEY - use the column value as rowid
+			pkVal := values[intPKColIdx].Int()
+			if pkVal < 0 {
+				return nil, fmt.Errorf("INTEGER PRIMARY KEY value must be non-negative, got %d", pkVal)
+			}
+			rowid = uint64(pkVal)
+			// Update internal counter if this value is larger
+			if rowid >= e.rowid[stmt.TableName] {
+				e.rowid[stmt.TableName] = rowid + 1
+			}
+		} else {
+			// Regular table - use internal counter
+			rowid = e.rowid[stmt.TableName]
+			e.rowid[stmt.TableName]++
+		}
 
 		key := make([]byte, 8)
 		binary.BigEndian.PutUint64(key, rowid)
@@ -2605,10 +2622,17 @@ func (e *Executor) tryFastPathPKLookup(stmt *parser.SelectStmt) (*Result, bool) 
 	}
 
 	// Find primary key column
+	// IMPORTANT: Fast path only works for INTEGER PRIMARY KEY (TypeInt) which is a rowid alias.
+	// For other integer types like INT (TypeInt32), the rowid is separate from the column value,
+	// so we must fall back to the regular execution path.
 	var pkColName string
 	var pkColIndex int = -1
 	for i, col := range tableDef.Columns {
 		if col.PrimaryKey {
+			// Only use fast path if it's INTEGER PRIMARY KEY (TypeInt), not INT (TypeInt32)
+			if col.Type != types.TypeInt {
+				return nil, false // Fall back to regular path for non-INTEGER PRIMARY KEY
+			}
 			pkColName = col.Name
 			pkColIndex = i
 			break

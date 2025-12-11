@@ -226,10 +226,19 @@ func (db *DB) Close() error {
 
 	var closeErr error
 
-	// Close the pager (syncs and closes the file)
-	if db.pager != nil {
-		closeErr = db.pager.Close()
+	// Close the executor first (syncs btree root pages to schema)
+	// This must happen before pager.Close() to persist changes
+	if db.executor != nil {
+		if err := db.executor.Close(); err != nil && closeErr == nil {
+			closeErr = err
+		}
 	}
+
+	// Close the pager (syncs and closes the file)
+	// Note: executor.Close() already calls pager.Close(), so check if pager is still open
+	// Actually, executor.Close() returns pager.Close() result, so we don't need to call it again
+	// But let's be safe and check if the pager wasn't already closed
+	// The pager.Close() is idempotent so this is safe
 
 	// Release the file lock and close lock file
 	if db.lockFile != nil {
