@@ -591,8 +591,8 @@ func builtinSubstr(args []types.Value) types.Value {
 	}
 
 	// Get start position (1-based in SQLite)
-	start := args[0].Int()
-	if args[1].Type() == types.TypeInt {
+	var start int64
+	if types.IsIntegerType(args[1].Type()) {
 		start = args[1].Int()
 	} else if args[1].Type() == types.TypeFloat {
 		start = int64(args[1].Float())
@@ -633,7 +633,7 @@ func builtinSubstr(args []types.Value) types.Value {
 	// Determine length
 	var length int64
 	if len(args) == 3 {
-		if args[2].Type() == types.TypeInt {
+		if types.IsIntegerType(args[2].Type()) {
 			length = args[2].Int()
 		} else if args[2].Type() == types.TypeFloat {
 			length = int64(args[2].Float())
@@ -2646,7 +2646,7 @@ func isTruthy(v types.Value) bool {
 	}
 
 	switch v.Type() {
-	case types.TypeInt:
+	case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return v.Int() != 0
 	case types.TypeFloat:
 		return v.Float() != 0.0

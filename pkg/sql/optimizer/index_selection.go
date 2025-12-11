@@ -163,20 +163,8 @@ func predicateValuesMatch(a, b parser.Expression) bool {
 	valA := litA.Value
 	valB := litB.Value
 
-	if valA.Type() != valB.Type() {
-		return false
-	}
-
-	switch valA.Type() {
-	case types.TypeInt:
-		return valA.Int() == valB.Int()
-	case types.TypeFloat:
-		return valA.Float() == valB.Float()
-	case types.TypeText:
-		return valA.Text() == valB.Text()
-	default:
-		return false
-	}
+	// Use types.Compare which handles different integer types correctly
+	return types.Compare(valA, valB) == 0
 }
 
 // predicate represents a simple column comparison predicate

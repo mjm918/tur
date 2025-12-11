@@ -1019,7 +1019,7 @@ func exprToString(expr parser.Expression) string {
 			return "NULL"
 		}
 		switch e.Value.Type() {
-		case types.TypeInt:
+		case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 			return fmt.Sprintf("%d", e.Value.Int())
 		case types.TypeFloat:
 			return fmt.Sprintf("%g", e.Value.Float())
