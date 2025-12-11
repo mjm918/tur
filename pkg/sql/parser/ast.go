@@ -187,13 +187,6 @@ type Literal struct {
 
 func (l *Literal) expressionNode() {}
 
-// Placeholder represents a ? parameter placeholder in prepared statements
-type Placeholder struct {
-	Index int // 1-based parameter index
-}
-
-func (p *Placeholder) expressionNode() {}
-
 // ColumnRef represents a column reference
 type ColumnRef struct {
 	Name string

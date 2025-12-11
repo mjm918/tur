@@ -12,10 +12,9 @@ import (
 
 // Parser is a recursive descent SQL parser
 type Parser struct {
-	lexer            *lexer.Lexer
-	cur              lexer.Token
-	peek             lexer.Token
-	placeholderIndex int // tracks the current ? placeholder index (1-based)
+	lexer *lexer.Lexer
+	cur   lexer.Token
+	peek  lexer.Token
 }
 
 // New creates a new Parser for the given SQL input
@@ -31,11 +30,6 @@ func New(input string) *Parser {
 func (p *Parser) nextToken() {
 	p.cur = p.peek
 	p.peek = p.lexer.NextToken()
-}
-
-// PlaceholderCount returns the number of ? placeholders found during parsing
-func (p *Parser) PlaceholderCount() int {
-	return p.placeholderIndex
 }
 
 // Parse parses the input and returns a Statement
@@ -1756,10 +1750,6 @@ func (p *Parser) parsePrefixExpression() (Expression, error) {
 		return p.parseBlobLiteral()
 	case lexer.NULL_KW:
 		return &Literal{Value: types.NewNull()}, nil
-	case lexer.QUESTION:
-		// Parameter placeholder ?
-		p.placeholderIndex++
-		return &Placeholder{Index: p.placeholderIndex}, nil
 	case lexer.TRUE_KW:
 		return &Literal{Value: types.NewInt(1)}, nil
 	case lexer.FALSE_KW:
