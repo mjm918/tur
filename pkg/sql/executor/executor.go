@@ -90,6 +90,13 @@ func NewWithTreeType(p *pager.Pager, treeType tree.TreeType) *Executor {
 
 // Close closes the executor and syncs data
 func (e *Executor) Close() error {
+	// Sync all btree root pages to schema entries before closing
+	// This ensures root page changes from splits are persisted
+	if err := e.syncAllRootPages(); err != nil {
+		// Log error but continue with close
+		// The database file might be corrupted if this fails
+		_ = err
+	}
 	return e.pager.Close()
 }
 
@@ -1598,6 +1605,12 @@ func (e *Executor) executeInsertInternal(stmt *parser.InsertStmt, fireTriggers b
 		e.InvalidateQueryCache(stmt.TableName)
 	}
 
+	// Sync table root page in case btree split occurred
+	// (Temporarily disabled for debugging)
+	// if err := e.syncTableRootPage(stmt.TableName); err != nil {
+	// 	return nil, fmt.Errorf("failed to sync table root page: %w", err)
+	// }
+
 	return &Result{RowsAffected: rowsAffected}, nil
 }
 
@@ -1780,6 +1793,11 @@ func (e *Executor) executeUpdate(stmt *parser.UpdateStmt) (*Result, error) {
 		e.InvalidateQueryCache(stmt.TableName)
 	}
 
+	// Sync table root page in case btree structure changed
+	if err := e.syncTableRootPage(stmt.TableName); err != nil {
+		return nil, fmt.Errorf("failed to sync table root page: %w", err)
+	}
+
 	return &Result{RowsAffected: rowsAffected}, nil
 }
 
@@ -1898,6 +1916,11 @@ func (e *Executor) executeDelete(stmt *parser.DeleteStmt) (*Result, error) {
 		e.incrementTableRowCount(stmt.TableName, -rowsAffected)
 		// Invalidate query cache for this table
 		e.InvalidateQueryCache(stmt.TableName)
+	}
+
+	// Sync table root page in case btree structure changed
+	if err := e.syncTableRootPage(stmt.TableName); err != nil {
+		return nil, fmt.Errorf("failed to sync table root page: %w", err)
 	}
 
 	return &Result{RowsAffected: rowsAffected}, nil

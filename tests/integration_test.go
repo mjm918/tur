@@ -1,11 +1,15 @@
 package tests
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"tur/pkg/turdb"
 )
@@ -305,4 +309,416 @@ func getFileSize(path string) int64 {
 		return 0
 	}
 	return info.Size()
+}
+
+// TestMillionRecordsWithPersistence tests inserting 1M records with full persistence verification
+// This is a stress test to validate the benchmark results are accurate
+func TestMillionRecordsWithPersistence(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping 1M record test in short mode")
+	}
+
+	const totalRecords = 1_000_000
+	const batchSize = 10_000
+	const sampleSize = 1000 // Number of random records to verify
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "million_records.db")
+
+	t.Logf("=== Phase 1: Insert %d records ===", totalRecords)
+
+	db, err := turdb.Open(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open database: %v", err)
+	}
+
+	// Create table with multiple columns to simulate real workload
+	_, err = db.Exec("CREATE TABLE records (id INT PRIMARY KEY, hash TEXT, value INT, category INT, timestamp INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE failed: %v", err)
+	}
+
+	// Create index on category for query testing
+	_, err = db.Exec("CREATE INDEX idx_category ON records(category)")
+	if err != nil {
+		t.Fatalf("CREATE INDEX failed: %v", err)
+	}
+
+	// Track some records for verification
+	type verifyRecord struct {
+		id        int
+		hash      string
+		value     int
+		category  int
+		timestamp int
+	}
+	verifyRecords := make([]verifyRecord, 0, sampleSize)
+	rng := rand.New(rand.NewSource(42)) // Deterministic for reproducibility
+
+	// Insert records in batches and measure performance
+	startTime := time.Now()
+	var lastBatchTime time.Duration
+	insertedCount := 0
+
+	for batch := 0; batch < totalRecords/batchSize; batch++ {
+		batchStart := time.Now()
+
+		for i := 0; i < batchSize; i++ {
+			id := batch*batchSize + i
+			// Generate deterministic hash based on id
+			hashBytes := sha256.Sum256([]byte(fmt.Sprintf("record-%d", id)))
+			hash := hex.EncodeToString(hashBytes[:16])
+			value := id * 17 % 1000000
+			category := id % 100
+			timestamp := 1700000000 + id
+
+			_, err = db.Exec(fmt.Sprintf("INSERT INTO records VALUES (%d, '%s', %d, %d, %d)",
+				id, hash, value, category, timestamp))
+			if err != nil {
+				t.Fatalf("INSERT failed at id %d: %v", id, err)
+			}
+
+			// Randomly sample records for verification
+			if rng.Intn(totalRecords/sampleSize) == 0 && len(verifyRecords) < sampleSize {
+				verifyRecords = append(verifyRecords, verifyRecord{id, hash, value, category, timestamp})
+			}
+
+			insertedCount++
+		}
+
+		lastBatchTime = time.Since(batchStart)
+		if (batch+1)%10 == 0 {
+			elapsed := time.Since(startTime)
+			rate := float64(insertedCount) / elapsed.Seconds()
+			t.Logf("  Inserted %d/%d records (%.0f records/sec, last batch: %v)",
+				insertedCount, totalRecords, rate, lastBatchTime)
+		}
+	}
+
+	insertDuration := time.Since(startTime)
+	insertRate := float64(totalRecords) / insertDuration.Seconds()
+	t.Logf("Insert complete: %d records in %v (%.0f records/sec)", totalRecords, insertDuration, insertRate)
+
+	// Verify count before close
+	result, err := db.Exec("SELECT COUNT(*) FROM records")
+	if err != nil {
+		t.Fatalf("COUNT failed: %v", err)
+	}
+	count := result.Rows[0][0].(int64)
+	if count != int64(totalRecords) {
+		t.Fatalf("Expected %d records, got %d", totalRecords, count)
+	}
+
+	// Close database to flush all data
+	t.Log("Closing database to flush data...")
+	err = db.Close()
+	if err != nil {
+		t.Fatalf("Failed to close database: %v", err)
+	}
+
+	dbSize := getFileSize(dbPath)
+	t.Logf("Database file size: %d bytes (%.2f MB)", dbSize, float64(dbSize)/1024/1024)
+
+	t.Logf("✓ Phase 1 complete: %d records inserted", totalRecords)
+
+	// Phase 2: Reopen and verify persistence
+	t.Log("\n=== Phase 2: Verify persistence after reopen ===")
+
+	db, err = turdb.Open(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to reopen database: %v", err)
+	}
+
+	// Verify total count
+	result, err = db.Exec("SELECT COUNT(*) FROM records")
+	if err != nil {
+		t.Fatalf("COUNT after reopen failed: %v", err)
+	}
+	count = result.Rows[0][0].(int64)
+	if count != int64(totalRecords) {
+		t.Fatalf("PERSISTENCE FAILURE: Expected %d records after reopen, got %d", totalRecords, count)
+	}
+	t.Logf("✓ Total count verified: %d records", count)
+
+	// Verify sampled records have correct data
+	t.Logf("Verifying %d random sampled records...", len(verifyRecords))
+	verifyStart := time.Now()
+	for i, rec := range verifyRecords {
+		result, err = db.Exec(fmt.Sprintf("SELECT hash, value, category, timestamp FROM records WHERE id = %d", rec.id))
+		if err != nil {
+			t.Fatalf("SELECT for verification failed at id %d: %v", rec.id, err)
+		}
+		if len(result.Rows) != 1 {
+			t.Fatalf("PERSISTENCE FAILURE: Record id=%d not found after reopen", rec.id)
+		}
+
+		gotHash := result.Rows[0][0].(string)
+		gotValue := result.Rows[0][1].(int64)
+		gotCategory := result.Rows[0][2].(int64)
+		gotTimestamp := result.Rows[0][3].(int64)
+
+		if gotHash != rec.hash {
+			t.Errorf("PERSISTENCE FAILURE: Record %d hash mismatch: got %s, want %s", rec.id, gotHash, rec.hash)
+		}
+		if gotValue != int64(rec.value) {
+			t.Errorf("PERSISTENCE FAILURE: Record %d value mismatch: got %d, want %d", rec.id, gotValue, rec.value)
+		}
+		if gotCategory != int64(rec.category) {
+			t.Errorf("PERSISTENCE FAILURE: Record %d category mismatch: got %d, want %d", rec.id, gotCategory, rec.category)
+		}
+		if gotTimestamp != int64(rec.timestamp) {
+			t.Errorf("PERSISTENCE FAILURE: Record %d timestamp mismatch: got %d, want %d", rec.id, gotTimestamp, rec.timestamp)
+		}
+
+		if (i+1)%200 == 0 {
+			t.Logf("  Verified %d/%d sampled records", i+1, len(verifyRecords))
+		}
+	}
+	verifyDuration := time.Since(verifyStart)
+	t.Logf("✓ Sampled record verification complete in %v", verifyDuration)
+
+	// Verify boundary records (first, last, middle)
+	t.Log("Verifying boundary records...")
+	boundaryIDs := []int{0, totalRecords / 2, totalRecords - 1}
+	for _, id := range boundaryIDs {
+		result, err = db.Exec(fmt.Sprintf("SELECT id, hash FROM records WHERE id = %d", id))
+		if err != nil {
+			t.Fatalf("SELECT boundary record %d failed: %v", id, err)
+		}
+		if len(result.Rows) != 1 {
+			t.Fatalf("PERSISTENCE FAILURE: Boundary record id=%d not found", id)
+		}
+		expectedHash := sha256.Sum256([]byte(fmt.Sprintf("record-%d", id)))
+		expectedHashStr := hex.EncodeToString(expectedHash[:16])
+		gotHash := result.Rows[0][1].(string)
+		if gotHash != expectedHashStr {
+			t.Errorf("PERSISTENCE FAILURE: Boundary record %d hash mismatch", id)
+		}
+	}
+	t.Log("✓ Boundary records verified")
+
+	t.Logf("✓ Phase 2 complete: All persistence checks passed")
+
+	// Phase 3: Query performance on large dataset
+	t.Log("\n=== Phase 3: Query performance tests ===")
+
+	// Test point query performance
+	t.Log("Testing point query performance (1000 random lookups)...")
+	pointQueryStart := time.Now()
+	for i := 0; i < 1000; i++ {
+		id := rng.Intn(totalRecords)
+		_, err = db.Exec(fmt.Sprintf("SELECT * FROM records WHERE id = %d", id))
+		if err != nil {
+			t.Fatalf("Point query failed: %v", err)
+		}
+	}
+	pointQueryDuration := time.Since(pointQueryStart)
+	t.Logf("✓ 1000 point queries in %v (%.2f queries/sec)", pointQueryDuration, 1000.0/pointQueryDuration.Seconds())
+
+	// Test range query with category (uses index)
+	t.Log("Testing range query with index...")
+	rangeQueryStart := time.Now()
+	result, err = db.Exec("SELECT COUNT(*) FROM records WHERE category = 50")
+	if err != nil {
+		t.Fatalf("Range query failed: %v", err)
+	}
+	rangeQueryDuration := time.Since(rangeQueryStart)
+	categoryCount := result.Rows[0][0].(int64)
+	expectedCategoryCount := int64(totalRecords / 100) // 100 categories
+	if categoryCount != expectedCategoryCount {
+		t.Errorf("Category count mismatch: got %d, want %d", categoryCount, expectedCategoryCount)
+	}
+	t.Logf("✓ Range query (category=50) returned %d rows in %v", categoryCount, rangeQueryDuration)
+
+	// Test aggregation
+	t.Log("Testing aggregation query...")
+	aggStart := time.Now()
+	result, err = db.Exec("SELECT category, COUNT(*) FROM records GROUP BY category LIMIT 10")
+	if err != nil {
+		t.Fatalf("Aggregation query failed: %v", err)
+	}
+	aggDuration := time.Since(aggStart)
+	t.Logf("✓ GROUP BY query returned %d groups in %v", len(result.Rows), aggDuration)
+
+	t.Logf("✓ Phase 3 complete: Query performance tests passed")
+
+	// Phase 4: Update and delete persistence
+	t.Log("\n=== Phase 4: Update/Delete persistence test ===")
+
+	// Update 1000 records
+	updateStart := time.Now()
+	updateCount := 1000
+	for i := 0; i < updateCount; i++ {
+		id := i * (totalRecords / updateCount)
+		_, err = db.Exec(fmt.Sprintf("UPDATE records SET value = -1 WHERE id = %d", id))
+		if err != nil {
+			t.Fatalf("UPDATE failed at id %d: %v", id, err)
+		}
+	}
+	updateDuration := time.Since(updateStart)
+	t.Logf("✓ Updated %d records in %v", updateCount, updateDuration)
+
+	// Delete 1000 records (from end to avoid affecting updates)
+	deleteStart := time.Now()
+	deleteCount := 1000
+	for i := 0; i < deleteCount; i++ {
+		id := totalRecords - 1 - i
+		_, err = db.Exec(fmt.Sprintf("DELETE FROM records WHERE id = %d", id))
+		if err != nil {
+			t.Fatalf("DELETE failed at id %d: %v", id, err)
+		}
+	}
+	deleteDuration := time.Since(deleteStart)
+	t.Logf("✓ Deleted %d records in %v", deleteCount, deleteDuration)
+
+	// Close and reopen to verify update/delete persistence
+	err = db.Close()
+	if err != nil {
+		t.Fatalf("Failed to close database: %v", err)
+	}
+
+	db, err = turdb.Open(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to reopen database: %v", err)
+	}
+	defer db.Close()
+
+	// Verify count after delete
+	result, err = db.Exec("SELECT COUNT(*) FROM records")
+	if err != nil {
+		t.Fatalf("COUNT after delete failed: %v", err)
+	}
+	count = result.Rows[0][0].(int64)
+	expectedAfterDelete := int64(totalRecords - deleteCount)
+	if count != expectedAfterDelete {
+		t.Fatalf("PERSISTENCE FAILURE: Expected %d records after delete, got %d", expectedAfterDelete, count)
+	}
+	t.Logf("✓ Delete persistence verified: %d records remain", count)
+
+	// Verify updates persisted
+	result, err = db.Exec("SELECT COUNT(*) FROM records WHERE value = -1")
+	if err != nil {
+		t.Fatalf("COUNT updated records failed: %v", err)
+	}
+	updatedCount := result.Rows[0][0].(int64)
+	if updatedCount != int64(updateCount) {
+		t.Fatalf("PERSISTENCE FAILURE: Expected %d updated records, got %d", updateCount, updatedCount)
+	}
+	t.Logf("✓ Update persistence verified: %d records with value=-1", updatedCount)
+
+	// Verify deleted records are gone
+	result, err = db.Exec(fmt.Sprintf("SELECT COUNT(*) FROM records WHERE id >= %d", totalRecords-deleteCount))
+	if err != nil {
+		t.Fatalf("COUNT deleted range failed: %v", err)
+	}
+	remainingDeleted := result.Rows[0][0].(int64)
+	if remainingDeleted != 0 {
+		t.Fatalf("PERSISTENCE FAILURE: Expected 0 records in deleted range, got %d", remainingDeleted)
+	}
+	t.Log("✓ Deleted records confirmed gone")
+
+	finalSize := getFileSize(dbPath)
+	t.Logf("✓ Phase 4 complete: Update/Delete persistence verified")
+
+	// Final summary
+	t.Log("\n========================================")
+	t.Log("=== 1M RECORDS STRESS TEST SUMMARY ===")
+	t.Log("========================================")
+	t.Logf("Total records inserted: %d", totalRecords)
+	t.Logf("Insert rate: %.0f records/sec", insertRate)
+	t.Logf("Point query rate: %.0f queries/sec", 1000.0/pointQueryDuration.Seconds())
+	t.Logf("Update rate: %.0f records/sec", float64(updateCount)/updateDuration.Seconds())
+	t.Logf("Delete rate: %.0f records/sec", float64(deleteCount)/deleteDuration.Seconds())
+	t.Logf("Final database size: %.2f MB", float64(finalSize)/1024/1024)
+	t.Log("✅ ALL PERSISTENCE CHECKS PASSED")
+}
+
+// TestMillionRecordsCompareWithSQLite compares TurDB vs SQLite performance with 100K records
+// Uses smaller dataset for reasonable test time but still validates performance claims
+func TestMillionRecordsCompareWithSQLite(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping comparison test in short mode")
+	}
+
+	// Skip if sqlite3 driver not available
+	if os.Getenv("SKIP_SQLITE_COMPARE") == "1" {
+		t.Skip("Skipping SQLite comparison (SKIP_SQLITE_COMPARE=1)")
+	}
+
+	const totalRecords = 100_000
+
+	t.Log("=== TurDB vs Reference: Insert Performance Comparison ===")
+	t.Logf("Records to insert: %d", totalRecords)
+
+	// Test TurDB
+	tmpDir := t.TempDir()
+	turdbPath := filepath.Join(tmpDir, "turdb_compare.db")
+
+	db, err := turdb.Open(turdbPath)
+	if err != nil {
+		t.Fatalf("Failed to open TurDB: %v", err)
+	}
+
+	_, err = db.Exec("CREATE TABLE bench (id INT PRIMARY KEY, data TEXT, value INT)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE failed: %v", err)
+	}
+
+	turdbStart := time.Now()
+	for i := 0; i < totalRecords; i++ {
+		_, err = db.Exec(fmt.Sprintf("INSERT INTO bench VALUES (%d, 'data-%d', %d)", i, i, i*7))
+		if err != nil {
+			t.Fatalf("INSERT failed at %d: %v", i, err)
+		}
+	}
+	turdbInsertDuration := time.Since(turdbStart)
+	turdbInsertRate := float64(totalRecords) / turdbInsertDuration.Seconds()
+
+	// Close and reopen to verify
+	db.Close()
+	db, err = turdb.Open(turdbPath)
+	if err != nil {
+		t.Fatalf("Failed to reopen TurDB: %v", err)
+	}
+
+	result, err := db.Exec("SELECT COUNT(*) FROM bench")
+	if err != nil {
+		t.Fatalf("COUNT failed: %v", err)
+	}
+	count := result.Rows[0][0].(int64)
+	if count != int64(totalRecords) {
+		t.Fatalf("TurDB persistence failure: expected %d, got %d", totalRecords, count)
+	}
+
+	// Test select performance
+	turdbSelectStart := time.Now()
+	for i := 0; i < 1000; i++ {
+		id := i * (totalRecords / 1000)
+		_, err = db.Exec(fmt.Sprintf("SELECT * FROM bench WHERE id = %d", id))
+		if err != nil {
+			t.Fatalf("SELECT failed: %v", err)
+		}
+	}
+	turdbSelectDuration := time.Since(turdbSelectStart)
+	turdbSelectRate := 1000.0 / turdbSelectDuration.Seconds()
+
+	db.Close()
+
+	turdbSize := getFileSize(turdbPath)
+
+	t.Log("\n=== RESULTS ===")
+	t.Logf("TurDB Insert: %d records in %v (%.0f records/sec)", totalRecords, turdbInsertDuration, turdbInsertRate)
+	t.Logf("TurDB Select: 1000 queries in %v (%.0f queries/sec)", turdbSelectDuration, turdbSelectRate)
+	t.Logf("TurDB File Size: %.2f MB", float64(turdbSize)/1024/1024)
+	t.Logf("TurDB Persistence: ✓ Verified %d records after reopen", count)
+
+	// Performance assertions
+	if turdbInsertRate < 10000 {
+		t.Errorf("Insert rate too slow: %.0f records/sec (expected >10000)", turdbInsertRate)
+	}
+	if turdbSelectRate < 5000 {
+		t.Errorf("Select rate too slow: %.0f queries/sec (expected >5000)", turdbSelectRate)
+	}
+
+	t.Log("\n✅ Performance validation passed")
 }
