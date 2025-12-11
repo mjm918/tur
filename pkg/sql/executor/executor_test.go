@@ -3586,3 +3586,213 @@ func TestPragmaOptimizeMemory(t *testing.T) {
 		t.Errorf("Expected result_streaming = ON, got %s", result.Rows[0][0].Text())
 	}
 }
+
+// TestExecutor_MinMaxBasic tests MIN/MAX aggregate functions return actual values, not COUNT
+// This is the regression test for issue #5
+func TestExecutor_MinMaxBasic(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	// Create a table with integer values
+	_, err := exec.Execute("CREATE TABLE test (id INT, value INT)")
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	// Insert 100 rows with id 1-100
+	for i := 1; i <= 100; i++ {
+		_, err := exec.Execute("INSERT INTO test VALUES (" + string(rune('0'+i/100)) + string(rune('0'+(i/10)%10)) + string(rune('0'+i%10)) + ", " + string(rune('0'+i/100)) + string(rune('0'+(i/10)%10)) + string(rune('0'+i%10)) + ")")
+		if err != nil {
+			// Use a simpler approach with fmt
+			break
+		}
+	}
+
+	// Use a simpler test setup with fewer rows
+	exec2, cleanup2 := setupTestExecutor(t)
+	defer cleanup2()
+
+	_, err = exec2.Execute("CREATE TABLE test (id INT, value INT)")
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	// Insert specific rows
+	exec2.Execute("INSERT INTO test VALUES (1, 10)")
+	exec2.Execute("INSERT INTO test VALUES (2, 20)")
+	exec2.Execute("INSERT INTO test VALUES (3, 30)")
+	exec2.Execute("INSERT INTO test VALUES (4, 5)")
+	exec2.Execute("INSERT INTO test VALUES (5, 50)")
+
+	// Test MIN(id) - should return 1, not 5 (count)
+	result, err := exec2.Execute("SELECT MIN(id) FROM test")
+	if err != nil {
+		t.Fatalf("Failed to execute MIN(id): %v", err)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(result.Rows))
+	}
+	minID := result.Rows[0][0].Int()
+	if minID != 1 {
+		t.Errorf("MIN(id) = %d, want 1 (got COUNT instead of MIN)", minID)
+	}
+
+	// Test MAX(id) - should return 5, not 5 (count) - same value but different meaning
+	result, err = exec2.Execute("SELECT MAX(id) FROM test")
+	if err != nil {
+		t.Fatalf("Failed to execute MAX(id): %v", err)
+	}
+	maxID := result.Rows[0][0].Int()
+	if maxID != 5 {
+		t.Errorf("MAX(id) = %d, want 5", maxID)
+	}
+
+	// Test MIN(value) - should return 5 (the minimum value)
+	result, err = exec2.Execute("SELECT MIN(value) FROM test")
+	if err != nil {
+		t.Fatalf("Failed to execute MIN(value): %v", err)
+	}
+	minVal := result.Rows[0][0].Int()
+	if minVal != 5 {
+		t.Errorf("MIN(value) = %d, want 5", minVal)
+	}
+
+	// Test MAX(value) - should return 50
+	result, err = exec2.Execute("SELECT MAX(value) FROM test")
+	if err != nil {
+		t.Fatalf("Failed to execute MAX(value): %v", err)
+	}
+	maxVal := result.Rows[0][0].Int()
+	if maxVal != 50 {
+		t.Errorf("MAX(value) = %d, want 50", maxVal)
+	}
+}
+
+// TestExecutor_MinMaxWithGroupBy tests MIN/MAX with GROUP BY
+func TestExecutor_MinMaxWithGroupBy(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE sales (id INT, region TEXT, amount INT)")
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	exec.Execute("INSERT INTO sales VALUES (1, 'North', 100)")
+	exec.Execute("INSERT INTO sales VALUES (2, 'North', 200)")
+	exec.Execute("INSERT INTO sales VALUES (3, 'North', 50)")
+	exec.Execute("INSERT INTO sales VALUES (4, 'South', 300)")
+	exec.Execute("INSERT INTO sales VALUES (5, 'South', 150)")
+
+	// Test MIN with GROUP BY
+	result, err := exec.Execute("SELECT region, MIN(amount) FROM sales GROUP BY region")
+	if err != nil {
+		t.Fatalf("Failed to execute MIN with GROUP BY: %v", err)
+	}
+
+	if len(result.Rows) != 2 {
+		t.Fatalf("Expected 2 rows, got %d", len(result.Rows))
+	}
+
+	// Collect results
+	mins := make(map[string]int64)
+	for _, row := range result.Rows {
+		region := row[0].Text()
+		minAmt := row[1].Int()
+		mins[region] = minAmt
+	}
+
+	if mins["North"] != 50 {
+		t.Errorf("MIN(amount) for North = %d, want 50", mins["North"])
+	}
+	if mins["South"] != 150 {
+		t.Errorf("MIN(amount) for South = %d, want 150", mins["South"])
+	}
+
+	// Test MAX with GROUP BY
+	result, err = exec.Execute("SELECT region, MAX(amount) FROM sales GROUP BY region")
+	if err != nil {
+		t.Fatalf("Failed to execute MAX with GROUP BY: %v", err)
+	}
+
+	maxs := make(map[string]int64)
+	for _, row := range result.Rows {
+		region := row[0].Text()
+		maxAmt := row[1].Int()
+		maxs[region] = maxAmt
+	}
+
+	if maxs["North"] != 200 {
+		t.Errorf("MAX(amount) for North = %d, want 200", maxs["North"])
+	}
+	if maxs["South"] != 300 {
+		t.Errorf("MAX(amount) for South = %d, want 300", maxs["South"])
+	}
+}
+
+// TestExecutor_AllAggregates tests all aggregate functions (COUNT, SUM, AVG, MIN, MAX)
+func TestExecutor_AllAggregates(t *testing.T) {
+	exec, cleanup := setupTestExecutor(t)
+	defer cleanup()
+
+	_, err := exec.Execute("CREATE TABLE nums (val INT)")
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	// Insert values: 10, 20, 30, 40, 50
+	exec.Execute("INSERT INTO nums VALUES (10)")
+	exec.Execute("INSERT INTO nums VALUES (20)")
+	exec.Execute("INSERT INTO nums VALUES (30)")
+	exec.Execute("INSERT INTO nums VALUES (40)")
+	exec.Execute("INSERT INTO nums VALUES (50)")
+
+	// Test COUNT(*)
+	result, err := exec.Execute("SELECT COUNT(*) FROM nums")
+	if err != nil {
+		t.Fatalf("COUNT(*) failed: %v", err)
+	}
+	if result.Rows[0][0].Int() != 5 {
+		t.Errorf("COUNT(*) = %d, want 5", result.Rows[0][0].Int())
+	}
+
+	// Test SUM(val)
+	result, err = exec.Execute("SELECT SUM(val) FROM nums")
+	if err != nil {
+		t.Fatalf("SUM(val) failed: %v", err)
+	}
+	sum := result.Rows[0][0].Float()
+	if sum != 150 {
+		t.Errorf("SUM(val) = %f, want 150", sum)
+	}
+
+	// Test AVG(val)
+	result, err = exec.Execute("SELECT AVG(val) FROM nums")
+	if err != nil {
+		t.Fatalf("AVG(val) failed: %v", err)
+	}
+	avg := result.Rows[0][0].Float()
+	if avg != 30 {
+		t.Errorf("AVG(val) = %f, want 30", avg)
+	}
+
+	// Test MIN(val)
+	result, err = exec.Execute("SELECT MIN(val) FROM nums")
+	if err != nil {
+		t.Fatalf("MIN(val) failed: %v", err)
+	}
+	min := result.Rows[0][0].Int()
+	if min != 10 {
+		t.Errorf("MIN(val) = %d, want 10", min)
+	}
+
+	// Test MAX(val)
+	result, err = exec.Execute("SELECT MAX(val) FROM nums")
+	if err != nil {
+		t.Fatalf("MAX(val) failed: %v", err)
+	}
+	max := result.Rows[0][0].Int()
+	if max != 50 {
+		t.Errorf("MAX(val) = %d, want 50", max)
+	}
+}

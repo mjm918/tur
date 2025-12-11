@@ -3,6 +3,7 @@ package executor
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"tur/pkg/btree"
 	"tur/pkg/record"
@@ -814,11 +815,12 @@ func (it *LimitIterator) Close() {
 
 // HashGroupByIterator performs GROUP BY with hash-based grouping
 type HashGroupByIterator struct {
-	child    RowIterator
-	groupBy  []parser.Expression // GROUP BY expressions
-	having   parser.Expression   // Optional HAVING clause
-	colMap   map[string]int      // Input schema mapping
-	executor *Executor
+	child       RowIterator
+	groupBy     []parser.Expression // GROUP BY expressions
+	having      parser.Expression   // Optional HAVING clause
+	colMap      map[string]int      // Input schema mapping
+	executor    *Executor
+	selectExprs []parser.Expression // Original SELECT expressions for output
 
 	// State
 	groups   []groupEntry // Collected groups after materialization
@@ -830,15 +832,17 @@ type HashGroupByIterator struct {
 type groupEntry struct {
 	key        string                     // Serialized group key
 	keyValues  []types.Value              // Original key values for output
-	aggregates map[string]*aggregateState // funcName -> state
+	aggregates map[string]*aggregateState // funcName -> state (legacy)
+	exprAggs   []*aggregateState          // Aggregate state per SELECT expression
 	rows       [][]types.Value            // All rows in this group (for computing aggregates)
 }
 
 // aggregateState holds the state of an aggregate function
 type aggregateState struct {
 	funcName string
-	count    int64   // Used by COUNT, AVG
-	sum      float64 // Used by SUM, AVG
+	argExpr  parser.Expression // The argument expression to aggregate
+	count    int64             // Used by COUNT, AVG
+	sum      float64           // Used by SUM, AVG
 	min      types.Value
 	max      types.Value
 	hasValue bool
@@ -959,71 +963,184 @@ func (it *HashGroupByIterator) computeGroupKey(row []types.Value) (string, []typ
 
 // computeAggregates computes aggregate values for a group
 func (it *HashGroupByIterator) computeAggregates(group *groupEntry) {
-	// Initialize aggregate states for common aggregates
+	// Initialize aggregate states for common aggregates (legacy)
 	for _, name := range []string{"COUNT", "COUNT*", "SUM", "AVG", "MIN", "MAX"} {
 		group.aggregates[name] = &aggregateState{funcName: name}
 	}
 
-	// Process each row in the group
-	for _, row := range group.rows {
-		// COUNT(*)
-		group.aggregates["COUNT*"].count++
-
-		// For other aggregates, we'd need to know which columns to aggregate
-		// For now, use the first non-key column as a default
-		if len(row) > len(it.groupBy) {
-			val := row[len(it.groupBy)] // Simple heuristic
-
-			// COUNT (non-null)
-			if !val.IsNull() {
-				group.aggregates["COUNT"].count++
-			}
-
-			// SUM and AVG
-			switch val.Type() {
-			case types.TypeInt:
-				group.aggregates["SUM"].sum += float64(val.Int())
-				group.aggregates["AVG"].sum += float64(val.Int())
-				group.aggregates["AVG"].count++
-				group.aggregates["SUM"].hasValue = true
-				group.aggregates["AVG"].hasValue = true
-			case types.TypeFloat:
-				group.aggregates["SUM"].sum += val.Float()
-				group.aggregates["AVG"].sum += val.Float()
-				group.aggregates["AVG"].count++
-				group.aggregates["SUM"].hasValue = true
-				group.aggregates["AVG"].hasValue = true
-			}
-
-			// MIN
-			if !val.IsNull() {
-				state := group.aggregates["MIN"]
-				if !state.hasValue || compareValuesForSort(val, state.min) < 0 {
-					state.min = val
-					state.hasValue = true
+	// Initialize per-expression aggregate states
+	group.exprAggs = make([]*aggregateState, len(it.selectExprs))
+	for i, expr := range it.selectExprs {
+		if funcCall, ok := expr.(*parser.FunctionCall); ok {
+			funcName := strings.ToUpper(funcCall.Name)
+			if funcName == "COUNT" || funcName == "SUM" || funcName == "AVG" || funcName == "MIN" || funcName == "MAX" {
+				var argExpr parser.Expression
+				if len(funcCall.Args) > 0 {
+					argExpr = funcCall.Args[0]
 				}
-			}
-
-			// MAX
-			if !val.IsNull() {
-				state := group.aggregates["MAX"]
-				if !state.hasValue || compareValuesForSort(val, state.max) > 0 {
-					state.max = val
-					state.hasValue = true
+				group.exprAggs[i] = &aggregateState{
+					funcName: funcName,
+					argExpr:  argExpr,
 				}
 			}
 		}
 	}
+
+	// Process each row in the group
+	for _, row := range group.rows {
+		// COUNT(*) for legacy support
+		group.aggregates["COUNT*"].count++
+
+		// Compute per-expression aggregates
+		for i, state := range group.exprAggs {
+			if state == nil {
+				continue
+			}
+
+			// Check for COUNT(*) - no argument or literal * argument
+			isCountStar := state.funcName == "COUNT" && (state.argExpr == nil || isStarLiteral(state.argExpr))
+
+			if isCountStar {
+				state.count++
+				continue
+			}
+
+			// Evaluate the argument expression
+			val, err := it.executor.evaluateExpr(state.argExpr, row, it.colMap)
+			if err != nil {
+				continue
+			}
+
+			switch state.funcName {
+			case "COUNT":
+				if !val.IsNull() {
+					state.count++
+				}
+			case "SUM":
+				if !val.IsNull() {
+					switch val.Type() {
+					case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt:
+						state.sum += float64(val.Int())
+						state.hasValue = true
+					case types.TypeFloat:
+						state.sum += val.Float()
+						state.hasValue = true
+					}
+				}
+			case "AVG":
+				if !val.IsNull() {
+					switch val.Type() {
+					case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt:
+						state.sum += float64(val.Int())
+						state.count++
+						state.hasValue = true
+					case types.TypeFloat:
+						state.sum += val.Float()
+						state.count++
+						state.hasValue = true
+					}
+				}
+			case "MIN":
+				if !val.IsNull() {
+					if !state.hasValue || compareValuesForSort(val, state.min) < 0 {
+						state.min = val
+						state.hasValue = true
+					}
+				}
+			case "MAX":
+				if !val.IsNull() {
+					if !state.hasValue || compareValuesForSort(val, state.max) > 0 {
+						state.max = val
+						state.hasValue = true
+					}
+				}
+			}
+			// Store updated state back
+			group.exprAggs[i] = state
+		}
+	}
+}
+
+// isStarLiteral checks if the expression is a literal "*"
+func isStarLiteral(expr parser.Expression) bool {
+	if lit, ok := expr.(*parser.Literal); ok {
+		return lit.Value.Text() == "*"
+	}
+	return false
 }
 
 // buildOutputRow builds an output row for a group (key values + aggregate results)
 func (it *HashGroupByIterator) buildOutputRow(group *groupEntry) []types.Value {
-	// Build row with: [group key values...] + commonly computed aggregate
-	// Number of output columns = len(groupBy) + 1 (for COUNT* as placeholder)
+	// If we have SELECT expressions, use them to build output
+	if len(it.selectExprs) > 0 {
+		result := make([]types.Value, len(it.selectExprs))
+		for i, expr := range it.selectExprs {
+			// Check if this expression has a pre-computed aggregate
+			if state := group.exprAggs[i]; state != nil {
+				switch state.funcName {
+				case "COUNT":
+					result[i] = types.NewInt(state.count)
+				case "SUM":
+					if state.hasValue {
+						result[i] = types.NewFloat(state.sum)
+					} else {
+						result[i] = types.NewNull()
+					}
+				case "AVG":
+					if state.hasValue && state.count > 0 {
+						result[i] = types.NewFloat(state.sum / float64(state.count))
+					} else {
+						result[i] = types.NewNull()
+					}
+				case "MIN":
+					if state.hasValue {
+						result[i] = state.min
+					} else {
+						result[i] = types.NewNull()
+					}
+				case "MAX":
+					if state.hasValue {
+						result[i] = state.max
+					} else {
+						result[i] = types.NewNull()
+					}
+				default:
+					result[i] = types.NewNull()
+				}
+			} else {
+				// Non-aggregate expression - evaluate using group key values or first row
+				// For GROUP BY queries, non-aggregate columns must be in GROUP BY
+				// Try to find the column in the group key
+				if colRef, ok := expr.(*parser.ColumnRef); ok {
+					for j, gbExpr := range it.groupBy {
+						if gbColRef, ok := gbExpr.(*parser.ColumnRef); ok {
+							if gbColRef.Name == colRef.Name && j < len(group.keyValues) {
+								result[i] = group.keyValues[j]
+								break
+							}
+						}
+					}
+				} else {
+					// For other expressions, try to evaluate against the first row if available
+					if len(group.rows) > 0 {
+						val, err := it.executor.evaluateExpr(expr, group.rows[0], it.colMap)
+						if err == nil {
+							result[i] = val
+						} else {
+							result[i] = types.NewNull()
+						}
+					} else {
+						result[i] = types.NewNull()
+					}
+				}
+			}
+		}
+		return result
+	}
+
+	// Legacy fallback: Build row with: [group key values...] + COUNT(*)
 	result := make([]types.Value, len(group.keyValues)+1)
 	copy(result, group.keyValues)
-
-	// Add COUNT(*) as the default aggregate value
 	result[len(group.keyValues)] = types.NewInt(group.aggregates["COUNT*"].count)
 
 	return result

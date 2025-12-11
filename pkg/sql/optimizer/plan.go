@@ -227,10 +227,12 @@ type AggregateExpr struct {
 
 // AggregateNode represents a GROUP BY operation with aggregations
 type AggregateNode struct {
-	Input      PlanNode            // Input plan (filtered data)
-	GroupBy    []parser.Expression // GROUP BY expressions (e.g., column refs)
-	Aggregates []AggregateExpr     // Aggregate functions to compute
-	Having     parser.Expression   // Optional HAVING filter (nil if none)
+	Input         PlanNode            // Input plan (filtered data)
+	GroupBy       []parser.Expression // GROUP BY expressions (e.g., column refs)
+	Aggregates    []AggregateExpr     // Aggregate functions to compute
+	Having        parser.Expression   // Optional HAVING filter (nil if none)
+	SelectExprs   []parser.Expression // Original SELECT column expressions (for proper output)
+	SelectAliases []string            // Aliases for SELECT columns
 }
 
 func (n *AggregateNode) EstimatedCost() float64 {

@@ -49,11 +49,26 @@ func BuildPlanWithCTEs(stmt *parser.SelectStmt, catalog *schema.Catalog, ctes ma
 	hasAggregates := len(aggregates) > 0
 
 	if len(stmt.GroupBy) > 0 || hasAggregates {
+		// Extract SELECT expressions and aliases for proper output
+		var selectExprs []parser.Expression
+		var selectAliases []string
+		for _, col := range stmt.Columns {
+			if col.Star {
+				continue
+			}
+			if col.Expr != nil {
+				selectExprs = append(selectExprs, col.Expr)
+				selectAliases = append(selectAliases, col.Alias)
+			}
+		}
+
 		node = &AggregateNode{
-			Input:      node,
-			GroupBy:    stmt.GroupBy,
-			Aggregates: aggregates,
-			Having:     stmt.Having,
+			Input:         node,
+			GroupBy:       stmt.GroupBy,
+			Aggregates:    aggregates,
+			Having:        stmt.Having,
+			SelectExprs:   selectExprs,
+			SelectAliases: selectAliases,
 		}
 	}
 

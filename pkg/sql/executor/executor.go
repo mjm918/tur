@@ -3175,24 +3175,40 @@ func (e *Executor) executePlanWithCTEs(plan optimizer.PlanNode, cteData map[stri
 
 		colMap := e.buildColMap(inputCols)
 
-		// Build output column names: groupBy columns + aggregate results
+		// Build output column names based on SELECT expressions
 		var outputCols []string
-		for _, expr := range node.GroupBy {
-			if colRef, ok := expr.(*parser.ColumnRef); ok {
-				outputCols = append(outputCols, colRef.Name)
-			} else {
-				outputCols = append(outputCols, "?")
+		if len(node.SelectExprs) > 0 {
+			for i, expr := range node.SelectExprs {
+				// Use alias if available
+				if i < len(node.SelectAliases) && node.SelectAliases[i] != "" {
+					outputCols = append(outputCols, node.SelectAliases[i])
+				} else if colRef, ok := expr.(*parser.ColumnRef); ok {
+					outputCols = append(outputCols, colRef.Name)
+				} else if funcCall, ok := expr.(*parser.FunctionCall); ok {
+					outputCols = append(outputCols, funcCall.Name)
+				} else {
+					outputCols = append(outputCols, "?")
+				}
 			}
+		} else {
+			// Legacy: groupBy columns + COUNT(*)
+			for _, expr := range node.GroupBy {
+				if colRef, ok := expr.(*parser.ColumnRef); ok {
+					outputCols = append(outputCols, colRef.Name)
+				} else {
+					outputCols = append(outputCols, "?")
+				}
+			}
+			outputCols = append(outputCols, "COUNT(*)")
 		}
-		// Add a column for COUNT(*) as placeholder
-		outputCols = append(outputCols, "COUNT(*)")
 
 		return &HashGroupByIterator{
-			child:    inputIter,
-			groupBy:  node.GroupBy,
-			having:   node.Having,
-			colMap:   colMap,
-			executor: e,
+			child:       inputIter,
+			groupBy:     node.GroupBy,
+			having:      node.Having,
+			colMap:      colMap,
+			executor:    e,
+			selectExprs: node.SelectExprs,
 		}, outputCols, nil
 
 	case *optimizer.DualNode:
