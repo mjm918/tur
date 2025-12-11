@@ -6,11 +6,30 @@ import (
 	"math"
 	"math/big"
 	"strings"
+	"sync"
 	"unsafe"
 
 	"tur/pkg/encoding"
 	"tur/pkg/types"
 )
+
+// recordViewPool provides pooled RecordView objects with pre-allocated slices.
+var recordViewPool = sync.Pool{
+	New: func() interface{} {
+		return &RecordView{
+			serialTypes: make([]uint64, 0, 16),
+			offsets:     make([]int, 0, 16),
+		}
+	},
+}
+
+// valuesPool provides pooled value slices to avoid allocations in ToValues.
+var valuesPool = sync.Pool{
+	New: func() interface{} {
+		s := make([]types.Value, 0, 16)
+		return &s
+	},
+}
 
 // RecordView provides zero-copy access to record data stored in mmap'd memory.
 // It lazily decodes values on demand, avoiding allocations for fields that
@@ -21,6 +40,10 @@ type RecordView struct {
 	serialTypes []uint64 // Cached serial types from header
 	offsets     []int    // Pre-computed byte offset of each column's data
 	decoded     bool     // Whether we've parsed the header
+
+	// Inline storage for small records (avoids heap allocation for typical cases)
+	inlineSerialTypes [8]uint64
+	inlineOffsets     [8]int
 }
 
 // NewRecordView creates a RecordView from raw record data.
@@ -29,6 +52,24 @@ func NewRecordView(data []byte) *RecordView {
 	return &RecordView{
 		data: data,
 	}
+}
+
+// AcquireRecordView gets a pooled RecordView with pre-allocated slices.
+// Call ReleaseRecordView when done to return it to the pool.
+func AcquireRecordView(data []byte) *RecordView {
+	v := recordViewPool.Get().(*RecordView)
+	v.data = data
+	v.decoded = false
+	v.headerSize = 0
+	v.serialTypes = v.serialTypes[:0] // Reuse backing array
+	v.offsets = v.offsets[:0]         // Reuse backing array
+	return v
+}
+
+// ReleaseRecordView returns a RecordView to the pool.
+func ReleaseRecordView(v *RecordView) {
+	v.data = nil
+	recordViewPool.Put(v)
 }
 
 // ensureDecoded parses the header and computes offsets if not already done.
@@ -45,8 +86,26 @@ func (r *RecordView) ensureDecoded() {
 	}
 	r.headerSize = int(headerSize)
 
-	// Read serial types from header
+	// Count columns first to decide if we can use inline storage
+	colCount := 0
 	pos := n
+	for pos < r.headerSize {
+		_, m := encoding.GetVarint(r.data[pos:])
+		colCount++
+		pos += m
+	}
+
+	// Use inline storage for small records (<=8 columns), heap for larger
+	if colCount <= 8 {
+		r.serialTypes = r.inlineSerialTypes[:0]
+		r.offsets = r.inlineOffsets[:colCount]
+	} else {
+		r.serialTypes = make([]uint64, 0, colCount)
+		r.offsets = make([]int, colCount)
+	}
+
+	// Read serial types from header
+	pos = n
 	for pos < r.headerSize {
 		st, m := encoding.GetVarint(r.data[pos:])
 		r.serialTypes = append(r.serialTypes, st)
@@ -54,7 +113,6 @@ func (r *RecordView) ensureDecoded() {
 	}
 
 	// Pre-compute data offsets for each column
-	r.offsets = make([]int, len(r.serialTypes))
 	dataPos := r.headerSize
 	for i, st := range r.serialTypes {
 		r.offsets[i] = dataPos
@@ -381,6 +439,172 @@ func (r *RecordView) ToValues() []types.Value {
 		values[i] = r.decodeValueAt(st, r.offsets[i])
 	}
 	return values
+}
+
+// ToValuesPooled converts the record to a slice of types.Value using a pooled slice.
+// Call ReleaseValues when done with the slice.
+func (r *RecordView) ToValuesPooled() []types.Value {
+	r.ensureDecoded()
+	if len(r.serialTypes) == 0 {
+		return nil
+	}
+
+	vPtr := valuesPool.Get().(*[]types.Value)
+	values := (*vPtr)[:0]
+
+	// Ensure capacity
+	if cap(values) < len(r.serialTypes) {
+		values = make([]types.Value, 0, len(r.serialTypes))
+	}
+
+	for i, st := range r.serialTypes {
+		values = append(values, r.decodeValueAt(st, r.offsets[i]))
+	}
+	return values
+}
+
+// ToValuesUnsafe converts the record using unsafe strings for TEXT values.
+// The returned values are only valid while the underlying mmap is valid.
+func (r *RecordView) ToValuesUnsafe() []types.Value {
+	r.ensureDecoded()
+	if len(r.serialTypes) == 0 {
+		return nil
+	}
+
+	values := make([]types.Value, len(r.serialTypes))
+	for i, st := range r.serialTypes {
+		values[i] = r.decodeValueAtUnsafe(st, r.offsets[i])
+	}
+	return values
+}
+
+// ToValuesPooledUnsafe converts the record using unsafe strings and a pooled slice.
+// Call ReleaseValues when done with the slice.
+// The returned values are only valid while the underlying mmap is valid.
+func (r *RecordView) ToValuesPooledUnsafe() []types.Value {
+	r.ensureDecoded()
+	if len(r.serialTypes) == 0 {
+		return nil
+	}
+
+	vPtr := valuesPool.Get().(*[]types.Value)
+	values := (*vPtr)[:0]
+
+	// Ensure capacity
+	if cap(values) < len(r.serialTypes) {
+		values = make([]types.Value, 0, len(r.serialTypes))
+	}
+
+	for i, st := range r.serialTypes {
+		values = append(values, r.decodeValueAtUnsafe(st, r.offsets[i]))
+	}
+	return values
+}
+
+// ReleaseValues returns a values slice to the pool.
+func ReleaseValues(values []types.Value) {
+	if values == nil {
+		return
+	}
+	// Clear to avoid holding references
+	for i := range values {
+		values[i] = types.Value{}
+	}
+	valuesPool.Put(&values)
+}
+
+// decodeValueAtUnsafe decodes a value using unsafe strings for TEXT.
+func (r *RecordView) decodeValueAtUnsafe(st uint64, pos int) types.Value {
+	switch st {
+	case SerialTypeNull:
+		return types.NewNull()
+	case SerialTypeZero:
+		return types.NewInt(0)
+	case SerialTypeOne:
+		return types.NewInt(1)
+	case SerialTypeInt8:
+		return types.NewInt(int64(int8(r.data[pos])))
+	case SerialTypeInt16:
+		v := int16(binary.BigEndian.Uint16(r.data[pos:]))
+		return types.NewInt(int64(v))
+	case SerialTypeInt24:
+		v := int32(r.data[pos])<<16 | int32(r.data[pos+1])<<8 | int32(r.data[pos+2])
+		if v >= 0x800000 {
+			v -= 0x1000000
+		}
+		return types.NewInt(int64(v))
+	case SerialTypeInt32:
+		v := int32(binary.BigEndian.Uint32(r.data[pos:]))
+		return types.NewInt(int64(v))
+	case SerialTypeInt48:
+		v := int64(r.data[pos])<<40 | int64(r.data[pos+1])<<32 | int64(r.data[pos+2])<<24 |
+			int64(r.data[pos+3])<<16 | int64(r.data[pos+4])<<8 | int64(r.data[pos+5])
+		if v >= 0x800000000000 {
+			v -= 0x1000000000000
+		}
+		return types.NewInt(v)
+	case SerialTypeInt64:
+		v := int64(binary.BigEndian.Uint64(r.data[pos:]))
+		return types.NewInt(v)
+	case SerialTypeFloat:
+		bits := binary.BigEndian.Uint64(r.data[pos:])
+		return types.NewFloat(math.Float64frombits(bits))
+
+	// Strict integer types
+	case SerialTypeSmallInt:
+		v := int16(binary.BigEndian.Uint16(r.data[pos:]))
+		return types.NewSmallInt(v)
+	case SerialTypeInt32Ext:
+		v := int32(binary.BigEndian.Uint32(r.data[pos:]))
+		return types.NewInt32(v)
+	case SerialTypeBigInt:
+		v := int64(binary.BigEndian.Uint64(r.data[pos:]))
+		return types.NewBigInt(v)
+	case SerialTypeSerial:
+		v := int32(binary.BigEndian.Uint32(r.data[pos:]))
+		return types.NewSerial(v)
+	case SerialTypeBigSerial:
+		v := int64(binary.BigEndian.Uint64(r.data[pos:]))
+		return types.NewBigSerial(v)
+
+	// GUID (16 bytes)
+	case SerialTypeGUID:
+		var guid [16]byte
+		copy(guid[:], r.data[pos:pos+16])
+		return types.NewGUID(guid)
+
+	// Decimal: [len:2][blob data...]
+	case SerialTypeDecimal:
+		blobLen := int(binary.BigEndian.Uint16(r.data[pos:]))
+		blob := r.data[pos+2 : pos+2+blobLen]
+		return decodeDecimalFromBlobView(blob)
+
+	// Varchar: [maxLen:2][strLen:2][string data...] - use unsafe string
+	case SerialTypeVarchar:
+		maxLen := int(binary.BigEndian.Uint16(r.data[pos:]))
+		strLen := int(binary.BigEndian.Uint16(r.data[pos+2:]))
+		str := unsafeString(r.data[pos+4 : pos+4+strLen])
+		return types.NewVarchar(str, maxLen)
+
+	// Char: [charLen:2][string data...] - use unsafe string
+	case SerialTypeChar:
+		charLen := int(binary.BigEndian.Uint16(r.data[pos:]))
+		str := unsafeString(r.data[pos+2 : pos+2+charLen])
+		return types.NewChar(str, charLen)
+
+	default:
+		size := SerialTypeSize(st)
+		if size < 0 {
+			return types.NewNull()
+		}
+		if st&1 == 0 { // even = blob
+			blob := make([]byte, size)
+			copy(blob, r.data[pos:pos+size])
+			return types.NewBlob(blob)
+		}
+		// odd = text - use unsafe string
+		return types.NewText(unsafeString(r.data[pos : pos+size]))
+	}
 }
 
 // decodeDecimalFromBlobView reconstructs a Decimal value from the encoded blob (zero-copy)

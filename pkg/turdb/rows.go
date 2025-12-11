@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sync"
 
+	"tur/pkg/record"
 	"tur/pkg/types"
 )
 
@@ -21,25 +22,70 @@ var (
 	ErrScanBeforeNext = errors.New("Scan called without calling Next")
 )
 
+// rowsPool provides pooled Rows objects to reduce allocations.
+var rowsPool = sync.Pool{
+	New: func() interface{} {
+		return &Rows{}
+	},
+}
+
 // Rows represents a result set from a query.
 // It provides methods to iterate over and access query results.
 // Rows is safe for concurrent use.
 type Rows struct {
-	mu      sync.Mutex
-	columns []string
-	rows    [][]types.Value
-	index   int  // current row index (-1 means before first row)
-	closed  bool // whether the result set has been closed
+	mu        sync.Mutex
+	columns   []string
+	rows      [][]types.Value
+	singleRow []types.Value // For single-row results (avoids [][]types.Value wrapper)
+	index     int           // current row index (-1 means before first row)
+	closed    bool          // whether the result set has been closed
+
+	// Direct references for pool cleanup (avoids closure allocation)
+	pooledView   *record.RecordView // Pooled RecordView to release on Close
+	pooledValues []types.Value      // Pooled values slice to release on Close
 }
 
 // NewRows creates a new Rows result set from columns and row data.
+// Uses pooling to reduce allocations.
 func NewRows(columns []string, rows [][]types.Value) *Rows {
-	return &Rows{
-		columns: columns,
-		rows:    rows,
-		index:   -1,
-		closed:  false,
-	}
+	r := rowsPool.Get().(*Rows)
+	r.columns = columns
+	r.rows = rows
+	r.singleRow = nil
+	r.index = -1
+	r.closed = false
+	r.pooledView = nil
+	r.pooledValues = nil
+	return r
+}
+
+// NewSingleRowRows creates a Rows for a single row without allocating a [][]types.Value wrapper.
+// This is an optimization for fast-path queries that return exactly one row.
+func NewSingleRowRows(columns []string, row []types.Value) *Rows {
+	r := rowsPool.Get().(*Rows)
+	r.columns = columns
+	r.rows = nil
+	r.singleRow = row
+	r.index = -1
+	r.closed = false
+	r.pooledView = nil
+	r.pooledValues = nil
+	return r
+}
+
+// NewSingleRowRowsPooled creates a Rows for a single row with pooled resources.
+// The view and values are released back to their pools when Close() is called.
+// This avoids closure allocations compared to callback-based cleanup.
+func NewSingleRowRowsPooled(columns []string, row []types.Value, view *record.RecordView, values []types.Value) *Rows {
+	r := rowsPool.Get().(*Rows)
+	r.columns = columns
+	r.rows = nil
+	r.singleRow = row
+	r.index = -1
+	r.closed = false
+	r.pooledView = view
+	r.pooledValues = values
+	return r
 }
 
 // Columns returns the column names of the result set.
@@ -65,6 +111,11 @@ func (r *Rows) Next() bool {
 	}
 
 	r.index++
+
+	// Handle single-row optimization
+	if r.singleRow != nil {
+		return r.index == 0
+	}
 	return r.index < len(r.rows)
 }
 
@@ -82,11 +133,19 @@ func (r *Rows) Scan(dest ...interface{}) error {
 		return ErrScanBeforeNext
 	}
 
-	if r.index >= len(r.rows) {
-		return ErrNoRows
+	// Get the current row (handle single-row optimization)
+	var row []types.Value
+	if r.singleRow != nil {
+		if r.index != 0 {
+			return ErrNoRows
+		}
+		row = r.singleRow
+	} else {
+		if r.index >= len(r.rows) {
+			return ErrNoRows
+		}
+		row = r.rows[r.index]
 	}
-
-	row := r.rows[r.index]
 
 	if len(dest) != len(row) {
 		return fmt.Errorf("scan: expected %d destination arguments, got %d", len(row), len(dest))
@@ -223,11 +282,20 @@ func scanBlob(v []byte, dest reflect.Value) error {
 
 // getColumnValue returns the value at the given column index, or nil if out of bounds
 func (r *Rows) getColumnValue(i int) (types.Value, bool) {
-	if r.index < 0 || r.index >= len(r.rows) {
-		return types.Value{}, false
+	// Handle single-row optimization
+	var row []types.Value
+	if r.singleRow != nil {
+		if r.index != 0 {
+			return types.Value{}, false
+		}
+		row = r.singleRow
+	} else {
+		if r.index < 0 || r.index >= len(r.rows) {
+			return types.Value{}, false
+		}
+		row = r.rows[r.index]
 	}
 
-	row := r.rows[r.index]
 	if i < 0 || i >= len(row) {
 		return types.Value{}, false
 	}
@@ -329,8 +397,24 @@ func (r *Rows) Close() error {
 	}
 
 	r.closed = true
+
+	// Release pooled resources first (before clearing references)
+	if r.pooledValues != nil {
+		record.ReleaseValues(r.pooledValues)
+		r.pooledValues = nil
+	}
+	if r.pooledView != nil {
+		record.ReleaseRecordView(r.pooledView)
+		r.pooledView = nil
+	}
+
 	// Clear references to allow garbage collection
+	r.columns = nil
 	r.rows = nil
+	r.singleRow = nil
+
+	// Return to pool for reuse
+	rowsPool.Put(r)
 	return nil
 }
 

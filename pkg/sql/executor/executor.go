@@ -107,6 +107,29 @@ func (e *Executor) GetCatalog() *schema.Catalog {
 	return e.catalog
 }
 
+// GetTableTree returns the B-tree for a table, opening it if necessary.
+// Returns nil if table not found or has no root page.
+func (e *Executor) GetTableTree(tableName string) tree.ExtendedTree {
+	tableDef := e.catalog.GetTable(tableName)
+	if tableDef == nil {
+		return nil
+	}
+
+	tableTree := e.trees[tableName]
+	if tableTree == nil {
+		if tableDef.RootPage == 0 {
+			return nil
+		}
+		var err error
+		tableTree, err = e.treeFactory.Open(tableDef.RootPage)
+		if err != nil {
+			return nil
+		}
+		e.trees[tableName] = tableTree
+	}
+	return tableTree
+}
+
 // SetTransaction sets the current transaction context for execution.
 // This allows external code to control the transaction used by Execute.
 // Pass nil to clear the transaction (auto-commit mode).
