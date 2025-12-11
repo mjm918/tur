@@ -36,6 +36,92 @@ func setupTestExecutor(t *testing.T) (*Executor, func()) {
 	return exec, cleanup
 }
 
+func setupTestExecutorWithCowTree(t *testing.T) (*Executor, func()) {
+	t.Helper()
+
+	dir, err := os.MkdirTemp("", "executor_cow_test")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+
+	dbPath := filepath.Join(dir, "test.db")
+	p, err := pager.Open(dbPath, pager.Options{})
+	if err != nil {
+		os.RemoveAll(dir)
+		t.Fatalf("pager.Open: %v", err)
+	}
+
+	exec := NewWithCowTree(p)
+	cleanup := func() {
+		exec.Close()
+		os.RemoveAll(dir)
+	}
+
+	return exec, cleanup
+}
+
+func TestExecutor_CowTree_BasicCRUD(t *testing.T) {
+	exec, cleanup := setupTestExecutorWithCowTree(t)
+	defer cleanup()
+
+	// Create table
+	_, err := exec.Execute("CREATE TABLE products (id INT PRIMARY KEY, name TEXT, price REAL)")
+	if err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	// Insert data
+	_, err = exec.Execute("INSERT INTO products VALUES (1, 'Widget', 9.99)")
+	if err != nil {
+		t.Fatalf("INSERT: %v", err)
+	}
+
+	_, err = exec.Execute("INSERT INTO products VALUES (2, 'Gadget', 19.99)")
+	if err != nil {
+		t.Fatalf("INSERT 2: %v", err)
+	}
+
+	// Select data
+	result, err := exec.Execute("SELECT * FROM products ORDER BY id")
+	if err != nil {
+		t.Fatalf("SELECT: %v", err)
+	}
+
+	if len(result.Rows) != 2 {
+		t.Fatalf("Expected 2 rows, got %d", len(result.Rows))
+	}
+
+	// Update data
+	_, err = exec.Execute("UPDATE products SET price = 12.99 WHERE id = 1")
+	if err != nil {
+		t.Fatalf("UPDATE: %v", err)
+	}
+
+	// Verify update
+	result, err = exec.Execute("SELECT price FROM products WHERE id = 1")
+	if err != nil {
+		t.Fatalf("SELECT after UPDATE: %v", err)
+	}
+	if len(result.Rows) != 1 || result.Rows[0][0].Float() != 12.99 {
+		t.Errorf("UPDATE verification failed: got %v", result.Rows)
+	}
+
+	// Delete data
+	_, err = exec.Execute("DELETE FROM products WHERE id = 2")
+	if err != nil {
+		t.Fatalf("DELETE: %v", err)
+	}
+
+	// Verify delete
+	result, err = exec.Execute("SELECT COUNT(*) FROM products")
+	if err != nil {
+		t.Fatalf("SELECT COUNT: %v", err)
+	}
+	if len(result.Rows) != 1 || result.Rows[0][0].Int() != 1 {
+		t.Errorf("DELETE verification failed: expected 1 row, got %v", result.Rows)
+	}
+}
+
 func TestExecutor_CreateTable(t *testing.T) {
 	exec, cleanup := setupTestExecutor(t)
 	defer cleanup()

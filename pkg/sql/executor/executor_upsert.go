@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"tur/pkg/btree"
 	"tur/pkg/record"
 	"tur/pkg/schema"
 	"tur/pkg/sql/parser"
@@ -30,10 +29,14 @@ func (e *Executor) findConflictingRow(table *schema.TableDef, values []types.Val
 		}
 
 		idxTreeName := "index:" + idx.Name
-		tree := e.trees[idxTreeName]
-		if tree == nil {
-			tree = btree.Open(e.pager, idx.RootPage)
-			e.trees[idxTreeName] = tree
+		idxTree := e.trees[idxTreeName]
+		if idxTree == nil {
+			var err error
+			idxTree, err = e.treeFactory.Open(idx.RootPage)
+			if err != nil {
+				return -1, fmt.Errorf("failed to open index btree %s: %w", idx.Name, err)
+			}
+			e.trees[idxTreeName] = idxTree
 		}
 
 		var keyValues []types.Value
@@ -55,7 +58,7 @@ func (e *Executor) findConflictingRow(table *schema.TableDef, values []types.Val
 		}
 
 		key := record.Encode(keyValues)
-		existingVal, err := tree.Get(key)
+		existingVal, err := idxTree.Get(key)
 		if err != nil {
 			continue
 		}
@@ -70,16 +73,20 @@ func (e *Executor) findConflictingRow(table *schema.TableDef, values []types.Val
 
 // getRowByID retrieves a row from the table by its internal rowID
 func (e *Executor) getRowByID(table *schema.TableDef, rowID int64) ([]types.Value, error) {
-	tree := e.trees[table.Name]
-	if tree == nil {
-		tree = btree.Open(e.pager, table.RootPage)
-		e.trees[table.Name] = tree
+	tableTree := e.trees[table.Name]
+	if tableTree == nil {
+		var err error
+		tableTree, err = e.treeFactory.Open(table.RootPage)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open table btree: %w", err)
+		}
+		e.trees[table.Name] = tableTree
 	}
 
 	key := make([]byte, 8)
 	binary.BigEndian.PutUint64(key, uint64(rowID))
 
-	data, err := tree.Get(key)
+	data, err := tableTree.Get(key)
 	if err != nil {
 		return nil, fmt.Errorf("row not found: %w", err)
 	}
@@ -160,10 +167,14 @@ func (e *Executor) executeOnDuplicateUpdate(
 	}
 
 	// Get B-tree for table
-	tree := e.trees[table.Name]
-	if tree == nil {
-		tree = btree.Open(e.pager, table.RootPage)
-		e.trees[table.Name] = tree
+	tableTree := e.trees[table.Name]
+	if tableTree == nil {
+		var err error
+		tableTree, err = e.treeFactory.Open(table.RootPage)
+		if err != nil {
+			return false, fmt.Errorf("failed to open table btree: %w", err)
+		}
+		e.trees[table.Name] = tableTree
 	}
 
 	// Delete old index entries
@@ -176,7 +187,7 @@ func (e *Executor) executeOnDuplicateUpdate(
 	key := make([]byte, 8)
 	binary.BigEndian.PutUint64(key, uint64(rowID))
 
-	if err := tree.Insert(key, data); err != nil {
+	if err := tableTree.Insert(key, data); err != nil {
 		return false, fmt.Errorf("failed to update row: %w", err)
 	}
 

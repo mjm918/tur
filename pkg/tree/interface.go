@@ -4,6 +4,14 @@
 // or the new Copy-on-Write btree with lock-free reads.
 package tree
 
+import "errors"
+
+// Common errors for tree operations
+var (
+	// ErrKeyNotFound is returned when a key is not found in the tree
+	ErrKeyNotFound = errors.New("key not found")
+)
+
 // Tree is the interface for B+ tree operations.
 // Both btree.BTree and cowbtree.CowBTree implement this interface.
 type Tree interface {

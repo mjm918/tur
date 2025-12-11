@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"tur/pkg/btree"
 	"tur/pkg/record"
 	"tur/pkg/schema"
 	"tur/pkg/sql/lexer"
@@ -73,10 +72,14 @@ func (e *Executor) updateIndexes(table *schema.TableDef, rowID uint64, values []
 		}
 		// Get B-tree for index
 		idxTreeName := "index:" + idx.Name
-		tree := e.trees[idxTreeName]
-		if tree == nil {
-			tree = btree.Open(e.pager, idx.RootPage)
-			e.trees[idxTreeName] = tree
+		idxTree := e.trees[idxTreeName]
+		if idxTree == nil {
+			var err error
+			idxTree, err = e.treeFactory.Open(idx.RootPage)
+			if err != nil {
+				return fmt.Errorf("failed to open index btree %s: %w", idx.Name, err)
+			}
+			e.trees[idxTreeName] = idxTree
 		}
 
 		// Build index key values from plain columns
@@ -127,7 +130,7 @@ func (e *Executor) updateIndexes(table *schema.TableDef, rowID uint64, values []
 
 				// Note: This check is optimistic. For full correctness in concurrent env,
 				// we rely on B-Tree locks or MVCC, but for now we check existence.
-				existingVal, err := tree.Get(key)
+				existingVal, err := idxTree.Get(key)
 				if err == nil && existingVal != nil {
 					return fmt.Errorf("unique constraint violation: index %s", idx.Name)
 				}
@@ -145,7 +148,7 @@ func (e *Executor) updateIndexes(table *schema.TableDef, rowID uint64, values []
 			value = []byte{}
 		}
 
-		if err := tree.Insert(key, value); err != nil {
+		if err := idxTree.Insert(key, value); err != nil {
 			return fmt.Errorf("failed to update index %s: %w", idx.Name, err)
 		}
 	}
@@ -350,10 +353,14 @@ func (e *Executor) deleteFromIndexes(table *schema.TableDef, rowID uint64, value
 
 		// Get B-tree for index
 		idxTreeName := "index:" + idx.Name
-		tree := e.trees[idxTreeName]
-		if tree == nil {
-			tree = btree.Open(e.pager, idx.RootPage)
-			e.trees[idxTreeName] = tree
+		idxTree := e.trees[idxTreeName]
+		if idxTree == nil {
+			var err error
+			idxTree, err = e.treeFactory.Open(idx.RootPage)
+			if err != nil {
+				return fmt.Errorf("failed to open index btree %s: %w", idx.Name, err)
+			}
+			e.trees[idxTreeName] = idxTree
 		}
 
 		// Build index key values from plain columns
@@ -404,7 +411,7 @@ func (e *Executor) deleteFromIndexes(table *schema.TableDef, rowID uint64, value
 		}
 
 		// Delete from index
-		if err := tree.Delete(key); err != nil {
+		if err := idxTree.Delete(key); err != nil {
 			// Ignore "key not found" errors as index might not have the entry
 			// This can happen for rows inserted before index was created
 			continue

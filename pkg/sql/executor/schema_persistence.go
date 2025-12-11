@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"tur/pkg/btree"
 	"tur/pkg/dbfile"
 	"tur/pkg/schema"
 	"tur/pkg/sql/parser"
+	"tur/pkg/tree"
 )
 
 // initSchemaBTree initializes or opens the schema metadata B-tree on page 1
@@ -16,19 +16,22 @@ func (e *Executor) initSchemaBTree() error {
 	// Check if this is an existing database (has pages beyond page 0)
 	if e.pager.PageCount() > 1 {
 		// Existing database - open schema B-tree from page 1
-		tree := btree.Open(e.pager, 1)
-		e.schemaBTree = tree
+		schemaTree, err := e.treeFactory.Open(1)
+		if err != nil {
+			return fmt.Errorf("failed to open schema B-tree: %w", err)
+		}
+		e.schemaBTree = schemaTree
 
 		// Load schema entries into catalog
 		return e.loadSchemaFromBTree()
 	}
 
 	// New database - create schema B-tree on page 1
-	tree, err := btree.CreateAtPage(e.pager, 1)
+	schemaTree, err := e.treeFactory.CreateAtPage(1)
 	if err != nil {
 		return err
 	}
-	e.schemaBTree = tree
+	e.schemaBTree = schemaTree
 	return nil
 }
 
@@ -57,7 +60,7 @@ func (e *Executor) getSchemaEntry(name string) (*dbfile.SchemaEntry, error) {
 	key := []byte(name)
 	value, err := e.schemaBTree.Get(key)
 	if err != nil {
-		if err == btree.ErrKeyNotFound {
+		if err == tree.ErrKeyNotFound {
 			return nil, fmt.Errorf("schema entry %s not found", name)
 		}
 		return nil, err
@@ -368,12 +371,15 @@ func (e *Executor) loadTableSchema(entry *dbfile.SchemaEntry) error {
 	}
 
 	// Open existing B-tree for this table
-	tree := btree.Open(e.pager, entry.RootPage)
-	e.trees[entry.Name] = tree
+	tableTree, err := e.treeFactory.Open(entry.RootPage)
+	if err != nil {
+		return fmt.Errorf("failed to open table B-tree: %w", err)
+	}
+	e.trees[entry.Name] = tableTree
 
 	// Scan B-tree to find the maximum rowid for proper ID continuation on inserts
 	maxRowid := uint64(0)
-	cursor := tree.Cursor()
+	cursor := tableTree.Cursor()
 	for cursor.First(); cursor.Valid(); cursor.Next() {
 		key := cursor.Key()
 		if len(key) >= 8 {
@@ -419,9 +425,12 @@ func (e *Executor) loadIndexSchema(entry *dbfile.SchemaEntry) error {
 	}
 
 	// Open existing B-tree for this index
-	tree := btree.Open(e.pager, entry.RootPage)
+	indexTree, err := e.treeFactory.Open(entry.RootPage)
+	if err != nil {
+		return fmt.Errorf("failed to open index B-tree: %w", err)
+	}
 	idxTreeName := "index:" + entry.Name
-	e.trees[idxTreeName] = tree
+	e.trees[idxTreeName] = indexTree
 
 	return nil
 }
