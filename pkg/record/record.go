@@ -3,7 +3,6 @@ package record
 
 import (
 	"encoding/binary"
-	"fmt"
 	"math"
 	"math/big"
 	"strings"
@@ -27,17 +26,19 @@ const (
 	SerialTypeBlob0 = 12 // even >= 12 for BLOB
 	SerialTypeText0 = 13 // odd >= 13 for TEXT
 
-	// Extended serial types for strict types (using high values to avoid conflicts)
-	// These are TurDB extensions beyond SQLite's serial types
-	SerialTypeSmallInt  = 100 // 2-byte signed integer (strict SMALLINT)
-	SerialTypeInt32Ext  = 101 // 4-byte signed integer (strict INT)
-	SerialTypeBigInt    = 102 // 8-byte signed integer (strict BIGINT)
-	SerialTypeSerial    = 103 // Auto-incrementing 4-byte integer
-	SerialTypeBigSerial = 104 // Auto-incrementing 8-byte integer
-	SerialTypeGUID      = 105 // 16-byte UUID/GUID
-	SerialTypeDecimal   = 106 // Variable-length decimal (header byte indicates size)
-	SerialTypeVarchar   = 107 // Variable-length string with max length metadata
-	SerialTypeChar      = 108 // Fixed-length string
+	// Extended serial types for strict types (using very high values to avoid conflicts)
+	// These are TurDB extensions beyond SQLite's serial types.
+	// We use 0x40000000+ to ensure no collision with TEXT/BLOB serial types
+	// (which would require strings of 500+ million chars to reach this range)
+	SerialTypeSmallInt  = 0x40000000 // 2-byte signed integer (strict SMALLINT)
+	SerialTypeInt32Ext  = 0x40000001 // 4-byte signed integer (strict INT)
+	SerialTypeBigInt    = 0x40000002 // 8-byte signed integer (strict BIGINT)
+	SerialTypeSerial    = 0x40000003 // Auto-incrementing 4-byte integer
+	SerialTypeBigSerial = 0x40000004 // Auto-incrementing 8-byte integer
+	SerialTypeGUID      = 0x40000005 // 16-byte UUID/GUID
+	SerialTypeDecimal   = 0x40000006 // Variable-length decimal (header byte indicates size)
+	SerialTypeVarchar   = 0x40000007 // Variable-length string with max length metadata
+	SerialTypeChar      = 0x40000008 // Fixed-length string
 )
 
 // SerialTypeFor returns the serial type for a value
@@ -148,6 +149,9 @@ func SerialTypeSize(st uint64) int {
 		return -1 // Size is determined during encode/decode
 
 	default:
+		// TEXT/BLOB serial types: >= 12 and < strict type range
+		// Even values >= 12 are BLOB, odd values >= 13 are TEXT
+		// Strict types are now at 0x40000000+ so no overlap with reasonable TEXT/BLOB
 		if st >= SerialTypeBlob0 && st < SerialTypeSmallInt {
 			if st&1 == 0 { // even = blob
 				return int((st - 12) / 2)
@@ -188,13 +192,6 @@ func Encode(values []types.Value) []byte {
 	if len(values) == 0 {
 		// Empty record: just header size (1)
 		return []byte{1}
-	}
-
-	// DEBUG
-	for i, v := range values {
-		if v.Type() == types.TypeJSON {
-			fmt.Printf("DEBUG Encode: values[%d].Type()=%v, JSON()='%s'\n", i, v.Type(), v.JSON())
-		}
 	}
 
 	// Calculate serial types and sizes
@@ -337,7 +334,6 @@ func encodeValue(buf []byte, v types.Value, st uint64) int {
 
 // Decode decodes a record into values
 func Decode(data []byte) []types.Value {
-	fmt.Printf("DEBUG Decode: data len=%d, data=%v\n", len(data), data)
 	if len(data) == 0 {
 		return nil
 	}
