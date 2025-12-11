@@ -324,17 +324,18 @@ func (s *Stmt) QueryContext(ctx context.Context) (*Rows, error) {
 			if err != nil {
 				// Key not found - return empty result with cached column names
 				columns := s.fastPathTableDef.GetCachedColumnNames()
-				return NewRows(columns, [][]types.Value{}), nil
+				return NewRows(columns, nil), nil
 			}
 
-			// Use RecordView for zero-copy decoding
+			// Use RecordView with unsafe strings for zero-copy decoding
 			view := record.NewRecordView(data)
-			row := view.ToValues()
+			row := view.ToValuesUnsafe()
 
-			// Get cached column names (no allocation)
+			// Get cached column names (no allocation - direct reference)
 			columns := s.fastPathTableDef.GetCachedColumnNames()
 
-			return NewRows(columns, [][]types.Value{row}), nil
+			// Use single-row fast path to avoid [][]types.Value wrapper allocation
+			return NewSingleRowRows(columns, row), nil
 		}
 	}
 
