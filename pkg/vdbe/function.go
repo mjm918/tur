@@ -239,6 +239,13 @@ func DefaultFunctionRegistry() *FunctionRegistry {
 		Function: builtinPosition,
 	})
 
+	// Register FIND_IN_SET function (MySQL-style)
+	r.Register(&ScalarFunction{
+		Name:     "FIND_IN_SET",
+		NumArgs:  2,
+		Function: builtinFindInSet,
+	})
+
 	// Register ASCII function
 	r.Register(&ScalarFunction{
 		Name:     "ASCII",
@@ -1175,6 +1182,34 @@ func builtinPosition(args []types.Value) types.Value {
 	// Convert byte index to rune index (1-based)
 	runeIdx := len([]rune(str[:idx])) + 1
 	return types.NewInt(int64(runeIdx))
+}
+
+// builtinFindInSet implements FIND_IN_SET(str, strlist)
+// Returns the position (1-indexed) of str in strlist (comma-separated values).
+// Returns 0 if str is not found.
+// If any argument is NULL, returns NULL.
+// This is MySQL-compatible behavior.
+func builtinFindInSet(args []types.Value) types.Value {
+	if len(args) != 2 || args[0].IsNull() || args[1].IsNull() {
+		return types.NewNull()
+	}
+	needle := args[0].Text()
+	haystack := args[1].Text()
+
+	// If haystack is empty, return 0
+	if haystack == "" {
+		return types.NewInt(0)
+	}
+
+	// Split the comma-separated list and search
+	parts := strings.Split(haystack, ",")
+	for i, part := range parts {
+		if part == needle {
+			return types.NewInt(int64(i + 1)) // 1-indexed
+		}
+	}
+
+	return types.NewInt(0) // Not found
 }
 
 // builtinASCII implements ASCII(str)

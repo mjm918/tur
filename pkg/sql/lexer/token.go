@@ -114,8 +114,9 @@ const (
 	HAVING
 
 	// Subquery keywords
-	IN_KW // IN for subqueries
-	AS_KW // AS for aliases
+	IN_KW   // IN for subqueries
+	AS_KW   // AS for aliases
+	LIKE_KW // LIKE for pattern matching
 
 	// Transaction keywords
 	BEGIN
@@ -410,6 +411,8 @@ func (t TokenType) String() string {
 		return "IN"
 	case AS_KW:
 		return "AS"
+	case LIKE_KW:
+		return "LIKE"
 	case BEGIN:
 		return "BEGIN"
 	case COMMIT:
@@ -638,6 +641,7 @@ var keywords = map[string]TokenType{
 	"HAVING":      HAVING,
 	"IN":          IN_KW,
 	"AS":          AS_KW,
+	"LIKE":        LIKE_KW,
 	"BEGIN":       BEGIN,
 	"COMMIT":      COMMIT,
 	"ROLLBACK":    ROLLBACK,

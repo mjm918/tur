@@ -1693,10 +1693,11 @@ const (
 
 // precedences maps token types to precedence
 var precedences = map[lexer.TokenType]int{
-	lexer.OR:    OR_PREC,
-	lexer.AND:   AND_PREC,
-	lexer.IN_KW: IN_PREC,
-	lexer.EQ:    EQUALS,
+	lexer.OR:      OR_PREC,
+	lexer.AND:     AND_PREC,
+	lexer.IN_KW:   IN_PREC,
+	lexer.LIKE_KW: IN_PREC, // LIKE has same precedence as IN
+	lexer.EQ:      EQUALS,
 	lexer.NEQ:   EQUALS,
 	lexer.LT:    EQUALS,
 	lexer.GT:    EQUALS,
@@ -2245,6 +2246,17 @@ func (p *Parser) parseInfixExpression(left Expression) (Expression, error) {
 		return p.parseInExpression(left, true)
 	}
 
+	// Handle LIKE expression: expr LIKE pattern
+	if p.cur.Type == lexer.LIKE_KW {
+		return p.parseLikeExpression(left, false)
+	}
+
+	// Handle NOT LIKE: expr NOT LIKE pattern
+	if p.cur.Type == lexer.NOT && p.peekIs(lexer.LIKE_KW) {
+		p.nextToken() // consume NOT, now on LIKE
+		return p.parseLikeExpression(left, true)
+	}
+
 	// Handle JSON operators -> and ->>
 	// Convert them to function calls: JSON_EXTRACT and JSON_UNQUOTE(JSON_EXTRACT(...))
 	if p.cur.Type == lexer.ARROW {
@@ -2440,6 +2452,23 @@ func (p *Parser) parseInExpression(left Expression, notIn bool) (Expression, err
 	}
 
 	return inExpr, nil
+}
+
+// parseLikeExpression parses: expr LIKE pattern or expr NOT LIKE pattern
+func (p *Parser) parseLikeExpression(left Expression, notLike bool) (Expression, error) {
+	// Current token is LIKE
+	p.nextToken() // move to pattern
+
+	pattern, err := p.parseExpression(IN_PREC)
+	if err != nil {
+		return nil, err
+	}
+
+	return &LikeExpr{
+		Left:    left,
+		Not:     notLike,
+		Pattern: pattern,
+	}, nil
 }
 
 // parseIntLiteral parses an integer literal

@@ -469,6 +469,15 @@ type ExistsExpr struct {
 
 func (e *ExistsExpr) expressionNode() {}
 
+// LikeExpr represents a LIKE expression (expr LIKE pattern or expr NOT LIKE pattern)
+type LikeExpr struct {
+	Left    Expression // The expression being tested (e.g., column)
+	Not     bool       // True for NOT LIKE
+	Pattern Expression // The pattern to match against (usually a string literal)
+}
+
+func (l *LikeExpr) expressionNode() {}
+
 // WhenClause represents a WHEN clause in a CASE expression
 type WhenClause struct {
 	Condition Expression // WHEN condition (searched CASE) or value (simple CASE)

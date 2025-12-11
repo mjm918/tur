@@ -398,6 +398,12 @@ func (e *Executor) substituteExprParams(expr parser.Expression, params []types.V
 			Not:    ex.Not,
 			Values: values,
 		}
+	case *parser.LikeExpr:
+		return &parser.LikeExpr{
+			Left:    e.substituteExprParams(ex.Left, params),
+			Not:     ex.Not,
+			Pattern: e.substituteExprParams(ex.Pattern, params),
+		}
 	case *parser.CaseExpr:
 		result := &parser.CaseExpr{
 			Operand: e.substituteExprParams(ex.Operand, params),
@@ -3671,6 +3677,8 @@ func (e *Executor) evaluateCondition(expr parser.Expression, rowValues []types.V
 		return e.evaluateInExpr(ex, rowValues, colMap)
 	case *parser.ExistsExpr:
 		return e.evaluateExistsExpr(ex, rowValues, colMap)
+	case *parser.LikeExpr:
+		return e.evaluateLikeExpr(ex, rowValues, colMap)
 	default:
 		val, err := e.evaluateExpr(expr, rowValues, colMap)
 		if err != nil {
@@ -3732,6 +3740,82 @@ func (e *Executor) evaluateInExpr(expr *parser.InExpr, rowValues []types.Value, 
 		return !found, nil
 	}
 	return found, nil
+}
+
+// evaluateLikeExpr evaluates a LIKE expression using SQL LIKE pattern matching
+// % matches any sequence of characters (including empty)
+// _ matches any single character
+func (e *Executor) evaluateLikeExpr(expr *parser.LikeExpr, rowValues []types.Value, colMap map[string]int) (bool, error) {
+	// Evaluate the left side (the value to test)
+	leftVal, err := e.evaluateExpr(expr.Left, rowValues, colMap)
+	if err != nil {
+		return false, err
+	}
+
+	// Evaluate the pattern
+	patternVal, err := e.evaluateExpr(expr.Pattern, rowValues, colMap)
+	if err != nil {
+		return false, err
+	}
+
+	// If either is NULL, result is NULL (false in boolean context)
+	if leftVal.IsNull() || patternVal.IsNull() {
+		return false, nil
+	}
+
+	// Convert to strings
+	str := leftVal.Text()
+	pattern := patternVal.Text()
+
+	// Convert SQL LIKE pattern to Go regex
+	matched := matchLikePattern(str, pattern)
+
+	// Handle NOT LIKE
+	if expr.Not {
+		return !matched, nil
+	}
+	return matched, nil
+}
+
+// matchLikePattern matches a string against a SQL LIKE pattern
+// % matches any sequence of characters (including empty)
+// _ matches any single character
+func matchLikePattern(str, pattern string) bool {
+	// Use dynamic programming approach for LIKE matching
+	// This is more efficient than converting to regex for simple patterns
+	s := len(str)
+	p := len(pattern)
+
+	// dp[i][j] = true if str[0..i-1] matches pattern[0..j-1]
+	dp := make([][]bool, s+1)
+	for i := range dp {
+		dp[i] = make([]bool, p+1)
+	}
+
+	// Empty pattern matches empty string
+	dp[0][0] = true
+
+	// Handle patterns starting with % (can match empty string)
+	for j := 1; j <= p; j++ {
+		if pattern[j-1] == '%' {
+			dp[0][j] = dp[0][j-1]
+		}
+	}
+
+	// Fill the DP table
+	for i := 1; i <= s; i++ {
+		for j := 1; j <= p; j++ {
+			if pattern[j-1] == '%' {
+				// % can match empty sequence (dp[i][j-1]) or any character (dp[i-1][j])
+				dp[i][j] = dp[i][j-1] || dp[i-1][j]
+			} else if pattern[j-1] == '_' || pattern[j-1] == str[i-1] {
+				// _ matches any single character, or exact character match
+				dp[i][j] = dp[i-1][j-1]
+			}
+		}
+	}
+
+	return dp[s][p]
 }
 
 // evaluateExistsExpr evaluates an EXISTS expression
