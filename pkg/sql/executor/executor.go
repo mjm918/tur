@@ -1422,8 +1422,11 @@ func (e *Executor) executeInsertInternal(stmt *parser.InsertStmt, fireTriggers b
 		colMap[col.Name] = i
 	}
 
-	// Find INT PRIMARY KEY column for AUTOINCREMENT
+	// Find SERIAL/BIGSERIAL column for AUTOINCREMENT
 	intPKColIdx := e.findIntegerPrimaryKeyColumn(table)
+
+	// Find any integer PRIMARY KEY column (for rowid alias behavior)
+	anyIntPKColIdx := e.findAnyIntegerPrimaryKeyColumn(table)
 
 	var rowsAffected int64
 
@@ -1569,10 +1572,18 @@ func (e *Executor) executeInsertInternal(stmt *parser.InsertStmt, fireTriggers b
 		// Encode row as record
 		data := record.Encode(values)
 
-		// Generate rowid key - always use internal counter
-		// (We no longer have special "INT PRIMARY KEY" behavior that uses column value as rowid)
-		rowid := e.rowid[stmt.TableName]
-		e.rowid[stmt.TableName]++
+		// Generate rowid key
+		// If table has an integer PRIMARY KEY column, use its value as the rowid (SQLite behavior)
+		// Otherwise, use internal auto-increment counter
+		var rowid uint64
+		if anyIntPKColIdx >= 0 && !values[anyIntPKColIdx].IsNull() {
+			// Use the integer PRIMARY KEY column value as the rowid
+			rowid = uint64(values[anyIntPKColIdx].Int())
+		} else {
+			// Use internal counter for tables without integer PRIMARY KEY
+			rowid = e.rowid[stmt.TableName]
+			e.rowid[stmt.TableName]++
+		}
 
 		key := make([]byte, 8)
 		binary.BigEndian.PutUint64(key, rowid)
@@ -5062,6 +5073,18 @@ func (e *Executor) findIntegerPrimaryKeyColumn(table *schema.TableDef) int {
 	for i, col := range table.Columns {
 		// SERIAL and BIGSERIAL are auto-incrementing by definition
 		if col.Type == types.TypeSerial || col.Type == types.TypeBigSerial {
+			return i
+		}
+	}
+	return -1
+}
+
+// findAnyIntegerPrimaryKeyColumn finds any integer type column that is a PRIMARY KEY.
+// This includes INT, SMALLINT, BIGINT, SERIAL, and BIGSERIAL types.
+// Returns the column index or -1 if no such column exists.
+func (e *Executor) findAnyIntegerPrimaryKeyColumn(table *schema.TableDef) int {
+	for i, col := range table.Columns {
+		if col.PrimaryKey && types.IsIntegerType(col.Type) {
 			return i
 		}
 	}

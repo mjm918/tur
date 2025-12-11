@@ -60,7 +60,9 @@ func SerialTypeFor(v types.Value) uint64 {
 	case types.TypeSmallInt:
 		return SerialTypeSmallInt
 	case types.TypeInt32:
-		return SerialTypeInt32Ext
+		// Use compact SQLite-compatible encoding for TypeInt32 (general-purpose integer)
+		// This allows values to be stored in 0-8 bytes depending on magnitude
+		return serialTypeForInt(v.Int())
 	case types.TypeBigInt:
 		return SerialTypeBigInt
 	case types.TypeSerial:
