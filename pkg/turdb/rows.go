@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sync"
 
+	"tur/pkg/record"
 	"tur/pkg/types"
 )
 
@@ -38,6 +39,10 @@ type Rows struct {
 	singleRow []types.Value // For single-row results (avoids [][]types.Value wrapper)
 	index     int           // current row index (-1 means before first row)
 	closed    bool          // whether the result set has been closed
+
+	// Direct references for pool cleanup (avoids closure allocation)
+	pooledView   *record.RecordView // Pooled RecordView to release on Close
+	pooledValues []types.Value      // Pooled values slice to release on Close
 }
 
 // NewRows creates a new Rows result set from columns and row data.
@@ -49,6 +54,8 @@ func NewRows(columns []string, rows [][]types.Value) *Rows {
 	r.singleRow = nil
 	r.index = -1
 	r.closed = false
+	r.pooledView = nil
+	r.pooledValues = nil
 	return r
 }
 
@@ -61,6 +68,23 @@ func NewSingleRowRows(columns []string, row []types.Value) *Rows {
 	r.singleRow = row
 	r.index = -1
 	r.closed = false
+	r.pooledView = nil
+	r.pooledValues = nil
+	return r
+}
+
+// NewSingleRowRowsPooled creates a Rows for a single row with pooled resources.
+// The view and values are released back to their pools when Close() is called.
+// This avoids closure allocations compared to callback-based cleanup.
+func NewSingleRowRowsPooled(columns []string, row []types.Value, view *record.RecordView, values []types.Value) *Rows {
+	r := rowsPool.Get().(*Rows)
+	r.columns = columns
+	r.rows = nil
+	r.singleRow = row
+	r.index = -1
+	r.closed = false
+	r.pooledView = view
+	r.pooledValues = values
 	return r
 }
 
@@ -373,6 +397,17 @@ func (r *Rows) Close() error {
 	}
 
 	r.closed = true
+
+	// Release pooled resources first (before clearing references)
+	if r.pooledValues != nil {
+		record.ReleaseValues(r.pooledValues)
+		r.pooledValues = nil
+	}
+	if r.pooledView != nil {
+		record.ReleaseRecordView(r.pooledView)
+		r.pooledView = nil
+	}
+
 	// Clear references to allow garbage collection
 	r.columns = nil
 	r.rows = nil

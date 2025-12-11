@@ -327,15 +327,15 @@ func (s *Stmt) QueryContext(ctx context.Context) (*Rows, error) {
 				return NewRows(columns, nil), nil
 			}
 
-			// Use RecordView with unsafe strings for zero-copy decoding
-			view := record.NewRecordView(data)
-			row := view.ToValuesUnsafe()
+			// Use pooled RecordView with unsafe strings for zero-copy decoding
+			view := record.AcquireRecordView(data)
+			row := view.ToValuesPooledUnsafe()
 
 			// Get cached column names (no allocation - direct reference)
 			columns := s.fastPathTableDef.GetCachedColumnNames()
 
-			// Use single-row fast path to avoid [][]types.Value wrapper allocation
-			return NewSingleRowRows(columns, row), nil
+			// Use single-row fast path with direct pool references (avoids closure allocation)
+			return NewSingleRowRowsPooled(columns, row, view, row), nil
 		}
 	}
 

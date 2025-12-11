@@ -478,6 +478,29 @@ func (r *RecordView) ToValuesUnsafe() []types.Value {
 	return values
 }
 
+// ToValuesPooledUnsafe converts the record using unsafe strings and a pooled slice.
+// Call ReleaseValues when done with the slice.
+// The returned values are only valid while the underlying mmap is valid.
+func (r *RecordView) ToValuesPooledUnsafe() []types.Value {
+	r.ensureDecoded()
+	if len(r.serialTypes) == 0 {
+		return nil
+	}
+
+	vPtr := valuesPool.Get().(*[]types.Value)
+	values := (*vPtr)[:0]
+
+	// Ensure capacity
+	if cap(values) < len(r.serialTypes) {
+		values = make([]types.Value, 0, len(r.serialTypes))
+	}
+
+	for i, st := range r.serialTypes {
+		values = append(values, r.decodeValueAtUnsafe(st, r.offsets[i]))
+	}
+	return values
+}
+
 // ReleaseValues returns a values slice to the pool.
 func ReleaseValues(values []types.Value) {
 	if values == nil {
