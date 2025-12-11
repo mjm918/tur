@@ -88,13 +88,8 @@ func (it *TableScanIterator) applyTypeConversions() {
 		return
 	}
 	for i, col := range it.table.Columns {
-		if col.Type == types.TypeJSON {
-			fmt.Printf("DEBUG applyTypeConversions: col[%d]=%s, val.Type()=%v, val.Text()='%s', val.JSON()='%s'\n",
-				i, col.Name, it.val[i].Type(), it.val[i].Text(), it.val[i].JSON())
-		}
 		if i < len(it.val) && col.Type == types.TypeJSON && it.val[i].Type() == types.TypeText {
 			it.val[i] = types.NewJSON(it.val[i].Text())
-			fmt.Printf("DEBUG after conversion: val.Type()=%v, val.JSON()='%s'\n", it.val[i].Type(), it.val[i].JSON())
 		}
 	}
 }
@@ -981,7 +976,7 @@ func (it *HashGroupByIterator) computeAggregates(group *groupEntry) {
 
 			// SUM and AVG
 			switch val.Type() {
-			case types.TypeInt:
+			case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 				group.aggregates["SUM"].sum += float64(val.Int())
 				group.aggregates["AVG"].sum += float64(val.Int())
 				group.aggregates["AVG"].count++
