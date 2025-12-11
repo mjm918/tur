@@ -52,7 +52,6 @@ const (
 	UPDATE
 	SET
 	INT_TYPE
-	INTEGER
 	TEXT_TYPE
 	FLOAT_TYPE
 	REAL
@@ -315,8 +314,6 @@ func (t TokenType) String() string {
 		return "SET"
 	case INT_TYPE:
 		return "INT"
-	case INTEGER:
-		return "INTEGER"
 	case TEXT_TYPE:
 		return "TEXT"
 	case FLOAT_TYPE:
@@ -589,7 +586,6 @@ var keywords = map[string]TokenType{
 	"UPDATE":      UPDATE,
 	"SET":         SET,
 	"INT":         INT_TYPE,
-	"INTEGER":     INTEGER,
 	"TEXT":        TEXT_TYPE,
 	"FLOAT":       FLOAT_TYPE,
 	"REAL":        REAL,

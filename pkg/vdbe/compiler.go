@@ -209,7 +209,7 @@ func (c *Compiler) compileExpr(expr parser.Expression, colMap map[string]int, cu
 // compileLiteral compiles a literal value
 func (c *Compiler) compileLiteral(val types.Value, destReg int) error {
 	switch val.Type() {
-	case types.TypeInt:
+	case types.TypeInt, types.TypeInt32, types.TypeSmallInt, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		c.program.AddOp(OpInteger, int(val.Int()), destReg, 0)
 	case types.TypeText:
 		c.program.AddOp4(OpString, len(val.Text()), destReg, 0, val.Text())

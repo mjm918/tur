@@ -20,7 +20,7 @@ func TestDB_ExecContext_BasicExecution(t *testing.T) {
 
 	// Execute with a background context (should succeed)
 	ctx := context.Background()
-	result, err := db.ExecContext(ctx, "CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)")
+	result, err := db.ExecContext(ctx, "CREATE TABLE test (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("ExecContext failed: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestDB_ExecContext_CanceledContext(t *testing.T) {
 	cancel() // Cancel immediately
 
 	// Execute with canceled context should fail
-	_, err = db.ExecContext(ctx, "CREATE TABLE test (id INTEGER)")
+	_, err = db.ExecContext(ctx, "CREATE TABLE test (id INT)")
 	if err == nil {
 		t.Error("expected error with canceled context, got nil")
 	}
@@ -72,7 +72,7 @@ func TestDB_ExecContext_TimeoutContext(t *testing.T) {
 	time.Sleep(1 * time.Millisecond)
 
 	// Execute with timed-out context should fail
-	_, err = db.ExecContext(ctx, "CREATE TABLE test (id INTEGER)")
+	_, err = db.ExecContext(ctx, "CREATE TABLE test (id INT)")
 	if err == nil {
 		t.Error("expected error with timed-out context, got nil")
 	}
@@ -92,7 +92,7 @@ func TestStmt_ExecContext_BasicExecution(t *testing.T) {
 	defer db.Close()
 
 	// Create table first
-	_, err = db.Exec("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)")
+	_, err = db.Exec("CREATE TABLE test (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestStmt_ExecContext_CanceledContext(t *testing.T) {
 	defer db.Close()
 
 	// Create table first
-	_, err = db.Exec("CREATE TABLE test (id INTEGER)")
+	_, err = db.Exec("CREATE TABLE test (id INT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestStmt_QueryContext_BasicExecution(t *testing.T) {
 	defer db.Close()
 
 	// Create and populate table
-	_, err = db.Exec("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)")
+	_, err = db.Exec("CREATE TABLE test (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestStmt_QueryContext_CanceledContext(t *testing.T) {
 	defer db.Close()
 
 	// Create table first
-	_, err = db.Exec("CREATE TABLE test (id INTEGER)")
+	_, err = db.Exec("CREATE TABLE test (id INT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestTx_ExecContext_BasicExecution(t *testing.T) {
 	defer db.Close()
 
 	// Create table first
-	_, err = db.Exec("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)")
+	_, err = db.Exec("CREATE TABLE test (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -289,7 +289,7 @@ func TestTx_ExecContext_CanceledContext(t *testing.T) {
 	defer db.Close()
 
 	// Create table first
-	_, err = db.Exec("CREATE TABLE test (id INTEGER)")
+	_, err = db.Exec("CREATE TABLE test (id INT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -379,7 +379,7 @@ func TestDB_ExecContext_WithDeadline_CompletesBeforeDeadline(t *testing.T) {
 	defer cancel()
 
 	// Execute a quick operation - should complete well before deadline
-	result, err := db.ExecContext(ctx, "CREATE TABLE test (id INTEGER PRIMARY KEY)")
+	result, err := db.ExecContext(ctx, "CREATE TABLE test (id INT PRIMARY KEY)")
 	if err != nil {
 		t.Fatalf("ExecContext failed: %v", err)
 	}
@@ -407,7 +407,7 @@ func TestDB_ExecContext_WithDeadline_ExceedsDeadline(t *testing.T) {
 	time.Sleep(1 * time.Millisecond)
 
 	// Execute should fail with deadline exceeded
-	_, err = db.ExecContext(ctx, "CREATE TABLE test (id INTEGER)")
+	_, err = db.ExecContext(ctx, "CREATE TABLE test (id INT)")
 	if err == nil {
 		t.Error("expected error with expired deadline, got nil")
 	}
@@ -427,7 +427,7 @@ func TestStmt_ExecContext_WithDeadline(t *testing.T) {
 	defer db.Close()
 
 	// Create table first
-	_, err = db.Exec("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)")
+	_, err = db.Exec("CREATE TABLE test (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -467,7 +467,7 @@ func TestStmt_QueryContext_WithDeadline(t *testing.T) {
 	defer db.Close()
 
 	// Create and populate table
-	_, err = db.Exec("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)")
+	_, err = db.Exec("CREATE TABLE test (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -517,7 +517,7 @@ func TestTx_ExecContext_WithDeadline(t *testing.T) {
 	defer db.Close()
 
 	// Create table first
-	_, err = db.Exec("CREATE TABLE test (id INTEGER PRIMARY KEY)")
+	_, err = db.Exec("CREATE TABLE test (id INT PRIMARY KEY)")
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}

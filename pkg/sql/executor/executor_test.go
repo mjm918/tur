@@ -3730,7 +3730,7 @@ func TestPragmaResultStreaming(t *testing.T) {
 	defer cleanup()
 
 	// Create test table
-	_, err := exec.Execute("CREATE TABLE test_stream (id INTEGER, name TEXT)")
+	_, err := exec.Execute("CREATE TABLE test_stream (id INT, name TEXT)")
 	if err != nil {
 		t.Fatalf("CREATE TABLE: %v", err)
 	}

@@ -37,7 +37,7 @@ type Executor struct {
 	treeFactory *tree.Factory          // factory for creating trees
 	trees       map[string]tree.ExtendedTree // table name -> btree
 	rowid       map[string]uint64       // table name -> next rowid
-	maxRowid    map[string]int64        // table name -> max INTEGER PRIMARY KEY value (for AUTOINCREMENT)
+	maxRowid    map[string]int64        // table name -> max INT PRIMARY KEY value (for AUTOINCREMENT)
 	txManager   *mvcc.TransactionManager
 	currentTx   *mvcc.Transaction      // current active transaction (nil if none)
 	hnswIndexes map[string]*hnsw.Index // HNSW index name -> index
@@ -1422,7 +1422,7 @@ func (e *Executor) executeInsertInternal(stmt *parser.InsertStmt, fireTriggers b
 		colMap[col.Name] = i
 	}
 
-	// Find INTEGER PRIMARY KEY column for AUTOINCREMENT
+	// Find INT PRIMARY KEY column for AUTOINCREMENT
 	intPKColIdx := e.findIntegerPrimaryKeyColumn(table)
 
 	var rowsAffected int64
@@ -1461,17 +1461,15 @@ func (e *Executor) executeInsertInternal(stmt *parser.InsertStmt, fireTriggers b
 		// Map input values to full column list
 		values := e.mapInputToColumns(inputValues, colMapping, table)
 
-		// Handle INTEGER PRIMARY KEY auto-increment
+		// Handle SERIAL/BIGSERIAL auto-increment
 		if intPKColIdx >= 0 {
 			if values[intPKColIdx].IsNull() {
-				// Auto-generate ID for NULL INTEGER PRIMARY KEY
+				// Auto-generate ID for NULL SERIAL/BIGSERIAL column
 				nextID := e.getNextAutoIncrementID(stmt.TableName)
-				values[intPKColIdx] = types.NewInt(nextID)
+				values[intPKColIdx] = types.NewInt32(int32(nextID))
 			} else {
-				// Track the explicit ID to update max rowid
-				if values[intPKColIdx].Type() == types.TypeInt {
-					e.trackMaxRowID(stmt.TableName, values[intPKColIdx].Int())
-				}
+				// Track the explicit ID to update max rowid for SERIAL/BIGSERIAL
+				e.trackMaxRowID(stmt.TableName, values[intPKColIdx].Int())
 			}
 		}
 
@@ -1571,26 +1569,10 @@ func (e *Executor) executeInsertInternal(stmt *parser.InsertStmt, fireTriggers b
 		// Encode row as record
 		data := record.Encode(values)
 
-		// Generate rowid key
-		// For INTEGER PRIMARY KEY, use the PK value as the rowid (SQLite behavior)
-		// For other types, use internal counter
-		var rowid uint64
-		if intPKColIdx >= 0 && table.Columns[intPKColIdx].Type == types.TypeInt {
-			// INTEGER PRIMARY KEY - use the column value as rowid
-			pkVal := values[intPKColIdx].Int()
-			if pkVal < 0 {
-				return nil, fmt.Errorf("INTEGER PRIMARY KEY value must be non-negative, got %d", pkVal)
-			}
-			rowid = uint64(pkVal)
-			// Update internal counter if this value is larger
-			if rowid >= e.rowid[stmt.TableName] {
-				e.rowid[stmt.TableName] = rowid + 1
-			}
-		} else {
-			// Regular table - use internal counter
-			rowid = e.rowid[stmt.TableName]
-			e.rowid[stmt.TableName]++
-		}
+		// Generate rowid key - always use internal counter
+		// (We no longer have special "INT PRIMARY KEY" behavior that uses column value as rowid)
+		rowid := e.rowid[stmt.TableName]
+		e.rowid[stmt.TableName]++
 
 		key := make([]byte, 8)
 		binary.BigEndian.PutUint64(key, rowid)
@@ -2506,9 +2488,9 @@ func (e *Executor) validateConstraints(table *schema.TableDef, values []types.Va
 		for _, constraint := range colDef.Constraints {
 			switch constraint.Type {
 			case schema.ConstraintPrimaryKey:
-				// PRIMARY KEY implies NOT NULL for non-INTEGER columns
-				// INTEGER PRIMARY KEY allows NULL which triggers AUTOINCREMENT
-				if val.IsNull() && colDef.Type != types.TypeInt {
+				// PRIMARY KEY implies NOT NULL
+				// SERIAL/BIGSERIAL columns allow NULL which triggers AUTOINCREMENT
+				if val.IsNull() && colDef.Type != types.TypeSerial && colDef.Type != types.TypeBigSerial {
 					return fmt.Errorf("NOT NULL constraint violation: PRIMARY KEY column '%s' cannot be NULL", colDef.Name)
 				}
 
@@ -2662,16 +2644,16 @@ func (e *Executor) tryFastPathPKLookup(stmt *parser.SelectStmt) (*Result, bool) 
 	}
 
 	// Find primary key column
-	// IMPORTANT: Fast path only works for INTEGER PRIMARY KEY (TypeInt) which is a rowid alias.
+	// IMPORTANT: Fast path only works for INT PRIMARY KEY (TypeInt) which is a rowid alias.
 	// For other integer types like INT (TypeInt32), the rowid is separate from the column value,
 	// so we must fall back to the regular execution path.
 	var pkColName string
 	var pkColIndex int = -1
 	for i, col := range tableDef.Columns {
 		if col.PrimaryKey {
-			// Only use fast path if it's INTEGER PRIMARY KEY (TypeInt), not INT (TypeInt32)
+			// Only use fast path if it's INT PRIMARY KEY (TypeInt), not INT (TypeInt32)
 			if col.Type != types.TypeInt {
-				return nil, false // Fall back to regular path for non-INTEGER PRIMARY KEY
+				return nil, false // Fall back to regular path for non-INT PRIMARY KEY
 			}
 			pkColName = col.Name
 			pkColIndex = i
@@ -2725,7 +2707,7 @@ func (e *Executor) tryFastPathPKLookup(stmt *parser.SelectStmt) (*Result, bool) 
 	}
 
 	// Build the key for lookup
-	// Key format: 8-byte big-endian rowid (which is the PK value for INTEGER PRIMARY KEY)
+	// Key format: 8-byte big-endian rowid (which is the PK value for INT PRIMARY KEY)
 	var key []byte
 	switch lookupValue.Type() {
 	case types.TypeInt:
@@ -3349,7 +3331,7 @@ func (e *Executor) evaluateLiteralExpr(expr parser.Expression) (int64, error) {
 	switch ex := expr.(type) {
 	case *parser.Literal:
 		switch ex.Value.Type() {
-		case types.TypeInt:
+		case types.TypeInt, types.TypeInt32, types.TypeSmallInt, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 			return ex.Value.Int(), nil
 		case types.TypeFloat:
 			return int64(ex.Value.Float()), nil
@@ -3432,10 +3414,16 @@ func (e *Executor) evaluateExpr(expr parser.Expression, rowValues []types.Value,
 			return types.NewNull(), err
 		}
 		if ex.Op == lexer.MINUS {
-			if right.Type() == types.TypeInt {
+			switch right.Type() {
+			case types.TypeInt:
 				return types.NewInt(-right.Int()), nil
-			}
-			if right.Type() == types.TypeFloat {
+			case types.TypeInt32:
+				return types.NewInt32(int32(-right.Int())), nil
+			case types.TypeSmallInt:
+				return types.NewSmallInt(int16(-right.Int())), nil
+			case types.TypeBigInt:
+				return types.NewBigInt(-right.Int()), nil
+			case types.TypeFloat:
 				return types.NewFloat(-right.Float()), nil
 			}
 		}
@@ -3826,12 +3814,12 @@ func (e *Executor) evaluateFunctionCall(expr *parser.FunctionCall, rowValues []t
 		if len(args) == 0 {
 			return types.NewNull(), nil
 		}
-		if args[0].Type() == types.TypeInt {
+		if types.IsIntegerType(args[0].Type()) {
 			v := args[0].Int()
 			if v < 0 {
 				v = -v
 			}
-			return types.NewInt(v), nil
+			return types.NewInt32(int32(v)), nil
 		}
 		if args[0].Type() == types.TypeFloat {
 			v := args[0].Float()
@@ -5068,15 +5056,12 @@ func (e *Executor) executeExplainAnalyze(stmt *parser.ExplainStmt) (*Result, err
 	return result, nil
 }
 
-// findIntegerPrimaryKeyColumn returns the index of an INTEGER PRIMARY KEY column,
+// findAutoIncrementColumn returns the index of a SERIAL or BIGSERIAL column,
 // or -1 if no such column exists. This is used for AUTOINCREMENT behavior.
-// Also detects SERIAL and BIGSERIAL columns which are auto-incrementing by definition.
+// Note: We no longer have special "INT PRIMARY KEY" behavior - all integer
+// types use internal rowid counter, and only SERIAL/BIGSERIAL auto-increment.
 func (e *Executor) findIntegerPrimaryKeyColumn(table *schema.TableDef) int {
 	for i, col := range table.Columns {
-		// Traditional INTEGER PRIMARY KEY
-		if col.PrimaryKey && col.Type == types.TypeInt {
-			return i
-		}
 		// SERIAL and BIGSERIAL are auto-incrementing by definition
 		if col.Type == types.TypeSerial || col.Type == types.TypeBigSerial {
 			return i
@@ -5948,10 +5933,16 @@ func (e *Executor) evaluateExprWithLocals(expr parser.Expression, row []types.Va
 			return types.NewNull(), err
 		}
 		if ex.Op == lexer.MINUS {
-			if right.Type() == types.TypeInt {
+			switch right.Type() {
+			case types.TypeInt:
 				return types.NewInt(-right.Int()), nil
-			}
-			if right.Type() == types.TypeFloat {
+			case types.TypeInt32:
+				return types.NewInt32(int32(-right.Int())), nil
+			case types.TypeSmallInt:
+				return types.NewSmallInt(int16(-right.Int())), nil
+			case types.TypeBigInt:
+				return types.NewBigInt(-right.Int()), nil
+			case types.TypeFloat:
 				return types.NewFloat(-right.Float()), nil
 			}
 		}
@@ -6126,10 +6117,12 @@ func (e *Executor) executePragma(stmt *parser.PragmaStmt) (*Result, error) {
 				} else {
 					return nil, fmt.Errorf("result_streaming must be ON/OFF, TRUE/FALSE, or 1/0, got %s", val.Text())
 				}
-			case types.TypeInt:
-				enabled = val.Int() != 0
 			default:
-				return nil, fmt.Errorf("result_streaming must be ON/OFF, TRUE/FALSE, or 1/0, got %v", val)
+				if types.IsIntegerType(val.Type()) {
+					enabled = val.Int() != 0
+				} else {
+					return nil, fmt.Errorf("result_streaming must be ON/OFF, TRUE/FALSE, or 1/0, got %v", val)
+				}
 			}
 
 			e.resultStreaming = enabled

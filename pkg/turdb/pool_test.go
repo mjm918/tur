@@ -82,7 +82,7 @@ func TestPool_Get_ReturnsConnection(t *testing.T) {
 	}
 
 	// Connection should be usable
-	_, err = conn.Exec("CREATE TABLE test (id INTEGER PRIMARY KEY)")
+	_, err = conn.Exec("CREATE TABLE test (id INT PRIMARY KEY)")
 	if err != nil {
 		t.Fatalf("Exec on pooled connection failed: %v", err)
 	}

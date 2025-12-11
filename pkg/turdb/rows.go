@@ -133,7 +133,7 @@ func scanValue(src types.Value, dest interface{}) error {
 	elem := rv.Elem()
 
 	switch src.Type() {
-	case types.TypeInt:
+	case types.TypeInt, types.TypeInt32, types.TypeSmallInt, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return scanInt(src.Int(), elem)
 	case types.TypeFloat:
 		return scanFloat(src.Float(), elem)

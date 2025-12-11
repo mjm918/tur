@@ -64,8 +64,8 @@ func TestExecutor_TruncateTable_ResetsAutoIncrement(t *testing.T) {
 	defer exec.Close()
 
 	// Create table and insert data (omitting id to use auto-increment)
-	// Note: INTEGER PRIMARY KEY (not INT) has special auto-increment behavior in SQLite/TurDB
-	mustExec(t, exec, `CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);`)
+	// Use SERIAL for auto-increment behavior (INTEGER no longer has special auto-increment)
+	mustExec(t, exec, `CREATE TABLE items (id SERIAL PRIMARY KEY, name TEXT);`)
 	mustExec(t, exec, `INSERT INTO items (name) VALUES ('Item1');`)
 	mustExec(t, exec, `INSERT INTO items (name) VALUES ('Item2');`)
 	mustExec(t, exec, `INSERT INTO items (name) VALUES ('Item3');`)

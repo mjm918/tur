@@ -47,7 +47,7 @@ func BenchmarkInsert_SQLite(b *testing.B) {
 	}
 	defer db.Close()
 
-	_, err = db.Exec("CREATE TABLE bench (id INTEGER PRIMARY KEY, name TEXT, value INTEGER)")
+	_, err = db.Exec("CREATE TABLE bench (id INT PRIMARY KEY, name TEXT, value INT)")
 	if err != nil {
 		b.Fatalf("CREATE TABLE failed: %v", err)
 	}
@@ -99,7 +99,7 @@ func BenchmarkSelect_SQLite(b *testing.B) {
 	}
 	defer db.Close()
 
-	db.Exec("CREATE TABLE bench (id INTEGER PRIMARY KEY, name TEXT, value INTEGER)")
+	db.Exec("CREATE TABLE bench (id INT PRIMARY KEY, name TEXT, value INT)")
 
 	// Pre-populate with 100 rows
 	for i := 0; i < 100; i++ {
@@ -154,7 +154,7 @@ func BenchmarkUpdate_SQLite(b *testing.B) {
 	}
 	defer db.Close()
 
-	db.Exec("CREATE TABLE bench (id INTEGER PRIMARY KEY, name TEXT, value INTEGER)")
+	db.Exec("CREATE TABLE bench (id INT PRIMARY KEY, name TEXT, value INT)")
 
 	// Pre-populate with 100 rows
 	for i := 0; i < 100; i++ {
@@ -202,7 +202,7 @@ func BenchmarkTransaction_SQLite(b *testing.B) {
 	}
 	defer db.Close()
 
-	db.Exec("CREATE TABLE bench (id INTEGER PRIMARY KEY, name TEXT, value INTEGER)")
+	db.Exec("CREATE TABLE bench (id INT PRIMARY KEY, name TEXT, value INT)")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -244,7 +244,7 @@ func BenchmarkTransactionCommit_SQLite(b *testing.B) {
 	}
 	defer db.Close()
 
-	db.Exec("CREATE TABLE bench (id INTEGER PRIMARY KEY, name TEXT, value INTEGER)")
+	db.Exec("CREATE TABLE bench (id INT PRIMARY KEY, name TEXT, value INT)")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

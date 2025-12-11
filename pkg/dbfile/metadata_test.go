@@ -37,7 +37,7 @@ func TestSchemaEntry_Encode(t *testing.T) {
 		Name:     "users",
 		TableName: "users",
 		RootPage: 2,
-		SQL:      "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)",
+		SQL:      "CREATE TABLE users (id INT PRIMARY KEY, name TEXT)",
 	}
 
 	data := entry.Encode()
@@ -58,7 +58,7 @@ func TestSchemaEntry_Decode(t *testing.T) {
 		Name:      "products",
 		TableName: "products",
 		RootPage:  5,
-		SQL:       "CREATE TABLE products (id INTEGER, price REAL)",
+		SQL:       "CREATE TABLE products (id INT, price REAL)",
 	}
 
 	data := original.Encode()

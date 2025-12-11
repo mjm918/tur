@@ -1212,24 +1212,24 @@ func builtinMod(args []types.Value) types.Value {
 	}
 
 	var x, y float64
+	xIsInt := types.IsIntegerType(args[0].Type())
+	yIsInt := types.IsIntegerType(args[1].Type())
 
 	// Convert first argument to float
-	switch args[0].Type() {
-	case types.TypeInt:
+	if xIsInt {
 		x = float64(args[0].Int())
-	case types.TypeFloat:
+	} else if args[0].Type() == types.TypeFloat {
 		x = args[0].Float()
-	default:
+	} else {
 		return types.NewNull()
 	}
 
 	// Convert second argument to float
-	switch args[1].Type() {
-	case types.TypeInt:
+	if yIsInt {
 		y = float64(args[1].Int())
-	case types.TypeFloat:
+	} else if args[1].Type() == types.TypeFloat {
 		y = args[1].Float()
-	default:
+	} else {
 		return types.NewNull()
 	}
 
@@ -1239,9 +1239,9 @@ func builtinMod(args []types.Value) types.Value {
 	}
 
 	// For integers, return integer result
-	if args[0].Type() == types.TypeInt && args[1].Type() == types.TypeInt {
+	if xIsInt && yIsInt {
 		result := int64(x) % int64(y)
-		return types.NewInt(result)
+		return types.NewInt32(int32(result))
 	}
 
 	// For floats, use math.Mod
@@ -1259,22 +1259,20 @@ func builtinPower(args []types.Value) types.Value {
 	var x, y float64
 
 	// Convert first argument to float
-	switch args[0].Type() {
-	case types.TypeInt:
+	if types.IsIntegerType(args[0].Type()) {
 		x = float64(args[0].Int())
-	case types.TypeFloat:
+	} else if args[0].Type() == types.TypeFloat {
 		x = args[0].Float()
-	default:
+	} else {
 		return types.NewNull()
 	}
 
 	// Convert second argument to float
-	switch args[1].Type() {
-	case types.TypeInt:
+	if types.IsIntegerType(args[1].Type()) {
 		y = float64(args[1].Int())
-	case types.TypeFloat:
+	} else if args[1].Type() == types.TypeFloat {
 		y = args[1].Float()
-	default:
+	} else {
 		return types.NewNull()
 	}
 
@@ -1291,12 +1289,11 @@ func builtinSqrt(args []types.Value) types.Value {
 
 	var x float64
 
-	switch args[0].Type() {
-	case types.TypeInt:
+	if types.IsIntegerType(args[0].Type()) {
 		x = float64(args[0].Int())
-	case types.TypeFloat:
+	} else if args[0].Type() == types.TypeFloat {
 		x = args[0].Float()
-	default:
+	} else {
 		return types.NewNull()
 	}
 
@@ -1704,21 +1701,20 @@ func builtinSign(args []types.Value) types.Value {
 
 	var x float64
 
-	switch args[0].Type() {
-	case types.TypeInt:
+	if types.IsIntegerType(args[0].Type()) {
 		x = float64(args[0].Int())
-	case types.TypeFloat:
+	} else if args[0].Type() == types.TypeFloat {
 		x = args[0].Float()
-	default:
+	} else {
 		return types.NewNull()
 	}
 
 	if x < 0 {
-		return types.NewInt(-1)
+		return types.NewInt32(-1)
 	} else if x > 0 {
-		return types.NewInt(1)
+		return types.NewInt32(1)
 	}
-	return types.NewInt(0)
+	return types.NewInt32(0)
 }
 
 // builtinGreatest implements GREATEST(val1, val2, ...)

@@ -274,9 +274,9 @@ func TestParseSerialWithPrimaryKey(t *testing.T) {
 	}
 }
 
-func TestLegacyIntegerStillWorks(t *testing.T) {
-	// INTEGER keyword should still map to TypeInt (legacy)
-	sql := "CREATE TABLE t (id INTEGER)"
+func TestINT_MapsTo_TypeInt32(t *testing.T) {
+	// INT keyword maps to TypeInt32
+	sql := "CREATE TABLE t (id INT)"
 	p := New(sql)
 	stmt, err := p.Parse()
 	if err != nil {
@@ -289,8 +289,8 @@ func TestLegacyIntegerStillWorks(t *testing.T) {
 	}
 
 	col := createStmt.Columns[0]
-	// INTEGER should still be legacy TypeInt for backwards compatibility
-	if col.Type != types.TypeInt {
-		t.Errorf("expected TypeInt for INTEGER keyword, got %v", col.Type)
+	// INT maps to TypeInt32
+	if col.Type != types.TypeInt32 {
+		t.Errorf("expected TypeInt32 for INT keyword, got %v", col.Type)
 	}
 }

@@ -36,7 +36,7 @@ func TestIntegrityCheck_ValidDatabase(t *testing.T) {
 	}
 
 	// Create a table and insert data
-	_, err = db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+	_, err = db.Exec("CREATE TABLE users (id INT PRIMARY KEY, name TEXT NOT NULL)")
 	if err != nil {
 		t.Fatalf("Failed to create table: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestIntegrityCheck_WithIndex(t *testing.T) {
 	}
 
 	// Create a table with index
-	_, err = db.Exec("CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL)")
+	_, err = db.Exec("CREATE TABLE products (id INT PRIMARY KEY, name TEXT, price REAL)")
 	if err != nil {
 		t.Fatalf("Failed to create table: %v", err)
 	}
@@ -109,12 +109,12 @@ func TestIntegrityCheck_ForeignKeyValid(t *testing.T) {
 	}
 
 	// Create tables with foreign key
-	_, err = db.Exec("CREATE TABLE departments (id INTEGER PRIMARY KEY, name TEXT)")
+	_, err = db.Exec("CREATE TABLE departments (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("Failed to create departments table: %v", err)
 	}
 
-	_, err = db.Exec("CREATE TABLE employees (id INTEGER PRIMARY KEY, name TEXT, dept_id INTEGER REFERENCES departments(id))")
+	_, err = db.Exec("CREATE TABLE employees (id INT PRIMARY KEY, name TEXT, dept_id INT REFERENCES departments(id))")
 	if err != nil {
 		t.Fatalf("Failed to create employees table: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestIntegrityCheck_QuickCheck(t *testing.T) {
 	defer db.Close()
 
 	// Create some data
-	_, err = db.Exec("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
+	_, err = db.Exec("CREATE TABLE test (id INT PRIMARY KEY, value TEXT)")
 	if err != nil {
 		t.Fatalf("Failed to create table: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestIntegrityCheck_ReturnsErrors(t *testing.T) {
 	}
 
 	// Create a table
-	_, err = db.Exec("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
+	_, err = db.Exec("CREATE TABLE test (id INT PRIMARY KEY, value TEXT)")
 	if err != nil {
 		t.Fatalf("Failed to create table: %v", err)
 	}
@@ -222,12 +222,12 @@ func TestIntegrityCheck_MultipleTables(t *testing.T) {
 	defer db.Close()
 
 	// Create multiple tables with data
-	_, err = db.Exec("CREATE TABLE table1 (id INTEGER PRIMARY KEY, name TEXT)")
+	_, err = db.Exec("CREATE TABLE table1 (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("Failed to create table1: %v", err)
 	}
 
-	_, err = db.Exec("CREATE TABLE table2 (id INTEGER PRIMARY KEY, value REAL)")
+	_, err = db.Exec("CREATE TABLE table2 (id INT PRIMARY KEY, value REAL)")
 	if err != nil {
 		t.Fatalf("Failed to create table2: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestIntegrityCheck_LargeDataset(t *testing.T) {
 	defer db.Close()
 
 	// Create table
-	_, err = db.Exec("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, quantity INTEGER)")
+	_, err = db.Exec("CREATE TABLE items (id INT PRIMARY KEY, name TEXT, quantity INT)")
 	if err != nil {
 		t.Fatalf("Failed to create table: %v", err)
 	}
@@ -336,7 +336,7 @@ func TestCorruptionCheck_WithData(t *testing.T) {
 	defer db.Close()
 
 	// Create a table and insert data
-	_, err = db.Exec("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)")
+	_, err = db.Exec("CREATE TABLE test (id INT PRIMARY KEY, name TEXT)")
 	if err != nil {
 		t.Fatalf("Failed to create table: %v", err)
 	}

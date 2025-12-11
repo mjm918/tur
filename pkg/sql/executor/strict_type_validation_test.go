@@ -24,7 +24,7 @@ func TestExecutor_InsertSmallIntValidation(t *testing.T) {
 	exec := New(p)
 	defer exec.Close()
 
-	mustExec(t, exec, `CREATE TABLE test_smallint (id INTEGER PRIMARY KEY, value SMALLINT);`)
+	mustExec(t, exec, `CREATE TABLE test_smallint (id SERIAL PRIMARY KEY, value SMALLINT);`)
 
 	// Valid SMALLINT values should succeed
 	tests := []struct {
@@ -69,7 +69,7 @@ func TestExecutor_InsertInt32Validation(t *testing.T) {
 	exec := New(p)
 	defer exec.Close()
 
-	mustExec(t, exec, `CREATE TABLE test_int32 (id INTEGER PRIMARY KEY, value INT);`)
+	mustExec(t, exec, `CREATE TABLE test_int32 (id SERIAL PRIMARY KEY, value INT);`)
 
 	tests := []struct {
 		name  string
@@ -112,7 +112,7 @@ func TestExecutor_InsertVarcharValidation(t *testing.T) {
 	exec := New(p)
 	defer exec.Close()
 
-	mustExec(t, exec, `CREATE TABLE test_varchar (id INTEGER PRIMARY KEY, name VARCHAR(10));`)
+	mustExec(t, exec, `CREATE TABLE test_varchar (id SERIAL PRIMARY KEY, name VARCHAR(10));`)
 
 	tests := []struct {
 		name  string
@@ -153,7 +153,7 @@ func TestExecutor_InsertCharValidation(t *testing.T) {
 	exec := New(p)
 	defer exec.Close()
 
-	mustExec(t, exec, `CREATE TABLE test_char (id INTEGER PRIMARY KEY, code CHAR(5));`)
+	mustExec(t, exec, `CREATE TABLE test_char (id INT PRIMARY KEY, code CHAR(5));`)
 
 	// CHAR should pad shorter strings and truncate longer ones (or error based on mode)
 	// For now, we'll test that it accepts any string and pads/truncates as needed
@@ -209,7 +209,7 @@ func TestExecutor_InsertDecimalValidation(t *testing.T) {
 	defer exec.Close()
 
 	// DECIMAL(5,2) = 5 total digits, 2 after decimal point = max 999.99
-	mustExec(t, exec, `CREATE TABLE test_decimal (id INTEGER PRIMARY KEY, price DECIMAL(5, 2));`)
+	mustExec(t, exec, `CREATE TABLE test_decimal (id SERIAL PRIMARY KEY, price DECIMAL(5, 2));`)
 
 	tests := []struct {
 		name  string
@@ -366,7 +366,7 @@ func TestExecutor_StrictTypeRoundTrip(t *testing.T) {
 
 	// Create a table with all strict types
 	mustExec(t, exec, `CREATE TABLE all_strict (
-		id INTEGER PRIMARY KEY,
+		id INT PRIMARY KEY,
 		small_val SMALLINT,
 		int_val INT,
 		big_val BIGINT,

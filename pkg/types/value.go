@@ -40,6 +40,16 @@ const (
 	TypeChar      // Fixed-length string
 )
 
+// IsIntegerType returns true if the type is any integer type
+func IsIntegerType(t ValueType) bool {
+	switch t {
+	case TypeInt, TypeInt32, TypeSmallInt, TypeBigInt, TypeSerial, TypeBigSerial:
+		return true
+	default:
+		return false
+	}
+}
+
 // IntervalValue represents a duration for date arithmetic
 type IntervalValue struct {
 	Months       int64 // Months component
