@@ -63,8 +63,8 @@ func TestVMRunInteger(t *testing.T) {
 	}
 
 	val := vm.Register(1)
-	if val.Type() != types.TypeInt {
-		t.Errorf("expected TypeInt, got %v", val.Type())
+	if val.Type() != types.TypeInt32 {
+		t.Errorf("expected TypeInt32, got %v", val.Type())
 	}
 	if val.Int() != 42 {
 		t.Errorf("expected 42, got %d", val.Int())
@@ -822,8 +822,8 @@ func TestVMRunRowid(t *testing.T) {
 	}
 
 	val := vm.Register(1)
-	if val.Type() != types.TypeInt {
-		t.Errorf("expected TypeInt, got %v", val.Type())
+	if val.Type() != types.TypeInt32 {
+		t.Errorf("expected TypeInt32, got %v", val.Type())
 	}
 	if val.Int() != 42 {
 		t.Errorf("expected rowid 42, got %d", val.Int())
@@ -873,8 +873,8 @@ func TestVMRunSeek(t *testing.T) {
 	}
 
 	val := vm.Register(2)
-	if val.Type() != types.TypeInt {
-		t.Errorf("expected TypeInt, got %v", val.Type())
+	if val.Type() != types.TypeInt32 {
+		t.Errorf("expected TypeInt32, got %v", val.Type())
 	}
 	if val.Int() != 20 {
 		t.Errorf("expected value 20, got %d", val.Int())

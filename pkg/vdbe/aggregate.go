@@ -125,7 +125,7 @@ func (s *SumAggregate) Step(value types.Value) {
 	s.hasValue = true
 
 	switch value.Type() {
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		if s.hasFloat {
 			s.floatSum += float64(value.Int())
 		} else {
@@ -178,7 +178,7 @@ func (a *AvgAggregate) Step(value types.Value) {
 	a.count++
 
 	switch value.Type() {
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		a.sum += float64(value.Int())
 	case types.TypeFloat:
 		a.sum += value.Float()
@@ -294,7 +294,7 @@ func compareValues(a, b types.Value) int {
 	// Same type comparisons
 	if a.Type() == b.Type() {
 		switch a.Type() {
-		case types.TypeInt:
+		case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 			ai, bi := a.Int(), b.Int()
 			if ai < bi {
 				return -1
@@ -325,15 +325,15 @@ func compareValues(a, b types.Value) int {
 	}
 
 	// Mixed numeric types
-	if (a.Type() == types.TypeInt || a.Type() == types.TypeFloat) &&
-		(b.Type() == types.TypeInt || b.Type() == types.TypeFloat) {
+	if (types.IsIntegerType(a.Type()) || a.Type() == types.TypeFloat) &&
+		(types.IsIntegerType(b.Type()) || b.Type() == types.TypeFloat) {
 		var af, bf float64
-		if a.Type() == types.TypeInt {
+		if types.IsIntegerType(a.Type()) {
 			af = float64(a.Int())
 		} else {
 			af = a.Float()
 		}
-		if b.Type() == types.TypeInt {
+		if types.IsIntegerType(b.Type()) {
 			bf = float64(b.Int())
 		} else {
 			bf = b.Float()

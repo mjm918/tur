@@ -381,13 +381,9 @@ func TestParser_Literals(t *testing.T) {
 			return l.Value.Int() == 42
 		}},
 		{"INSERT INTO t VALUES (-42)", func(e Expression) bool {
-			// Negative numbers are parsed as UnaryExpr with minus operator
-			u := e.(*UnaryExpr)
-			if u.Op != lexer.MINUS {
-				return false
-			}
-			l := u.Right.(*Literal)
-			return l.Value.Int() == 42
+			// Negative integers are folded into a single literal
+			l := e.(*Literal)
+			return l.Value.Int() == -42
 		}},
 		{"INSERT INTO t VALUES (3.14)", func(e Expression) bool {
 			l := e.(*Literal)

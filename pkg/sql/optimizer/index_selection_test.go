@@ -18,7 +18,7 @@ func TestFindCandidateIndexes_SingleColumnEquality(t *testing.T) {
 	tableDef := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "email", Type: types.TypeText},
 			{Name: "name", Type: types.TypeText},
 		},
@@ -61,7 +61,7 @@ func TestFindCandidateIndexes_NoMatchingIndex(t *testing.T) {
 	tableDef := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "email", Type: types.TypeText},
 			{Name: "name", Type: types.TypeText},
 		},
@@ -98,7 +98,7 @@ func TestFindCandidateIndexes_MultipleIndexes(t *testing.T) {
 	tableDef := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "email", Type: types.TypeText},
 			{Name: "status", Type: types.TypeText},
 		},
@@ -148,8 +148,8 @@ func TestFindCandidateIndexes_RangePredicates(t *testing.T) {
 	tableDef := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
-			{Name: "age", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
+			{Name: "age", Type: types.TypeInt32},
 		},
 	}
 	catalog.CreateTable(tableDef)
@@ -187,7 +187,7 @@ func TestFindCandidateIndexes_ColumnOnRightSide(t *testing.T) {
 	tableDef := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 		},
 	}
 	catalog.CreateTable(tableDef)
@@ -224,7 +224,7 @@ func TestFindCandidateIndexes_NilWhereClause(t *testing.T) {
 	tableDef := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 		},
 	}
 	catalog.CreateTable(tableDef)
@@ -338,7 +338,7 @@ func TestCompareAccessPaths_IndexBetterForSelectiveQuery(t *testing.T) {
 	tableDef := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "email", Type: types.TypeText},
 		},
 	}
@@ -453,7 +453,7 @@ func TestCompareAccessPaths_ReturnsCorrectRowEstimates(t *testing.T) {
 	tableDef := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "age", Type: types.TypeInt},
+			{Name: "age", Type: types.TypeInt32},
 		},
 	}
 	catalog.CreateTable(tableDef)
@@ -500,7 +500,7 @@ func TestSelectBestAccessPath_ChoosesCheapestIndex(t *testing.T) {
 	tableDef := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "email", Type: types.TypeText},
 			{Name: "status", Type: types.TypeText},
 		},
@@ -557,7 +557,7 @@ func TestSelectBestAccessPath_NoIndexReturnsTableScan(t *testing.T) {
 	tableDef := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "name", Type: types.TypeText},
 		},
 	}
@@ -625,7 +625,7 @@ func TestSelectBestAccessPath_NilWhereClauseUsesTableScan(t *testing.T) {
 	tableDef := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 		},
 	}
 	catalog.CreateTable(tableDef)
@@ -657,7 +657,7 @@ func TestFindCandidateIndexes_MultiColumnIndexFirstColumn(t *testing.T) {
 	tableDef := &schema.TableDef{
 		Name: "orders",
 		Columns: []schema.ColumnDef{
-			{Name: "customer_id", Type: types.TypeInt},
+			{Name: "customer_id", Type: types.TypeInt32},
 			{Name: "order_date", Type: types.TypeText},
 			{Name: "status", Type: types.TypeText},
 		},
@@ -699,7 +699,7 @@ func TestFindCandidateIndexes_MultiColumnIndexPrefix(t *testing.T) {
 	tableDef := &schema.TableDef{
 		Name: "orders",
 		Columns: []schema.ColumnDef{
-			{Name: "customer_id", Type: types.TypeInt},
+			{Name: "customer_id", Type: types.TypeInt32},
 			{Name: "order_date", Type: types.TypeText},
 			{Name: "status", Type: types.TypeText},
 		},
@@ -752,7 +752,7 @@ func TestFindCandidateIndexes_MultiColumnIndexNotPrefix(t *testing.T) {
 	tableDef := &schema.TableDef{
 		Name: "orders",
 		Columns: []schema.ColumnDef{
-			{Name: "customer_id", Type: types.TypeInt},
+			{Name: "customer_id", Type: types.TypeInt32},
 			{Name: "order_date", Type: types.TypeText},
 			{Name: "status", Type: types.TypeText},
 		},
@@ -790,8 +790,8 @@ func TestFindCandidateIndexes_FullMultiColumnMatch(t *testing.T) {
 	tableDef := &schema.TableDef{
 		Name: "orders",
 		Columns: []schema.ColumnDef{
-			{Name: "a", Type: types.TypeInt},
-			{Name: "b", Type: types.TypeInt},
+			{Name: "a", Type: types.TypeInt32},
+			{Name: "b", Type: types.TypeInt32},
 		},
 	}
 	catalog.CreateTable(tableDef)
@@ -842,9 +842,9 @@ func TestFindCandidateIndexes_PartialIndex_QueryMatchesPredicate(t *testing.T) {
 	tableDef := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "email", Type: types.TypeText},
-			{Name: "active", Type: types.TypeInt},
+			{Name: "active", Type: types.TypeInt32},
 		},
 	}
 	catalog.CreateTable(tableDef)
@@ -892,9 +892,9 @@ func TestFindCandidateIndexes_PartialIndex_QueryDoesNotMatchPredicate(t *testing
 	tableDef := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "email", Type: types.TypeText},
-			{Name: "active", Type: types.TypeInt},
+			{Name: "active", Type: types.TypeInt32},
 		},
 	}
 	catalog.CreateTable(tableDef)
@@ -932,9 +932,9 @@ func TestFindCandidateIndexes_PartialIndex_QueryWithDifferentPredicateValue(t *t
 	tableDef := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "email", Type: types.TypeText},
-			{Name: "active", Type: types.TypeInt},
+			{Name: "active", Type: types.TypeInt32},
 		},
 	}
 	catalog.CreateTable(tableDef)
@@ -980,9 +980,9 @@ func TestFindCandidateIndexes_NonPartialIndex_AlwaysCandidate(t *testing.T) {
 	tableDef := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "email", Type: types.TypeText},
-			{Name: "active", Type: types.TypeInt},
+			{Name: "active", Type: types.TypeInt32},
 		},
 	}
 	catalog.CreateTable(tableDef)
@@ -1021,7 +1021,7 @@ func TestFindCandidateIndexes_ExpressionIndex_FunctionCall(t *testing.T) {
 	tableDef := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "name", Type: types.TypeText},
 		},
 	}
@@ -1065,9 +1065,9 @@ func TestFindCandidateIndexes_ExpressionIndex_BinaryExpr(t *testing.T) {
 	tableDef := &schema.TableDef{
 		Name: "orders",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
-			{Name: "price", Type: types.TypeInt},
-			{Name: "quantity", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
+			{Name: "price", Type: types.TypeInt32},
+			{Name: "quantity", Type: types.TypeInt32},
 		},
 	}
 	catalog.CreateTable(tableDef)
@@ -1111,7 +1111,7 @@ func TestFindCandidateIndexes_ExpressionIndex_NoMatch(t *testing.T) {
 	tableDef := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "name", Type: types.TypeText},
 		},
 	}
@@ -1154,7 +1154,7 @@ func TestFindCandidateIndexes_MixedColumnAndExpression(t *testing.T) {
 	tableDef := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "status", Type: types.TypeText},
 			{Name: "name", Type: types.TypeText},
 		},

@@ -65,7 +65,7 @@ func TestCollectColumnStatistics_Integer(t *testing.T) {
 	}
 
 	cols := []schema.ColumnDef{
-		{Name: "id", Type: types.TypeInt},
+		{Name: "id", Type: types.TypeInt32},
 	}
 
 	stats := CollectColumnStatistics(samples, cols, 6)
@@ -138,7 +138,7 @@ func TestCollectColumnStatistics_MultipleColumns(t *testing.T) {
 	}
 
 	cols := []schema.ColumnDef{
-		{Name: "id", Type: types.TypeInt},
+		{Name: "id", Type: types.TypeInt32},
 		{Name: "name", Type: types.TypeText},
 	}
 
@@ -285,7 +285,7 @@ func TestCollectColumnStatistics_WithHistogram(t *testing.T) {
 	}
 
 	cols := []schema.ColumnDef{
-		{Name: "id", Type: types.TypeInt},
+		{Name: "id", Type: types.TypeInt32},
 	}
 
 	stats := CollectColumnStatisticsWithHistogram(samples, cols, 10, 4)
@@ -494,7 +494,7 @@ func TestCreateTableStatistics(t *testing.T) {
 	}
 
 	cols := []schema.ColumnDef{
-		{Name: "id", Type: types.TypeInt},
+		{Name: "id", Type: types.TypeInt32},
 	}
 
 	tableStats := CreateTableStatistics("users", samples, cols, 100)

@@ -253,8 +253,6 @@ func evaluateExpr(expr parser.Expression, valMap map[string]types.Value, funcReg
 		}
 		if e.Op == lexer.MINUS {
 			switch right.Type() {
-			case types.TypeInt:
-				return types.NewInt(-right.Int()), nil
 			case types.TypeInt32:
 				return types.NewInt32(int32(-right.Int())), nil
 			case types.TypeSmallInt:
@@ -275,7 +273,7 @@ func evaluateExpr(expr parser.Expression, valMap map[string]types.Value, funcReg
 // isIntegerTypeForIndex checks if a type is an integer type (for index arithmetic)
 func isIntegerTypeForIndex(t types.ValueType) bool {
 	switch t {
-	case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return true
 	}
 	return false

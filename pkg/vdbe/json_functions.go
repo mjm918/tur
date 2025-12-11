@@ -111,7 +111,7 @@ func valueToJSON(v types.Value) interface{} {
 	switch v.Type() {
 	case types.TypeNull:
 		return nil
-	case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return v.Int()
 	case types.TypeFloat:
 		return v.Float()

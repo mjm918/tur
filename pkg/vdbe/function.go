@@ -680,7 +680,7 @@ func builtinLength(args []types.Value) types.Value {
 		// For blobs, count bytes
 		return types.NewInt(int64(len(val.Blob())))
 
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		// Convert to string and count characters
 		s := fmt.Sprintf("%d", val.Int())
 		return types.NewInt(int64(len(s)))
@@ -757,7 +757,7 @@ func builtinAbs(args []types.Value) types.Value {
 	}
 
 	switch val.Type() {
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		i := val.Int()
 		if i < 0 {
 			i = -i
@@ -790,7 +790,7 @@ func builtinRound(args []types.Value) types.Value {
 	// Get the value to round
 	var val float64
 	switch args[0].Type() {
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		val = float64(args[0].Int())
 	case types.TypeFloat:
 		val = args[0].Float()
@@ -802,7 +802,7 @@ func builtinRound(args []types.Value) types.Value {
 	decimals := int64(0)
 	if len(args) == 2 {
 		switch args[1].Type() {
-		case types.TypeInt:
+		case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 			decimals = args[1].Int()
 		case types.TypeFloat:
 			decimals = int64(args[1].Float())
@@ -869,7 +869,7 @@ func valueToString(v types.Value) string {
 	switch v.Type() {
 	case types.TypeText:
 		return v.Text()
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return fmt.Sprintf("%d", v.Int())
 	case types.TypeFloat:
 		return fmt.Sprintf("%g", v.Float())
@@ -1316,7 +1316,7 @@ func builtinExp(args []types.Value) types.Value {
 	var x float64
 	
 	switch args[0].Type() {
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		x = float64(args[0].Int())
 	case types.TypeFloat:
 		x = args[0].Float()
@@ -1338,7 +1338,7 @@ func builtinLn(args []types.Value) types.Value {
 	var x float64
 	
 	switch args[0].Type() {
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		x = float64(args[0].Int())
 	case types.TypeFloat:
 		x = args[0].Float()
@@ -1365,7 +1365,7 @@ func builtinLog10(args []types.Value) types.Value {
 	var x float64
 	
 	switch args[0].Type() {
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		x = float64(args[0].Int())
 	case types.TypeFloat:
 		x = args[0].Float()
@@ -1407,7 +1407,7 @@ func builtinLog(args []types.Value) types.Value {
 	
 	// Convert base to float
 	switch args[0].Type() {
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		base = float64(args[0].Int())
 	case types.TypeFloat:
 		base = args[0].Float()
@@ -1417,7 +1417,7 @@ func builtinLog(args []types.Value) types.Value {
 	
 	// Convert value to float
 	switch args[1].Type() {
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		value = float64(args[1].Int())
 	case types.TypeFloat:
 		value = args[1].Float()
@@ -1446,7 +1446,7 @@ func builtinCeil(args []types.Value) types.Value {
 	// Get the value, converting to float64
 	var val float64
 	switch args[0].Type() {
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		val = float64(args[0].Int())
 	case types.TypeFloat:
 		val = args[0].Float()
@@ -1471,7 +1471,7 @@ func builtinFloor(args []types.Value) types.Value {
 	// Get the value, converting to float64
 	var val float64
 	switch args[0].Type() {
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		val = float64(args[0].Int())
 	case types.TypeFloat:
 		val = args[0].Float()
@@ -1505,7 +1505,7 @@ func builtinTrunc(args []types.Value) types.Value {
 	// Get the value to truncate
 	var val float64
 	switch args[0].Type() {
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		val = float64(args[0].Int())
 	case types.TypeFloat:
 		val = args[0].Float()
@@ -1517,7 +1517,7 @@ func builtinTrunc(args []types.Value) types.Value {
 	decimals := int64(0)
 	if len(args) == 2 {
 		switch args[1].Type() {
-		case types.TypeInt:
+		case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 			decimals = args[1].Int()
 		case types.TypeFloat:
 			decimals = int64(args[1].Float())
@@ -1567,7 +1567,7 @@ func builtinFormat(args []types.Value) types.Value {
 	// Get the number to format
 	var number float64
 	switch args[0].Type() {
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		number = float64(args[0].Int())
 	case types.TypeFloat:
 		number = args[0].Float()
@@ -1578,7 +1578,7 @@ func builtinFormat(args []types.Value) types.Value {
 	// Get number of decimal places
 	var decimals int64
 	switch args[1].Type() {
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		decimals = args[1].Int()
 	case types.TypeFloat:
 		decimals = int64(args[1].Float())
@@ -2646,7 +2646,7 @@ func isTruthy(v types.Value) bool {
 	}
 
 	switch v.Type() {
-	case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return v.Int() != 0
 	case types.TypeFloat:
 		return v.Float() != 0.0

@@ -419,7 +419,7 @@ func valueToGo(v types.Value) interface{} {
 	switch v.Type() {
 	case types.TypeNull:
 		return nil
-	case types.TypeInt, types.TypeInt32, types.TypeSmallInt, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+	case types.TypeInt32, types.TypeSmallInt, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return v.Int()
 	case types.TypeFloat:
 		return v.Float()

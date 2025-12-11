@@ -145,7 +145,6 @@ func TestIsStrictIntegerType(t *testing.T) {
 		{types.TypeBigInt, true},
 		{types.TypeSerial, true},
 		{types.TypeBigSerial, true},
-		{types.TypeInt, false},   // Legacy type
 		{types.TypeText, false},
 		{types.TypeFloat, false},
 	}
@@ -168,7 +167,6 @@ func TestIsAutoIncrementType(t *testing.T) {
 		{types.TypeSmallInt, false},
 		{types.TypeInt32, false},
 		{types.TypeBigInt, false},
-		{types.TypeInt, false},
 	}
 
 	for _, tt := range tests {

@@ -89,8 +89,8 @@ func TestBuiltinIf_IntegerTrue(t *testing.T) {
 		types.NewInt(200),
 	})
 
-	if result.Type() != types.TypeInt {
-		t.Fatalf("Expected TypeInt, got %v", result.Type())
+	if result.Type() != types.TypeInt32 {
+		t.Fatalf("Expected TypeInt32, got %v", result.Type())
 	}
 	if result.Int() != 100 {
 		t.Errorf("Expected 100, got %d", result.Int())
@@ -111,8 +111,8 @@ func TestBuiltinIf_IntegerFalse(t *testing.T) {
 		types.NewInt(200),
 	})
 
-	if result.Type() != types.TypeInt {
-		t.Fatalf("Expected TypeInt, got %v", result.Type())
+	if result.Type() != types.TypeInt32 {
+		t.Fatalf("Expected TypeInt32, got %v", result.Type())
 	}
 	if result.Int() != 200 {
 		t.Errorf("Expected 200, got %d", result.Int())
@@ -343,8 +343,8 @@ func TestBuiltinIfNull_ZeroIsNotNull(t *testing.T) {
 		types.NewInt(100),
 	})
 
-	if result.Type() != types.TypeInt {
-		t.Fatalf("Expected TypeInt, got %v", result.Type())
+	if result.Type() != types.TypeInt32 {
+		t.Fatalf("Expected TypeInt32, got %v", result.Type())
 	}
 	if result.Int() != 0 {
 		t.Errorf("Expected 0, got %d", result.Int())
@@ -423,8 +423,8 @@ func TestBuiltinNullIf_DifferentValues(t *testing.T) {
 		types.NewInt(10),
 	})
 
-	if result.Type() != types.TypeInt {
-		t.Fatalf("Expected TypeInt, got %v", result.Type())
+	if result.Type() != types.TypeInt32 {
+		t.Fatalf("Expected TypeInt32, got %v", result.Type())
 	}
 	if result.Int() != 5 {
 		t.Errorf("Expected 5, got %d", result.Int())
@@ -501,8 +501,8 @@ func TestBuiltinNullIf_SecondArgNull(t *testing.T) {
 		types.NewNull(),
 	})
 
-	if result.Type() != types.TypeInt {
-		t.Fatalf("Expected TypeInt, got %v", result.Type())
+	if result.Type() != types.TypeInt32 {
+		t.Fatalf("Expected TypeInt32, got %v", result.Type())
 	}
 	if result.Int() != 5 {
 		t.Errorf("Expected 5, got %d", result.Int())

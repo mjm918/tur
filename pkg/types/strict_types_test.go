@@ -320,11 +320,11 @@ func TestTypeConversions(t *testing.T) {
 	}
 }
 
-// Test that existing TypeInt still works (backwards compatibility)
-func TestLegacyIntTypeStillWorks(t *testing.T) {
+// Test that NewInt creates TypeInt32 values
+func TestNewIntCreatesTypeInt32(t *testing.T) {
 	v := NewInt(12345)
-	if v.Type() != TypeInt {
-		t.Errorf("expected TypeInt, got %v", v.Type())
+	if v.Type() != TypeInt32 {
+		t.Errorf("expected TypeInt32, got %v", v.Type())
 	}
 	if v.Int() != 12345 {
 		t.Errorf("expected 12345, got %d", v.Int())

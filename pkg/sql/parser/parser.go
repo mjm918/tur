@@ -1816,7 +1816,7 @@ func (p *Parser) parsePrefixExpression() (Expression, error) {
 		}
 		// For literals, fold the negative sign
 		if lit, ok := right.(*Literal); ok {
-			if lit.Value.Type() == types.TypeInt {
+			if types.IsIntegerType(lit.Value.Type()) {
 				return &Literal{Value: types.NewInt(-lit.Value.Int())}, nil
 			}
 			if lit.Value.Type() == types.TypeFloat {
@@ -2451,7 +2451,7 @@ func (p *Parser) parseIntLiteral() (*Literal, error) {
 		return nil, fmt.Errorf("invalid integer: %s", p.cur.Literal)
 	}
 	// Use TypeInt32 for consistency with INT column type
-	// For values outside int32 range, still use TypeInt for flexibility
+	// For values outside int32 range, use TypeBigInt
 	if val >= -2147483648 && val <= 2147483647 {
 		return &Literal{Value: types.NewInt32(int32(val))}, nil
 	}

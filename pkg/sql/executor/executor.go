@@ -1019,7 +1019,7 @@ func exprToString(expr parser.Expression) string {
 			return "NULL"
 		}
 		switch e.Value.Type() {
-		case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+		case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 			return fmt.Sprintf("%d", e.Value.Int())
 		case types.TypeFloat:
 			return fmt.Sprintf("%g", e.Value.Float())
@@ -2403,7 +2403,7 @@ func valuesEqual(a, b types.Value) bool {
 	}
 
 	switch a.Type() {
-	case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return a.Int() == b.Int()
 	case types.TypeFloat:
 		return a.Float() == b.Float()
@@ -2428,7 +2428,7 @@ func valuesEqual(a, b types.Value) bool {
 // isNumeric returns true if the value is any numeric type (integer or float)
 func isNumeric(v types.Value) bool {
 	switch v.Type() {
-	case types.TypeInt, types.TypeFloat, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+	case types.TypeFloat, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return true
 	}
 	return false
@@ -2445,7 +2445,7 @@ func isStringLike(v types.Value) bool {
 
 func toFloat(v types.Value) float64 {
 	switch v.Type() {
-	case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return float64(v.Int())
 	case types.TypeFloat:
 		return v.Float()
@@ -2644,16 +2644,16 @@ func (e *Executor) tryFastPathPKLookup(stmt *parser.SelectStmt) (*Result, bool) 
 	}
 
 	// Find primary key column
-	// IMPORTANT: Fast path only works for INT PRIMARY KEY (TypeInt) which is a rowid alias.
-	// For other integer types like INT (TypeInt32), the rowid is separate from the column value,
+	// IMPORTANT: Fast path only works for INT PRIMARY KEY (integer types) which is a rowid alias.
+	// For non-integer types, the rowid is separate from the column value,
 	// so we must fall back to the regular execution path.
 	var pkColName string
 	var pkColIndex int = -1
 	for i, col := range tableDef.Columns {
 		if col.PrimaryKey {
-			// Only use fast path if it's INT PRIMARY KEY (TypeInt), not INT (TypeInt32)
-			if col.Type != types.TypeInt {
-				return nil, false // Fall back to regular path for non-INT PRIMARY KEY
+			// Only use fast path if it's an integer PRIMARY KEY type
+			if !types.IsIntegerType(col.Type) {
+				return nil, false // Fall back to regular path for non-integer PRIMARY KEY
 			}
 			pkColName = col.Name
 			pkColIndex = i
@@ -2710,7 +2710,7 @@ func (e *Executor) tryFastPathPKLookup(stmt *parser.SelectStmt) (*Result, bool) 
 	// Key format: 8-byte big-endian rowid (which is the PK value for INT PRIMARY KEY)
 	var key []byte
 	switch lookupValue.Type() {
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		key = make([]byte, 8)
 		binary.BigEndian.PutUint64(key, uint64(lookupValue.Int()))
 	default:
@@ -3331,7 +3331,7 @@ func (e *Executor) evaluateLiteralExpr(expr parser.Expression) (int64, error) {
 	switch ex := expr.(type) {
 	case *parser.Literal:
 		switch ex.Value.Type() {
-		case types.TypeInt, types.TypeInt32, types.TypeSmallInt, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+		case types.TypeInt32, types.TypeSmallInt, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 			return ex.Value.Int(), nil
 		case types.TypeFloat:
 			return int64(ex.Value.Float()), nil
@@ -3415,8 +3415,6 @@ func (e *Executor) evaluateExpr(expr parser.Expression, rowValues []types.Value,
 		}
 		if ex.Op == lexer.MINUS {
 			switch right.Type() {
-			case types.TypeInt:
-				return types.NewInt(-right.Int()), nil
 			case types.TypeInt32:
 				return types.NewInt32(int32(-right.Int())), nil
 			case types.TypeSmallInt:
@@ -3911,7 +3909,7 @@ func (e *Executor) divideValues(left, right types.Value) (types.Value, error) {
 
 func (e *Executor) toFloat(v types.Value) float64 {
 	switch v.Type() {
-	case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return float64(v.Int())
 	case types.TypeFloat:
 		return v.Float()
@@ -3923,7 +3921,7 @@ func (e *Executor) toFloat(v types.Value) float64 {
 // isIntegerType returns true if the type is any integer type (legacy or strict)
 func isIntegerType(t types.ValueType) bool {
 	switch t {
-	case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return true
 	}
 	return false
@@ -3954,7 +3952,7 @@ func (e *Executor) compareValues(left, right types.Value) int {
 	// Same type comparisons
 	if left.Type() == right.Type() {
 		switch left.Type() {
-		case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+		case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 			l, r := left.Int(), right.Int()
 			if l < r {
 				return -1
@@ -5142,7 +5140,7 @@ func (e *Executor) validateAndConvertStrictType(val types.Value, colDef schema.C
 		// SMALLINT: 2-byte signed integer (-32768 to 32767)
 		var intVal int64
 		switch val.Type() {
-		case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt:
+		case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt:
 			intVal = val.Int()
 		case types.TypeFloat:
 			intVal = int64(val.Float())
@@ -5158,7 +5156,7 @@ func (e *Executor) validateAndConvertStrictType(val types.Value, colDef schema.C
 		// INT: 4-byte signed integer (-2147483648 to 2147483647)
 		var intVal int64
 		switch val.Type() {
-		case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt:
+		case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt:
 			intVal = val.Int()
 		case types.TypeFloat:
 			intVal = int64(val.Float())
@@ -5174,7 +5172,7 @@ func (e *Executor) validateAndConvertStrictType(val types.Value, colDef schema.C
 		// SERIAL: Auto-incrementing 4-byte integer (validated as INT)
 		var intVal int64
 		switch val.Type() {
-		case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial:
+		case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial:
 			intVal = val.Int()
 		default:
 			return val, nil
@@ -5188,7 +5186,7 @@ func (e *Executor) validateAndConvertStrictType(val types.Value, colDef schema.C
 		// BIGSERIAL: Auto-incrementing 8-byte integer
 		var intVal int64
 		switch val.Type() {
-		case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeBigSerial:
+		case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeBigSerial:
 			intVal = val.Int()
 		default:
 			return val, nil
@@ -5227,7 +5225,7 @@ func (e *Executor) validateAndConvertStrictType(val types.Value, colDef schema.C
 		switch val.Type() {
 		case types.TypeText:
 			strVal = val.Text()
-		case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt:
+		case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt:
 			strVal = fmt.Sprintf("%d", val.Int())
 		case types.TypeFloat:
 			strVal = fmt.Sprintf("%f", val.Float())
@@ -5487,7 +5485,7 @@ func (e *Executor) isTruthy(v types.Value) bool {
 		return false
 	}
 	switch v.Type() {
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return v.Int() != 0
 	case types.TypeFloat:
 		return v.Float() != 0
@@ -5934,8 +5932,6 @@ func (e *Executor) evaluateExprWithLocals(expr parser.Expression, row []types.Va
 		}
 		if ex.Op == lexer.MINUS {
 			switch right.Type() {
-			case types.TypeInt:
-				return types.NewInt(-right.Int()), nil
 			case types.TypeInt32:
 				return types.NewInt32(int32(-right.Int())), nil
 			case types.TypeSmallInt:

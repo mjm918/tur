@@ -309,8 +309,8 @@ func TestRows_ColumnValue(t *testing.T) {
 	r.Next()
 
 	val := r.ColumnValue(0)
-	if val.Type() != types.TypeInt || val.Int() != 42 {
-		t.Errorf("expected Int(42), got %v", val)
+	if val.Type() != types.TypeInt32 || val.Int() != 42 {
+		t.Errorf("expected Int32(42), got %v", val)
 	}
 
 	val = r.ColumnValue(1)

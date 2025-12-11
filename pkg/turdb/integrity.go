@@ -431,7 +431,7 @@ func valueToString(v types.Value) string {
 	switch v.Type() {
 	case types.TypeNull:
 		return "NULL"
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return fmt.Sprintf("%d", v.Int())
 	case types.TypeFloat:
 		return fmt.Sprintf("%f", v.Float())

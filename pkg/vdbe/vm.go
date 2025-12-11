@@ -489,7 +489,7 @@ func (vm *VM) compare(a, b types.Value) int {
 	// Same type comparisons
 	if a.Type() == b.Type() {
 		switch a.Type() {
-		case types.TypeInt:
+		case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 			ai, bi := a.Int(), b.Int()
 			if ai < bi {
 				return -1
@@ -520,8 +520,8 @@ func (vm *VM) compare(a, b types.Value) int {
 	}
 
 	// Mixed numeric types
-	if (a.Type() == types.TypeInt || a.Type() == types.TypeFloat) &&
-		(b.Type() == types.TypeInt || b.Type() == types.TypeFloat) {
+	if (types.IsIntegerType(a.Type()) || a.Type() == types.TypeFloat) &&
+		(types.IsIntegerType(b.Type()) || b.Type() == types.TypeFloat) {
 		af := vm.toFloat(a)
 		bf := vm.toFloat(b)
 		if af < bf {
@@ -543,7 +543,7 @@ func (vm *VM) compare(a, b types.Value) int {
 // toFloat converts a value to float64
 func (vm *VM) toFloat(v types.Value) float64 {
 	switch v.Type() {
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return float64(v.Int())
 	case types.TypeFloat:
 		return v.Float()
@@ -558,7 +558,7 @@ func (vm *VM) isTruthy(v types.Value) bool {
 		return false
 	}
 	switch v.Type() {
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return v.Int() != 0
 	case types.TypeFloat:
 		return v.Float() != 0

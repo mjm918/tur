@@ -135,8 +135,8 @@ func TestEncodeDecode_Int(t *testing.T) {
 		if len(decoded) != 1 {
 			t.Fatalf("Decode(%d): got %d values, want 1", i, len(decoded))
 		}
-		if decoded[0].Type() != types.TypeInt {
-			t.Errorf("Decode(%d): got type %v, want TypeInt", i, decoded[0].Type())
+		if decoded[0].Type() != types.TypeInt32 {
+			t.Errorf("Decode(%d): got type %v, want TypeInt32", i, decoded[0].Type())
 		}
 		if decoded[0].Int() != i {
 			t.Errorf("Decode(%d): got %d", i, decoded[0].Int())

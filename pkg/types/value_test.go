@@ -18,8 +18,8 @@ func TestValueNull(t *testing.T) {
 
 func TestValueInt(t *testing.T) {
 	v := NewInt(42)
-	if v.Type() != TypeInt {
-		t.Errorf("expected TypeInt, got %v", v.Type())
+	if v.Type() != TypeInt32 {
+		t.Errorf("expected TypeInt32, got %v", v.Type())
 	}
 	if v.Int() != 42 {
 		t.Errorf("expected 42, got %d", v.Int())

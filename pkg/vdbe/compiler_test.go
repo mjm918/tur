@@ -43,7 +43,7 @@ func TestCompilerSelectSimple(t *testing.T) {
 	table := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "name", Type: types.TypeText},
 		},
 		RootPage: bt.RootPage(),
@@ -114,7 +114,7 @@ func TestCompilerSelectWhere(t *testing.T) {
 	table := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "name", Type: types.TypeText},
 		},
 		RootPage: bt.RootPage(),
@@ -173,7 +173,7 @@ func TestCompilerSelectStar(t *testing.T) {
 	table := &schema.TableDef{
 		Name: "test",
 		Columns: []schema.ColumnDef{
-			{Name: "a", Type: types.TypeInt},
+			{Name: "a", Type: types.TypeInt32},
 			{Name: "b", Type: types.TypeText},
 			{Name: "c", Type: types.TypeFloat},
 		},
@@ -233,7 +233,7 @@ func TestCompilerInsert(t *testing.T) {
 	table := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt, PrimaryKey: true},
+			{Name: "id", Type: types.TypeInt32, PrimaryKey: true},
 			{Name: "name", Type: types.TypeText},
 		},
 		RootPage: bt.RootPage(),

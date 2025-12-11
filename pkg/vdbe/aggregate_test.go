@@ -35,7 +35,7 @@ func TestCountAggregate_CountsNonNullValues(t *testing.T) {
 	// Finalize should return count of non-null values
 	result := count.Finalize()
 
-	if result.Type() != types.TypeInt {
+	if result.Type() != types.TypeInt32 {
 		t.Errorf("expected integer result, got %v", result.Type())
 	}
 	if result.Int() != 3 {
@@ -84,7 +84,7 @@ func TestSumAggregate_SumsIntegers(t *testing.T) {
 
 	result := sum.Finalize()
 
-	if result.Type() != types.TypeInt {
+	if result.Type() != types.TypeInt32 {
 		t.Errorf("expected integer result, got %v", result.Type())
 	}
 	if result.Int() != 60 {
@@ -236,7 +236,7 @@ func TestMinAggregate_FindsMinInteger(t *testing.T) {
 
 	result := min.Finalize()
 
-	if result.Type() != types.TypeInt {
+	if result.Type() != types.TypeInt32 {
 		t.Errorf("expected integer result, got %v", result.Type())
 	}
 	if result.Int() != 10 {
@@ -316,7 +316,7 @@ func TestMaxAggregate_FindsMaxInteger(t *testing.T) {
 
 	result := max.Finalize()
 
-	if result.Type() != types.TypeInt {
+	if result.Type() != types.TypeInt32 {
 		t.Errorf("expected integer result, got %v", result.Type())
 	}
 	if result.Int() != 30 {
@@ -492,7 +492,7 @@ func TestVM_OpAggFinal(t *testing.T) {
 
 	// Register 2 should have count of 3
 	result := vm.Register(2)
-	if result.Type() != types.TypeInt {
+	if result.Type() != types.TypeInt32 {
 		t.Errorf("expected integer result, got %v", result.Type())
 	}
 	if result.Int() != 3 {

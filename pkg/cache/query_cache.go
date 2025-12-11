@@ -99,7 +99,7 @@ func GenerateCacheKey(sql string, params []types.Value) string {
 		switch param.Type() {
 		case types.TypeNull:
 			// Nothing to write
-		case types.TypeInt:
+		case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 			buf := make([]byte, 8)
 			binary.LittleEndian.PutUint64(buf, uint64(param.Int()))
 			h.Write(buf)
@@ -334,7 +334,7 @@ func (qc *QueryCache) estimateSize(columns []string, rows [][]types.Value) int64
 			switch val.Type() {
 			case types.TypeNull:
 				size += 8 // Type info
-			case types.TypeInt:
+			case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 				size += 16 // Type + int64
 			case types.TypeFloat:
 				size += 16 // Type + float64

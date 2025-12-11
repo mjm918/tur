@@ -13,9 +13,9 @@ func TestCostEstimator_TableScanCost(t *testing.T) {
 	table := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "name", Type: types.TypeText},
-			{Name: "age", Type: types.TypeInt},
+			{Name: "age", Type: types.TypeInt32},
 		},
 		RootPage: 1,
 	}
@@ -43,7 +43,7 @@ func TestCostEstimator_TableScanCost_Empty(t *testing.T) {
 	table := &schema.TableDef{
 		Name: "users",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 		},
 		RootPage: 1,
 	}
@@ -66,7 +66,7 @@ func TestCostEstimator_TableScanCost_Large(t *testing.T) {
 	table := &schema.TableDef{
 		Name: "large_table",
 		Columns: []schema.ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "data", Type: types.TypeBlob},
 		},
 		RootPage: 1,

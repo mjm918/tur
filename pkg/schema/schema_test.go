@@ -9,7 +9,7 @@ import (
 func TestColumnDef_Basic(t *testing.T) {
 	col := ColumnDef{
 		Name:       "id",
-		Type:       types.TypeInt,
+		Type:       types.TypeInt32,
 		PrimaryKey: true,
 		NotNull:    true,
 	}
@@ -17,8 +17,8 @@ func TestColumnDef_Basic(t *testing.T) {
 	if col.Name != "id" {
 		t.Errorf("Name: got %q, want 'id'", col.Name)
 	}
-	if col.Type != types.TypeInt {
-		t.Errorf("Type: got %v, want TypeInt", col.Type)
+	if col.Type != types.TypeInt32 {
+		t.Errorf("Type: got %v, want TypeInt32", col.Type)
 	}
 	if !col.PrimaryKey {
 		t.Error("PrimaryKey: expected true")
@@ -32,7 +32,7 @@ func TestTableDef_Basic(t *testing.T) {
 	table := TableDef{
 		Name: "users",
 		Columns: []ColumnDef{
-			{Name: "id", Type: types.TypeInt, PrimaryKey: true, NotNull: true},
+			{Name: "id", Type: types.TypeInt32, PrimaryKey: true, NotNull: true},
 			{Name: "name", Type: types.TypeText, NotNull: true},
 			{Name: "email", Type: types.TypeText},
 		},
@@ -54,7 +54,7 @@ func TestTableDef_GetColumn(t *testing.T) {
 	table := TableDef{
 		Name: "users",
 		Columns: []ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "name", Type: types.TypeText},
 		},
 	}
@@ -79,7 +79,7 @@ func TestTableDef_PrimaryKeyColumn(t *testing.T) {
 	table := TableDef{
 		Name: "users",
 		Columns: []ColumnDef{
-			{Name: "id", Type: types.TypeInt, PrimaryKey: true},
+			{Name: "id", Type: types.TypeInt32, PrimaryKey: true},
 			{Name: "name", Type: types.TypeText},
 		},
 	}
@@ -109,7 +109,7 @@ func TestCatalog_CreateTable(t *testing.T) {
 	table := &TableDef{
 		Name: "users",
 		Columns: []ColumnDef{
-			{Name: "id", Type: types.TypeInt, PrimaryKey: true},
+			{Name: "id", Type: types.TypeInt32, PrimaryKey: true},
 		},
 		RootPage: 2,
 	}
@@ -315,7 +315,7 @@ func TestColumnDef_Constraints(t *testing.T) {
 func TestColumnDef_HasConstraint(t *testing.T) {
 	col := ColumnDef{
 		Name: "id",
-		Type: types.TypeInt,
+		Type: types.TypeInt32,
 		Constraints: []Constraint{
 			{Type: ConstraintPrimaryKey},
 			{Type: ConstraintNotNull},
@@ -339,7 +339,7 @@ func TestColumnDef_HasConstraint(t *testing.T) {
 func TestColumnDef_GetConstraint(t *testing.T) {
 	col := ColumnDef{
 		Name: "user_id",
-		Type: types.TypeInt,
+		Type: types.TypeInt32,
 		Constraints: []Constraint{
 			{Type: ConstraintNotNull},
 			{Type: ConstraintForeignKey, Name: "fk_user", RefTable: "users", RefColumn: "id"},
@@ -367,9 +367,9 @@ func TestTableDef_TableConstraints(t *testing.T) {
 	table := TableDef{
 		Name: "order_items",
 		Columns: []ColumnDef{
-			{Name: "order_id", Type: types.TypeInt},
-			{Name: "product_id", Type: types.TypeInt},
-			{Name: "quantity", Type: types.TypeInt},
+			{Name: "order_id", Type: types.TypeInt32},
+			{Name: "product_id", Type: types.TypeInt32},
+			{Name: "quantity", Type: types.TypeInt32},
 		},
 		TableConstraints: []TableConstraint{
 			{
@@ -407,7 +407,7 @@ func TestTableDef_GetTableConstraint(t *testing.T) {
 	table := TableDef{
 		Name: "users",
 		Columns: []ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 		},
 		TableConstraints: []TableConstraint{
 			{Type: ConstraintPrimaryKey, Name: "pk_users", Columns: []string{"id"}},
@@ -507,7 +507,7 @@ func TestCatalog_CreateIndex(t *testing.T) {
 	table := &TableDef{
 		Name: "users",
 		Columns: []ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "email", Type: types.TypeText},
 		},
 		RootPage: 2,
@@ -807,12 +807,12 @@ func TestCatalog_GetIndexesForTable(t *testing.T) {
 	catalog := NewCatalog()
 
 	catalog.CreateTable(&TableDef{Name: "users", Columns: []ColumnDef{
-		{Name: "id", Type: types.TypeInt},
+		{Name: "id", Type: types.TypeInt32},
 		{Name: "email", Type: types.TypeText},
 		{Name: "name", Type: types.TypeText},
 	}})
 	catalog.CreateTable(&TableDef{Name: "orders", Columns: []ColumnDef{
-		{Name: "id", Type: types.TypeInt},
+		{Name: "id", Type: types.TypeInt32},
 	}})
 
 	catalog.CreateIndex(&IndexDef{Name: "idx_users_email", TableName: "users", Columns: []string{"email"}})
@@ -847,7 +847,7 @@ func TestCatalog_GetIndexByColumn(t *testing.T) {
 	catalog := NewCatalog()
 
 	catalog.CreateTable(&TableDef{Name: "users", Columns: []ColumnDef{
-		{Name: "id", Type: types.TypeInt},
+		{Name: "id", Type: types.TypeInt32},
 		{Name: "email", Type: types.TypeText},
 	}})
 
@@ -879,7 +879,7 @@ func TestCatalog_GetIndexByColumn_MultiColumn(t *testing.T) {
 	catalog := NewCatalog()
 
 	catalog.CreateTable(&TableDef{Name: "orders", Columns: []ColumnDef{
-		{Name: "customer_id", Type: types.TypeInt},
+		{Name: "customer_id", Type: types.TypeInt32},
 		{Name: "order_date", Type: types.TypeText},
 	}})
 
@@ -910,7 +910,7 @@ func TestCatalog_AddColumn(t *testing.T) {
 	catalog.CreateTable(&TableDef{
 		Name: "users",
 		Columns: []ColumnDef{
-			{Name: "id", Type: types.TypeInt, PrimaryKey: true},
+			{Name: "id", Type: types.TypeInt32, PrimaryKey: true},
 			{Name: "name", Type: types.TypeText},
 		},
 	})
@@ -957,7 +957,7 @@ func TestCatalog_AddColumn_DuplicateColumn(t *testing.T) {
 	catalog.CreateTable(&TableDef{
 		Name: "users",
 		Columns: []ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "name", Type: types.TypeText},
 		},
 	})
@@ -977,7 +977,7 @@ func TestCatalog_DropColumn(t *testing.T) {
 	catalog.CreateTable(&TableDef{
 		Name: "users",
 		Columns: []ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "name", Type: types.TypeText},
 			{Name: "email", Type: types.TypeText},
 		},
@@ -1017,7 +1017,7 @@ func TestCatalog_DropColumn_ColumnNotFound(t *testing.T) {
 	catalog.CreateTable(&TableDef{
 		Name: "users",
 		Columns: []ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 		},
 	})
 
@@ -1035,7 +1035,7 @@ func TestCatalog_RenameTable(t *testing.T) {
 	catalog.CreateTable(&TableDef{
 		Name: "users",
 		Columns: []ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 		},
 	})
 
@@ -1075,11 +1075,11 @@ func TestCatalog_RenameTable_TargetExists(t *testing.T) {
 	catalog := NewCatalog()
 	catalog.CreateTable(&TableDef{
 		Name: "users",
-		Columns: []ColumnDef{{Name: "id", Type: types.TypeInt}},
+		Columns: []ColumnDef{{Name: "id", Type: types.TypeInt32}},
 	})
 	catalog.CreateTable(&TableDef{
 		Name: "customers",
-		Columns: []ColumnDef{{Name: "id", Type: types.TypeInt}},
+		Columns: []ColumnDef{{Name: "id", Type: types.TypeInt32}},
 	})
 
 	err := catalog.RenameTable("users", "customers")
@@ -1244,9 +1244,9 @@ func TestCatalog_CreatePartialIndex(t *testing.T) {
 	table := &TableDef{
 		Name: "users",
 		Columns: []ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "email", Type: types.TypeText},
-			{Name: "active", Type: types.TypeInt},
+			{Name: "active", Type: types.TypeInt32},
 		},
 	}
 	_ = catalog.CreateTable(table)

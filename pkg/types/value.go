@@ -15,7 +15,6 @@ type ValueType int
 
 const (
 	TypeNull ValueType = iota
-	TypeInt
 	TypeFloat
 	TypeText
 	TypeBlob
@@ -43,7 +42,7 @@ const (
 // IsIntegerType returns true if the type is any integer type
 func IsIntegerType(t ValueType) bool {
 	switch t {
-	case TypeInt, TypeInt32, TypeSmallInt, TypeBigInt, TypeSerial, TypeBigSerial:
+	case TypeInt32, TypeSmallInt, TypeBigInt, TypeSerial, TypeBigSerial:
 		return true
 	default:
 		return false
@@ -77,7 +76,7 @@ func NewNull() Value {
 }
 
 func NewInt(i int64) Value {
-	return Value{typ: TypeInt, intVal: i}
+	return Value{typ: TypeInt32, intVal: i}
 }
 
 func NewFloat(f float64) Value {
@@ -225,8 +224,6 @@ func (t ValueType) String() string {
 	switch t {
 	case TypeNull:
 		return "NULL"
-	case TypeInt:
-		return "INTEGER"
 	case TypeFloat:
 		return "REAL"
 	case TypeText:
@@ -273,10 +270,10 @@ func (t ValueType) String() string {
 	}
 }
 
-// isIntegerType returns true if the type is any integer type (legacy or strict)
+// isIntegerType returns true if the type is any integer type
 func isIntegerType(t ValueType) bool {
 	switch t {
-	case TypeInt, TypeSmallInt, TypeInt32, TypeBigInt, TypeSerial, TypeBigSerial:
+	case TypeSmallInt, TypeInt32, TypeBigInt, TypeSerial, TypeBigSerial:
 		return true
 	}
 	return false
@@ -363,14 +360,6 @@ func Compare(a, b Value) int {
 
 	// Same type - compare values
 	switch a.typ {
-	case TypeInt:
-		if a.intVal < b.intVal {
-			return -1
-		} else if a.intVal > b.intVal {
-			return 1
-		}
-		return 0
-
 	case TypeFloat:
 		if a.floatVal < b.floatVal {
 			return -1

@@ -80,7 +80,7 @@ func TestScalarFunction_Call(t *testing.T) {
 	args := []types.Value{types.NewInt(5), types.NewInt(3)}
 	result := addFunc.Call(args)
 
-	if result.Type() != types.TypeInt {
+	if result.Type() != types.TypeInt32 {
 		t.Fatalf("expected int result, got %v", result.Type())
 	}
 	if result.Int() != 8 {
@@ -230,7 +230,7 @@ func TestLength_String(t *testing.T) {
 		args := []types.Value{types.NewText(tc.input)}
 		result := length.Call(args)
 
-		if result.Type() != types.TypeInt {
+		if result.Type() != types.TypeInt32 {
 			t.Errorf("LENGTH(%q): expected int, got %v", tc.input, result.Type())
 			continue
 		}
@@ -258,7 +258,7 @@ func TestLength_Blob(t *testing.T) {
 		args := []types.Value{types.NewBlob(tc.input)}
 		result := length.Call(args)
 
-		if result.Type() != types.TypeInt {
+		if result.Type() != types.TypeInt32 {
 			t.Errorf("LENGTH(blob): expected int, got %v", result.Type())
 			continue
 		}
@@ -298,7 +298,7 @@ func TestLength_Numeric(t *testing.T) {
 		args := []types.Value{tc.input}
 		result := length.Call(args)
 
-		if result.Type() != types.TypeInt {
+		if result.Type() != types.TypeInt32 {
 			t.Errorf("LENGTH(number): expected int, got %v", result.Type())
 			continue
 		}
@@ -439,7 +439,7 @@ func TestCoalesce(t *testing.T) {
 				continue
 			}
 			switch result.Type() {
-			case types.TypeInt:
+			case types.TypeInt32:
 				if result.Int() != tc.expect.Int() {
 					t.Errorf("test %d: expected %d, got %d", i, tc.expect.Int(), result.Int())
 				}
@@ -489,7 +489,7 @@ func TestAbs_Integer(t *testing.T) {
 		args := []types.Value{types.NewInt(tc.input)}
 		result := abs.Call(args)
 
-		if result.Type() != types.TypeInt {
+		if result.Type() != types.TypeInt32 {
 			t.Errorf("ABS(%d): expected int, got %v", tc.input, result.Type())
 			continue
 		}

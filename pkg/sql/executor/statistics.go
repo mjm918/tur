@@ -264,7 +264,7 @@ func CollectColumnStatisticsWithHistogram(samples [][]types.Value, cols []schema
 // valueToString converts a value to a string for distinct counting
 func valueToString(val types.Value) string {
 	switch val.Type() {
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return string(rune(val.Int())) // Simple encoding for ints
 	case types.TypeFloat:
 		return string(rune(int64(val.Float() * 1000000))) // Approximate
@@ -285,7 +285,7 @@ func compareValues(a, b types.Value) int {
 	}
 
 	switch a.Type() {
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		if a.Int() < b.Int() {
 			return -1
 		} else if a.Int() > b.Int() {

@@ -46,8 +46,6 @@ func SerialTypeFor(v types.Value) uint64 {
 	switch v.Type() {
 	case types.TypeNull:
 		return SerialTypeNull
-	case types.TypeInt:
-		return serialTypeForInt(v.Int())
 	case types.TypeFloat:
 		return SerialTypeFloat
 	case types.TypeText:

@@ -79,11 +79,8 @@ func TestINT_MapsTo_TypeInt32(t *testing.T) {
 		t.Fatal("Table not found")
 	}
 
-	// Both columns should be TypeInt32, not TypeInt
+	// Both columns should be TypeInt32
 	for _, col := range table.Columns {
-		if col.Type == types.TypeInt {
-			t.Errorf("Column %s has TypeInt (legacy), should have TypeInt32", col.Name)
-		}
 		if col.Type != types.TypeInt32 {
 			t.Errorf("Column %s has type %v, expected TypeInt32", col.Name, col.Type)
 		}

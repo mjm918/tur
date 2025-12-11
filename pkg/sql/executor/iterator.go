@@ -557,7 +557,7 @@ func valueToHashKey(v types.Value) string {
 		return "NULL"
 	}
 	switch v.Type() {
-	case types.TypeInt:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return fmt.Sprintf("I:%d", v.Int())
 	case types.TypeFloat:
 		return fmt.Sprintf("F:%f", v.Float())
@@ -667,7 +667,7 @@ func (it *SortIterator) compare(a, b []types.Value) int {
 // isIntegerTypeForSort returns true if the type is any integer type
 func isIntegerTypeForSort(t types.ValueType) bool {
 	switch t {
-	case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+	case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return true
 	}
 	return false
@@ -989,7 +989,7 @@ func (it *HashGroupByIterator) computeSingleAggregate(agg optimizer.AggregateExp
 			}
 			hasValue = true
 			switch val.Type() {
-			case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+			case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 				sum += float64(val.Int())
 			case types.TypeFloat:
 				sum += val.Float()
@@ -1013,7 +1013,7 @@ func (it *HashGroupByIterator) computeSingleAggregate(agg optimizer.AggregateExp
 			}
 			count++
 			switch val.Type() {
-			case types.TypeInt, types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+			case types.TypeSmallInt, types.TypeInt32, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 				sum += float64(val.Int())
 			case types.TypeFloat:
 				sum += val.Float()

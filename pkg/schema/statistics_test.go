@@ -155,7 +155,7 @@ func TestCatalog_GetTableStatistics(t *testing.T) {
 	table := &TableDef{
 		Name: "products",
 		Columns: []ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 			{Name: "name", Type: types.TypeText},
 		},
 	}
@@ -221,7 +221,7 @@ func TestCatalog_DropTableClearsStatistics(t *testing.T) {
 	table := &TableDef{
 		Name: "temp_table",
 		Columns: []ColumnDef{
-			{Name: "id", Type: types.TypeInt},
+			{Name: "id", Type: types.TypeInt32},
 		},
 	}
 	_ = catalog.CreateTable(table)

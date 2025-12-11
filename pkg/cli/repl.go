@@ -377,8 +377,16 @@ func valueTypeString(vt types.ValueType) string {
 	switch vt {
 	case types.TypeNull:
 		return "NULL"
-	case types.TypeInt:
-		return "INTEGER"
+	case types.TypeSmallInt:
+		return "SMALLINT"
+	case types.TypeInt32:
+		return "INT"
+	case types.TypeBigInt:
+		return "BIGINT"
+	case types.TypeSerial:
+		return "SERIAL"
+	case types.TypeBigSerial:
+		return "BIGSERIAL"
 	case types.TypeFloat:
 		return "REAL"
 	case types.TypeText:

@@ -133,7 +133,7 @@ func scanValue(src types.Value, dest interface{}) error {
 	elem := rv.Elem()
 
 	switch src.Type() {
-	case types.TypeInt, types.TypeInt32, types.TypeSmallInt, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
+	case types.TypeInt32, types.TypeSmallInt, types.TypeBigInt, types.TypeSerial, types.TypeBigSerial:
 		return scanInt(src.Int(), elem)
 	case types.TypeFloat:
 		return scanFloat(src.Float(), elem)
@@ -243,7 +243,7 @@ func (r *Rows) ColumnInt(i int) (int64, bool) {
 		return 0, false
 	}
 
-	if val.Type() != types.TypeInt {
+	if !types.IsIntegerType(val.Type()) {
 		return 0, false
 	}
 
